@@ -3,6 +3,8 @@ import { PiCoordinatorAdapter } from './pi-coordinator-adapter.js';
 import { resolvePiInstancePaths } from './pi-instance-paths.js';
 import { PiModelAccessBackend } from './pi-model-access-backend.js';
 import { PiModelSettingsCatalogFactory } from './pi-model-settings-catalog.js';
+import { createMcpCredentialVault } from './pi-mcp-credentials.js';
+import { mcpWireFactory } from './mcp-wire-factory.js';
 import { PI_HARNESS } from './pi-session-factory.js';
 
 /**
@@ -26,6 +28,8 @@ export const createPiHarness: HarnessFactory = (context) => {
     }),
     modelSettingsCatalog: new PiModelSettingsCatalogFactory({ candidateRoot: paths.modelCandidateDir, authPath: piPaths.authPath }),
     modelAccess: new PiModelAccessBackend({ authPath: piPaths.authPath, temporaryRoot: paths.modelCandidateDir }),
+    createMcpCredentialVault: () => createMcpCredentialVault(context.paths.mcpCredentialPath, context.instance.instanceId),
+    createMcpWires: mcpWireFactory,
     recordsUsage: true,
   };
 };

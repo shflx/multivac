@@ -1,4 +1,9 @@
 import type { CoordinatorHarnessId } from '@multivac/contracts';
+import type { McpAccountService } from '../../application/mcp-account-service.js';
+import type { McpExecutionHost } from '../../application/mcp-execution-service.js';
+import type { McpWireFactory } from '../../modules/mcp/connections.js';
+import type { McpCredentialVault } from '../../modules/mcp/credentials.js';
+import type { McpRepository } from '../../modules/mcp/mcp.js';
 import type { ExecutionDiagnostics } from '../../application/execution-diagnostics.js';
 import type { ModelAccessBackend } from '../../modules/model-settings/model-access.js';
 import type { ModelSettingsCatalogFactory, StoredModelSettingsState } from '../../modules/model-settings/model-settings.js';
@@ -19,6 +24,10 @@ export interface HarnessRuntime {
   readonly adapter: CoordinatorAdapter;
   readonly modelSettingsCatalog: ModelSettingsCatalogFactory;
   readonly modelAccess: ModelAccessBackend;
+  /** MCP 的私有凭据与受控传输由执行器工厂提供，应用装配不引用具体实现。 */
+  readonly createMcpCredentialVault: () => Promise<McpCredentialVault>;
+  readonly createMcpWires: (host: McpExecutionHost, accounts: Pick<McpAccountService, 'credentials' | 'assertCurrent'>,
+    protectedPaths: readonly string[], repository: McpRepository) => McpWireFactory;
   /** 是否发起真实模型调用（据此记录用量）；夹具为 false。 */
   readonly recordsUsage: boolean;
   /** 模型设置文件尚不存在时的初始内容；缺省时使用空设置。 */

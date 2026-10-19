@@ -6,8 +6,6 @@ import { McpAccountService } from '../application/mcp-account-service.js';
 import { McpManagementService } from '../application/mcp-management-service.js';
 import { McpConnections } from '../modules/mcp/connections.js';
 import { McpError } from '../modules/mcp/mcp.js';
-import { createMcpCredentialVault } from '../runtime/executors/pi-mcp-credentials.js';
-import { mcpWireFactory } from '../runtime/executors/mcp-wire-factory.js';
 import { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { NoteAssistantService } from '../application/note-assistant-service.js';
 import { NotesError } from '../modules/notes/note.js';
@@ -900,8 +898,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   artifacts.recover();
   taskScheduler.start();
   // MCP 复用公共内部工具与任务执行租约；宿主事实不从页面、模型或工具注解取得。
-  let vaultPromise: ReturnType<typeof createMcpCredentialVault> | undefined;
-  const vault = () => vaultPromise ??= createMcpCredentialVault(paths.mcpCredentialPath, instance.instanceId);
+  let vaultPromise: ReturnType<typeof harness.createMcpCredentialVault> | undefined;
+  const vault = () => vaultPromise ??= harness.createMcpCredentialVault();
   const mcpAccounts = new McpAccountService(store.mcp, {
     instanceId: instance.instanceId, read: async ref => (await vault()).read(ref), modify: async (ref, operation) => (await vault()).modify(ref, operation),
   }, {
@@ -950,7 +948,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return text => { for (const secret of secrets) text = text.replaceAll(secret, '[凭据已隐藏]'); return text; };
     },
   };
-  const mcpConnections = new McpConnections(store.mcp, mcpWireFactory(mcpHost, mcpAccounts, taskProtectedPaths, store.mcp));
+  const mcpConnections = new McpConnections(store.mcp, harness.createMcpWires(mcpHost, mcpAccounts, taskProtectedPaths, store.mcp));
   const mcp = new McpExecutionService(store.mcp, mcpConnections, mcpHost, id => workbenchEvents.publish({ type: 'inbox.changed', id: `mcp:${id}`, origin: { windowId: null, commandId: null } }));
   mcp.recover();
   const mcpResources = new McpResourceService(store.mcp, mcpConnections, mcpHost);

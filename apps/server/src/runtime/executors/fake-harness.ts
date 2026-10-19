@@ -4,6 +4,8 @@ import { FakeCoordinatorAdapter } from './fake-coordinator-adapter.js';
 import { FakeModelAccessBackend } from './fake-model-access-backend.js';
 import { FakeModelSettingsCatalogFactory } from './fake-model-settings-catalog.js';
 import type { HarnessFactory, HarnessRuntime } from './harness.js';
+import { createMcpCredentialVault } from './pi-mcp-credentials.js';
+import { mcpWireFactory } from './mcp-wire-factory.js';
 
 /** Fake 执行器额外提供给 E2E 控制面的对象：按脚本回复的适配器、可拨动的模型访问后端与夹具状态。 */
 export interface FakeHarnessRuntime extends HarnessRuntime {
@@ -104,6 +106,8 @@ export const createFakeHarness: HarnessFactory<FakeHarnessRuntime> = (context) =
     adapter,
     modelSettingsCatalog: new FakeModelSettingsCatalogFactory((provider) => accessBackend.authenticated(provider)),
     modelAccess: accessBackend,
+    createMcpCredentialVault: () => createMcpCredentialVault(context.paths.mcpCredentialPath, context.instance.instanceId),
+    createMcpWires: mcpWireFactory,
     recordsUsage: false,
     initialModelSettings: fakeModelSettingsState(),
     accessClock: () => Date.now() + accessBackend.clockOffset,
