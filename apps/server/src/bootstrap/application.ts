@@ -909,12 +909,21 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     request: (...args) => fetch(...args),
   }, `http://127.0.0.1:${instance.port}/api/mcp/oauth/callback`);
   const mcpHost: McpExecutionHost = {
-    context: (sessionId, commandId) => {
+    context: (sessionId, commandId, phase) => {
       const record = sessionRegistry.get(sessionId), run = store.taskRuns.bySession(sessionId);
       if (!record || record.archivedAt || record.host) throw new McpError('rule-denied', '当前会话宿主不提供 MCP。');
       const command = commandId ? commandRepository.get(commandId) : undefined;
       if (commandId && (!command || command.assistantSessionId !== sessionId || command.status === 'terminal')) throw new McpError('identity-changed', 'MCP 本轮发送已结束或身份不适用。');
-      if (run) { taskScheduler.assertOwner(); const task = tasks.get(run.taskId); if (run.stopIntent || run.stopConfirmed || run.status !== 'running' || task.status !== 'running' || task.currentRunId !== run.runId) throw new McpError('rule-denied', 'MCP 任务执行已停止或需要恢复核对。'); }
+      if (run) {
+        taskScheduler.assertOwner();
+        const task = tasks.get(run.taskId);
+        // 模型准入前可为本次已接收命令固定候选；实际工具调用仍只接受运行中的任务。
+        const preparing = phase === 'prepare' && task.status === 'queued'
+          && commandId === run.commandId && command?.status === 'accepted';
+        if (run.stopIntent || run.stopConfirmed || run.status !== 'running'
+          || task.status !== 'running' && !preparing || task.currentRunId !== run.runId)
+          throw new McpError('rule-denied', 'MCP 任务执行已停止或需要恢复核对。');
+      }
       const directory = record.workingDirectory ? realpathSync(record.workingDirectory.path) : null;
       if (!directory || taskProtectedPaths.some(path => runtimePathsOverlap(path, directory)) || run?.directory && realpathSync(run.directory.path) !== directory)
         throw new McpError('rule-denied', 'MCP 工作目录缺失、进入内部保护范围或不匹配当前运行。');
