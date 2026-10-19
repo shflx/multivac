@@ -1,7 +1,16 @@
 import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
 import type { McpAccount, McpCatalog, McpOperationIdentity, McpService } from '@multivac/contracts';
 import { mcpFingerprint, mcpToolId } from '../../src/modules/mcp/mcp.js';
 import { MCP_MIGRATION, SqliteMcpRepository } from '../../src/storage/sqlite-mcp-repository.js';
+
+/** 临时资料保留在当前工作目录内，兼容仓库根目录和 npm workspace 两种检查入口。 */
+export function mcpTemporaryDirectory(prefix: string): string {
+  const root = join(process.cwd(), '.tmp', 'mcp-tests');
+  mkdirSync(root, { recursive: true });
+  return mkdtempSync(join(root, prefix));
+}
 
 export const mcpAt = '2026-01-01T00:00:00.000Z';
 export function mcpFixture() {

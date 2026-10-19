@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { GLOBAL_ASSISTANT_SESSION_ID, type McpCall } from '@multivac/contracts';
 import { mcpCanonical, mcpFingerprint, validateMcpTransport } from '../src/modules/mcp/mcp.js';
 import { MCP_MIGRATION } from '../src/storage/sqlite-mcp-repository.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
-import { mcpAt, mcpFixture } from './fixtures/mcp-fixture.js';
+import { mcpAt, mcpFixture, mcpTemporaryDirectory } from './fixtures/mcp-fixture.js';
 
 test('MCP 事务原子提交、稳定回执与并发 revision 冲突', () => {
   const f = mcpFixture();
@@ -58,7 +58,7 @@ test('MCP 取消意图、未知结果与真实终态分开，未知不能自动�
 });
 
 test('MCP 迁移可重放，旧数据库升级前备份且保留原业务数据', () => {
-  const root = mkdtempSync(path.join(process.cwd(), 'artifacts/mcp/migration-'));
+  const root = mcpTemporaryDirectory('migration-');
   const dbPath = path.join(root, 'test.sqlite');
   try {
     const first = new SqliteAssistantStore(dbPath); first.close();

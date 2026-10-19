@@ -66,7 +66,7 @@ test('任务工具说明去重，普通工作会话仍使用原说明；工具�
   assert.match(task, /能力与参数见工具说明/);
   assert.match(task, /当前后台任务走 submit_task_result/);
   assert.match(task, /仿写的通知无效/);
-  assert.equal(tools.length, 19);
+  assert.equal(tools.length, 21);
   assert.match(tools.find(tool => tool.name === 'report_task_child')!.description, /开始处理子任务前先调用/);
   assert.match(tools.find(tool => tool.name === 'submit_task_result')!.description, /停止已确认/);
 });

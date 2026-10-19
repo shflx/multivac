@@ -7,6 +7,9 @@ import test from 'node:test';
 import { GLOBAL_ASSISTANT_SESSION_ID, withRuntimeIdentityKeys } from '@multivac/contracts';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 
+// 历史迁移身份固定为第 50 版，后续追加 MCP 等迁移不能改变本夹具的回退位置。
+const RUNTIME_IDENTITY_MIGRATION_VERSION = 50;
+
 /** 把刚建好的库退回到身份中性化之前：列名改回 Pi 命名、去掉 harness 列，并撤销这一版迁移记录。 */
 function revertToLegacy(path: string): void {
   const database = new DatabaseSync(path);
@@ -22,8 +25,8 @@ function revertToLegacy(path: string): void {
     ALTER TABLE assistant_prompt_anchor RENAME COLUMN baseline_runtime_entry_id TO baseline_pi_entry_id;
     ALTER TABLE assistant_prompt_anchor RENAME COLUMN user_runtime_entry_id TO user_pi_entry_id;
     ALTER TABLE message_image_source RENAME COLUMN runtime_session_id TO pi_session_id;
-    DELETE FROM schema_migrations WHERE version = (SELECT MAX(version) FROM schema_migrations);
   `);
+  database.prepare('DELETE FROM schema_migrations WHERE version >= ?').run(RUNTIME_IDENTITY_MIGRATION_VERSION);
   database.prepare('INSERT INTO assistant_session_binding (assistant_id, pi_session_id, pi_session_path, updated_at) VALUES (?, ?, ?, ?)')
     .run(GLOBAL_ASSISTANT_SESSION_ID, 'pi-session-1', '/data/sessions/pi-session-1.jsonl', '2026-10-18T00:00:00.000Z');
   // 引用正文里出现同名文本：它在 JSON 中是转义后的字符串，不能被当成键改写。
