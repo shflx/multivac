@@ -6,7 +6,7 @@ import { McpError, mcpCanonical, mcpFingerprint, type McpRepository } from '../m
 import { validateMcpArguments } from '../modules/mcp/arguments.js';
 
 export interface McpExecutionHost {
-  context(sessionId: string, commandId: string | null): McpRuleContext & { workingDirectory: string };
+  context(sessionId: string, commandId: string | null, phase?: 'prepare'): McpRuleContext & { workingDirectory: string };
   transport(service: McpService, context: ReturnType<McpExecutionHost['context']>): boolean;
   lease(sessionId: string, phase: 'starting' | 'settled', marker: string, bytes: number): number;
   redactor(accountId: string, revision: number): Promise<(text: string) => string>;
@@ -27,7 +27,7 @@ export class McpExecutionService implements McpOperationPolicy {
   prepare(sessionId: string, commandId: string): void {
     const key = this.key(sessionId, commandId);
     if (this.turns.has(key)) return;
-    const context = this.host.context(sessionId, commandId), capabilities: Capability[] = [];
+    const context = this.host.context(sessionId, commandId, 'prepare'), capabilities: Capability[] = [];
     for (const service of this.all('service')) {
       const active = this.connections.active(sessionId).filter(connection => connection.serviceId === service.serviceId);
       const actual = { ...context, accountId: active.length === 1 ? active[0]!.accountId : null, transportAllowed: this.host.transport(service, context) };

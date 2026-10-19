@@ -10,7 +10,7 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { McpRuleService } from '../src/modules/mcp/rules.js';
 import { McpExecutionService } from '../src/application/mcp-execution-service.js';
 import { McpConnections } from '../src/modules/mcp/connections.js';
-import { mcpFingerprint } from '../src/modules/mcp/mcp.js';
+import { McpError, mcpFingerprint } from '../src/modules/mcp/mcp.js';
 import { mcpExecutionFixture, until } from './fixtures/mcp-execution-fixture.js';
 import { testToolServices } from './fixtures/tool-services.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
@@ -164,12 +164,42 @@ test('MCP 后台任务从显式项目账号取得本轮本地能力，连接不�
   } finally { await f.dispose(); }
 });
 
+test('MCP 候选准入与实际调用分开核对，准备快照不授予任务执行权限', async () => {
+  const f = await mcpExecutionFixture();
+  try {
+    f.classify();
+    f.mcp.prepare('session', 'queued-command');
+    const capabilityId = f.mcp.list('session', 'queued-command')[0]!.capabilityId;
+    f.mcp.finishTurn('session');
+    const context = f.host.context;
+    f.host.context = (sessionId, commandId, phase) => {
+      if (phase !== 'prepare') throw new McpError('rule-denied', '任务尚未运行，不允许实际调用。');
+      return context(sessionId, commandId);
+    };
+    f.mcp.prepare('session', 'queued-command');
+    assert.deepEqual(f.mcp.list('session', 'queued-command'), []);
+    await assert.rejects(f.mcp.invoke('session', 'queued-command', 'queued-call', capabilityId, {}, signal()), /尚未运行/);
+    assert.equal(f.sent.some(message => message.method === 'tools/call'), false);
+    assert.equal(f.mcp.authorizations.all().length, 0);
+  } finally { await f.dispose(); }
+});
+
 test('MCP 生产装配的 Fake 应用可在任务目录内启动和关闭，不启动服务进程或网络监听', async () => {
   const root = mkdtempSync(path.join(process.cwd(), 'artifacts/mcp/bootstrap-'));
   try {
     const { createMultivacApplication } = await import('../src/bootstrap/application.js');
     const app = createMultivacApplication(testApplicationEnvironment(root));
-    try { await app.ready; assert.equal(app.mcp.hasActivity(), false); assert.ok(app.mcpAccounts); }
+    try {
+      await app.ready;
+      assert.equal(app.mcp.hasActivity(), false);
+      assert.ok(app.mcpAccounts);
+      // 未配置 MCP 服务也必须经过真实任务准入、发送及停止流程，不能被候选快照拦截。
+      const task = app.tasks.create({ commandId: 'create-task', title: '普通后台任务', goal: '保留原发送流程' }).task;
+      await app.taskExecution.control(task.taskId, { commandId: 'start-task', revision: task.revision, action: 'start' });
+      await app.taskExecution.idle();
+      assert.equal(app.tasks.get(task.taskId).status, 'waiting');
+      assert.equal(app.tasks.detail(task.taskId).runs![0]!.stopConfirmed, true);
+    }
     finally { await app.close(); }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
