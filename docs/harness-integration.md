@@ -21,7 +21,7 @@ Multivac 的会话由执行器（harness）运行，目前登记了 `pi`（生�
    - `bindTaskLease`、`bindSkills`：不支持任务执行或 Skill 时实现为空操作，并在 `capabilities` 中声明。
 2. **端口契约测试**：把新适配器加入 `apps/server/tests/coordinator-adapter-contract.test.ts` 的 `subjects`，与 Pi、Fake 通过同一套用例。
 3. **模型目录与访问后端**：实现 `ModelSettingsCatalogFactory`（可选模型、能力与推理等级）与 `ModelAccessBackend`（凭据保存与连接检查），凭据只交给执行器自己的存储。
-4. **工厂与登记**：新建 `<name>-harness.ts` 实现 `HarnessFactory`（`runtime/executors/harness.ts`），在 `harness-registry.ts` 的 `HARNESSES` 中登记；`MULTIVAC_HARNESS=<name>` 启动。bootstrap 只经注册表引用执行器实现。
+4. **工厂与登记**：新建 `<name>-harness.ts` 实现 `HarnessFactory`（`runtime/executors/harness.ts`），在 `harness-registry.ts` 的 `HARNESSES` 中登记；`MULTIVAC_HARNESS=<name>` 启动。bootstrap 只经注册表引用执行器实现。工厂同时提供独立 MCP 凭据仓储与受控传输的构造入口，bootstrap 不直接装配执行器实现。
 5. **SDK 边界**：新执行器 SDK 的导入只允许出现在 `runtime/executors/` 内部，为它补充与 Pi SDK 相同的静态检查。
 
 ## 接入时再确定的事项
