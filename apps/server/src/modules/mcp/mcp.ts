@@ -139,7 +139,7 @@ export function validateMcpFact<K extends McpFactKind>(kind: K, value: McpFacts[
     if (account.auth === 'none' && account.credentialRef !== null) invalid();
     if (account.auth !== 'none' && account.state === 'ready' && account.credentialRef === null) invalid();
   }
-} 
+}
 
 export function assertMcpTransition(kind: McpFactKind, before: McpFacts[McpFactKind], after: McpFacts[McpFactKind]): void {
   if (mcpFactService(before) !== mcpFactService(after)) conflict();
