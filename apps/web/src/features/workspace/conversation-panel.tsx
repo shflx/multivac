@@ -247,6 +247,11 @@ export function ConversationPanel({
       </div>
       {filesOpen && workingDirectory && <div className="conversation-original" hidden={!browserVisible || readingView === 'discussion'}><FileBrowser key={workingDirectory.path} sessionId={sessionId} root={workingDirectory.path} reading={reading} setReading={setReading} visible={visible && browserVisible && readingView !== 'discussion'}
         onSelection={(selection) => { setFileSelection(selection); if (selection) onReadingFocus({ sessionId, root: reading.root, path: selection.quote.sourceFile.path, focus: 'file', ...(selection.quote.sourceFile.line ? { line: selection.quote.sourceFile.line } : {}), ...(selection.quote.sourceFile.endLine ? { endLine: selection.quote.sourceFile.endLine } : {}), ...(selection.quote.sourceFile.section ? { section: selection.quote.sourceFile.section } : {}) }); }} onReadingFocus={() => { onActivate(); reportReading('file'); }}
+        onReference={(quote) => {
+          setFileOpenError('');
+          setIncomingQuote({ id: ++incomingQuoteId.current, quote: { ...quote, sourceTitle: title } });
+          setReadingView(canSplit ? 'auto' : 'discussion');
+        }}
         expanded={discussionHidden} onExpand={() => setReadingView(readingView === 'original' ? 'auto' : 'original')}
         onReturn={() => setReadingView(canSplit ? 'auto' : 'discussion')} onClose={() => setReading((scene) => ({ ...scene, hidden: true, view: 'auto' }))} /></div>}
       </div>

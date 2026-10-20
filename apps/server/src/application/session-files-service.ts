@@ -14,6 +14,10 @@ export class SessionFilesService {
   constructor(private readonly sessions: { get(id: string): Pick<WorkspaceSession, 'archivedAt' | 'workingDirectory'> & Partial<Pick<WorkspaceSession, 'title' | 'host'>> }, private readonly dataDir: string) {}
 
   async validateQuote(quote: AssistantFileQuote): Promise<CoordinatorFileQuote> {
+    if (quote.quoteKind === 'source') {
+      const target = await this.target(quote.sourceSessionId, quote.sourceFile.path, quote.sourceFile.root, 'file');
+      return { sourceKind: 'file', quoteKind: 'source', sourceFile: { root: target.root, path: target.path }, text: '', source: { sessionId: quote.sourceSessionId, title: this.sessions.get(quote.sourceSessionId).title ?? '来源会话' } };
+    }
     if (!quote.text.trim() || !assistantQuoteWithinLimit(quote)) throw new SessionFilesError(400, '引用内容为空或超过 4 KiB UTF-8 上限，请缩短选区。');
     const content = await this.read(quote.sourceSessionId, quote.sourceFile.path, quote.sourceFile.root);
     const { line, endLine } = quote.sourceFile;

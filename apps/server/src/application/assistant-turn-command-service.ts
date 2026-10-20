@@ -263,7 +263,7 @@ export class AssistantTurnCommandService {
     const existing = this.options.commandRepository.get(command.commandId);
     if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
     // 引用来源与上下文须在受理前核对：拒绝发生在建立回执之前，草稿与引用原样留在页面。
-    const quote = await this.validateQuoteSource(command, binding.runtimeSessionId);
+    let quote = await this.validateQuoteSource(command, binding.runtimeSessionId);
     const images = await Promise.all((command.imageIds ?? []).map(async id => {
       if (!this.options.images) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '图片输入不可用。');
       const { image, data } = await this.options.images.read(command.assistantSessionId, id);
@@ -316,6 +316,8 @@ export class AssistantTurnCommandService {
         await this.options.validateSelectionForSend?.();
         checkImages();
       }
+      // 模型与附件准备可能等待；来源引用在真正受理前再次核对，不沿用过期目录。
+      if (command.quote?.sourceKind === 'file' && command.quote.quoteKind === 'source') quote = await this.validateQuoteSource(command, binding.runtimeSessionId);
       signal?.throwIfAborted();
       const accepted = this.options.commandRepository.createAccepted({
         ...(agentExecution ? { agentExecution } : {}),
@@ -663,6 +665,7 @@ export class AssistantTurnCommandService {
       catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', (error as Error).message); }
     }
     if (quote.sourceKind === 'file') {
+      if (quote.quoteKind === 'source' && quote.sourceSessionId !== command.assistantSessionId) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '文件来源只能加入所属工作会话。');
       if (!this.options.resolveFileQuote) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不接受文件引用。');
       try { return await this.options.resolveFileQuote(quote); }
       catch (reason) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', reason instanceof Error ? reason.message : '文件引用来源无法核对。'); }

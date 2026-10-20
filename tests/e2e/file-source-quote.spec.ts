@@ -1,0 +1,41 @@
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect, test } from '@playwright/test';
+import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
+
+test('文件来源只更新所属草稿，目录无引用，刷新及发送拒绝保留正文', async ({ page, request }) => {
+  await resetE2eState(request);
+  const sessionId = crypto.randomUUID();
+  const created = await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: '文件来源验收' } });
+  const root = (await created.json()).workingDirectory.path as string;
+  writeFileSync(join(root, 'binary.bin'), Buffer.from([0, 255, 254]));
+  mkdirSync(join(root, 'folder'));
+  await page.goto('/'); await openPanel(page, 'workspace');
+  const panel = page.locator(`.conversation-panel[data-session-id="${sessionId}"]`);
+  await panel.getByLabel('Multivac 草稿').fill('保留原正文');
+  await panel.getByRole('button', { name: '查看文件', exact: true }).click();
+  const browser = panel.getByRole('region', { name: '工作目录文件浏览' });
+  await browser.getByRole('button', { name: '「folder」的文件操作', exact: true }).click();
+  await expect(page.getByRole('menuitem', { name: '引用到当前会话', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  const read: string[] = [], sent: string[] = [];
+  page.on('request', call => {
+    if (call.url().includes('/files/content')) read.push(call.url());
+    if (call.method() === 'POST' && call.url().includes('/turns')) sent.push(call.url());
+  });
+  await browser.getByRole('button', { name: '「binary.bin」的文件操作', exact: true }).click();
+  await page.getByRole('menuitem', { name: '引用到当前会话', exact: true }).click();
+  await expect(panel.locator('.composer-quote')).toContainText('binary.bin');
+  await expect(panel.locator('.composer-quote')).toContainText('文件来源');
+  await expect(panel.getByLabel('Multivac 草稿')).toHaveValue('保留原正文');
+  expect(read).toHaveLength(0); expect(sent).toHaveLength(0);
+  await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/sessions/${sessionId}/page-state`)).json()).quote?.quoteKind).toBe('source');
+  await page.reload(); await openPanel(page, 'workspace');
+  await expect(panel.locator('.composer-quote')).toContainText('binary.bin');
+  await expect(panel.getByLabel('Multivac 草稿')).toHaveValue('保留原正文');
+  rmSync(join(root, 'binary.bin'));
+  await panel.getByLabel('发送消息').click();
+  await expect(panel.getByRole('alert')).toContainText(/不存在|ENOENT/);
+  await expect(panel.locator('.composer-quote')).toContainText('binary.bin');
+  await expect(panel.getByLabel('Multivac 草稿')).toHaveValue('保留原正文');
+});

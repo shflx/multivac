@@ -745,6 +745,7 @@ export class WorkspaceSessionService {
     const background = { parentTitle: record.title, parentExcerpt: sessionContextExcerpt(history.messages) };
     if (!quote) return { workspaceId: record.workspaceId, origin: background };
     if (quote.sourceKind === 'file') {
+      if (quote.quoteKind === 'source') throw invalid('文件来源只能加入所属工作会话草稿，不能用于深入。');
       if (!this.options.validateFileQuote) throw invalid('当前不支持文件选区深入。');
       try { await this.options.validateFileQuote(quote); } catch (reason) { throw invalid(reason instanceof Error ? reason.message : '文件来源无效。'); }
       return { workspaceId: record.workspaceId, origin: { ...background, text: quote.text, sourceFile: quote.sourceFile } };

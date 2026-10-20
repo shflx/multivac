@@ -61,11 +61,16 @@ export const FileQuoteSourceSchema = Type.Object({
   line: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), endLine: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), section: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
 }, { additionalProperties: false });
 export type FileQuoteSource = Type.Static<typeof FileQuoteSourceSchema>;
-export const AssistantFileQuoteSchema = Type.Object({
-  sourceKind: Type.Literal('file'), sourceFile: FileQuoteSourceSchema, text: Type.String({ minLength: 1 }),
+const fileQuoteIdentity = {
+  sourceKind: Type.Literal('file'),
   sourceSessionId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }), sourceTitle: Type.Optional(Type.String({ minLength: 1, maxLength: 80 })),
   sourceRuntimeSessionId: Type.Optional(Type.Never()), sourceRuntimeEntryId: Type.Optional(Type.Never()), sourceRole: Type.Optional(Type.Never()),
-}, { additionalProperties: false });
+};
+// 缺省类型保留旧选区语义；来源引用不携带文件正文或选区位置。
+export const AssistantFileQuoteSchema = Type.Union([
+  Type.Object({ ...fileQuoteIdentity, quoteKind: Type.Optional(Type.Literal('selection')), sourceFile: FileQuoteSourceSchema, text: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+  Type.Object({ ...fileQuoteIdentity, quoteKind: Type.Literal('source'), sourceFile: Type.Object({ root: FileQuoteSourceSchema.properties.root, path: FileQuoteSourceSchema.properties.path, line: Type.Optional(Type.Never()), endLine: Type.Optional(Type.Never()), section: Type.Optional(Type.Never()) }, { additionalProperties: false }), text: Type.Literal('') }, { additionalProperties: false }),
+]);
 export type AssistantFileQuote = Type.Static<typeof AssistantFileQuoteSchema>;
 export const AssistantBookQuoteSchema = Type.Object({ sourceKind: Type.Literal('book'), sourceBook: Type.Union([BookReferenceSchema, BookLocationSchema]), text: Type.String({ minLength: 1 }), sourceTitle: Type.Optional(Type.String({ maxLength: 200 })), sourceMessage: Type.Optional(ReadingMessageSourceSchema), sourceNote: Type.Optional(Type.Object({ id: Type.String({ minLength: 1, maxLength: 100 }), revision: Type.Integer({ minimum: 1 }) }, { additionalProperties: false })) }, { additionalProperties: false });
 export type AssistantBookQuote = Type.Static<typeof AssistantBookQuoteSchema>;

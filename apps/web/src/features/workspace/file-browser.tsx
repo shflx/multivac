@@ -1,8 +1,8 @@
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Columns2, FileText, Folder, Maximize2, MessageSquare, RefreshCw, Search, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { SessionFileEntry, SessionFileList } from '@multivac/contracts';
+import type { AssistantFileQuote, SessionFileEntry, SessionFileList } from '@multivac/contracts';
 import { listSessionFiles } from '../../data/session-files-api.js';
-import { FileActions, FileActionsActive } from './file-actions.js';
+import { FileActions, FileActionsActive, FileSourceQuote } from './file-actions.js';
 import { FileReader } from './file-reader.js';
 import { navigateReading, openReading, type ReadingScene } from './reading-scene.js';
 import type { UpdateReading } from './use-reading-scene.js';
@@ -38,10 +38,10 @@ function DirectoryBranch({ sessionId, root, path, query, selected, onSelect, exp
   </li>)}</ul>{!listing.entries.length && <p className="browser-empty">{query ? '没有匹配的文件' : '此目录为空'}</p>}{listing.limited && <p className="browser-empty">已达到浏览上限，请缩小搜索范围或展开子目录。</p>}</>;
 }
 
-export function FileBrowser({ sessionId, root, reading, setReading, visible, expanded, onExpand, onReturn, onClose, onSelection, onReadingFocus }: {
+export function FileBrowser({ sessionId, root, reading, setReading, visible, expanded, onExpand, onReturn, onClose, onSelection, onReadingFocus, onReference }: {
   sessionId: string; root: string; expanded: boolean; onExpand: () => void; onReturn: () => void; onClose: () => void;
   reading: ReadingScene; setReading: UpdateReading; visible: boolean;
-  onSelection: (selection: FileSelection | null) => void; onReadingFocus: () => void;
+  onSelection: (selection: FileSelection | null) => void; onReadingFocus: () => void; onReference: (quote: AssistantFileQuote) => void;
 }) {
   const [notice, setNotice] = useState<{ message: string; error: boolean } | null>(null);
   const onNotice = (message: string, error: boolean) => setNotice({ message, error });
@@ -69,7 +69,7 @@ export function FileBrowser({ sessionId, root, reading, setReading, visible, exp
   const onSelect = (entry: SessionFileEntry) => setReading((scene) => ({ ...openReading(scene, entry.path), directoryOpen: wide ? scene.directoryOpen : false }));
   const onToggle = (path: string) => setReading((scene) => ({ ...scene, expandedDirs: scene.expandedDirs.includes(path) ? scene.expandedDirs.filter((item) => item !== path) : [...scene.expandedDirs, path].slice(-200) }));
   const branch = <DirectoryBranch sessionId={sessionId} root={root} path="" query={query} selected={selected} onSelect={onSelect} expanded={reading.expandedDirs} onToggle={onToggle} onNotice={onNotice} />;
-  return <FileActionsActive.Provider value={visible}><section ref={browserRef} className="file-browser" aria-label="工作目录文件浏览" onKeyDown={(event) => {
+  return <FileSourceQuote.Provider value={onReference}><FileActionsActive.Provider value={visible}><section ref={browserRef} className="file-browser" aria-label="工作目录文件浏览" onKeyDown={(event) => {
     if (event.key === 'Escape' && directoryOpen && !wide) { event.stopPropagation(); setDirectoryOpen(false); directoryTrigger.current?.focus(); }
   }}>
     <header className="browser-toolbar"><button ref={directoryTrigger} className="icon-button" title="目录" aria-label="切换文件目录" aria-expanded={directoryOpen} onClick={() => setDirectoryOpen(!directoryOpen)}><Folder /></button><FileActions sessionId={sessionId} root={root} path="" kind="directory" onNotice={onNotice}><strong title={root}>{root}</strong></FileActions>
@@ -94,5 +94,5 @@ export function FileBrowser({ sessionId, root, reading, setReading, visible, exp
         onSelection={onSelection} onReadingFocus={onReadingFocus} onNotice={onNotice}
         onPosition={(change) => setReading((scene) => scene.position.path === selected ? { ...scene, position: { ...scene.position, ...change } } : scene)} />}</div>
     </div>
-  </section></FileActionsActive.Provider>;
+  </section></FileActionsActive.Provider></FileSourceQuote.Provider>;
 }

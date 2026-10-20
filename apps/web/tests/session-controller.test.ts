@@ -216,6 +216,51 @@ test('重复挂载只保留一条事件接入，卸载后到达的事件不再�
   assert.equal(controller.getState().history.messages.length, 0);
 });
 
+test('文件来源保留正文并保存草稿，未知发送沿用原来源快照且不清除新引用', async () => {
+  const source = { sourceKind: 'file' as const, quoteKind: 'source' as const, sourceSessionId: 'session', sourceFile: { root: '/work', path: 'a.bin' }, text: '' as const };
+  let attempts = 0;
+  const { controller, remote, sent } = harness({ send: async command => {
+    if (++attempts === 1) throw new TypeError('network');
+    return receipt(command.commandId, 'terminal', 'succeeded');
+  } });
+  await ready(controller);
+  let images = ['image-a'];
+  controller.imageDraft = { ids: () => images, ready: true, clear: ids => { images = images.filter(id => !ids.includes(id)); }, restore: async ids => { images = [...new Set([...images, ...ids])]; } };
+  controller.updateDraft('保留正文'); controller.setQuote(source);
+  await settle();
+  assert.deepEqual(images, ['image-a']);
+  assert.equal(remote().draft, '保留正文'); assert.deepEqual(remote().quote, source);
+  const refreshed = harness({ getPageState: async () => remote() }).controller;
+  await ready(refreshed);
+  assert.deepEqual(refreshed.getState().page.quote, source);
+  assert.equal(refreshed.getState().page.draft, '保留正文');
+  refreshed.dispose();
+  await controller.submitDraft({ clearOnSubmit: true }); await settle();
+  assert.deepEqual(controller.getState().pendingCommand?.quote, source);
+  const next = { ...source, sourceFile: { root: '/work', path: 'b.bin' } };
+  images = ['image-b'];
+  controller.updateDraft('更新正文'); controller.setQuote(next);
+  await controller.retryUnknownSubmission(); await settle();
+  assert.equal(sent[0]?.commandId, sent[1]?.commandId);
+  assert.deepEqual(sent[1]?.quote, source);
+  assert.deepEqual(sent[1]?.imageIds, ['image-a']);
+  assert.deepEqual(images, ['image-b']);
+  assert.equal(controller.getState().page.draft, '更新正文');
+  assert.deepEqual(controller.getState().page.quote, next);
+  controller.dispose();
+});
+
+test('文件来源被明确拒绝时保留正文和引用', async () => {
+  const source = { sourceKind: 'file' as const, quoteKind: 'source' as const, sourceSessionId: 'session', sourceFile: { root: '/work', path: 'missing.bin' }, text: '' as const };
+  const { controller } = harness({ send: async () => { throw new AssistantApiError('INVALID_REQUEST', '文件来源已失效', 400); } });
+  await ready(controller);
+  controller.updateDraft('保留正文'); controller.setQuote(source);
+  await controller.submitDraft(); await settle();
+  assert.equal(controller.getState().page.draft, '保留正文');
+  assert.deepEqual(controller.getState().page.quote, source);
+  controller.dispose();
+});
+
 test('运行中不能切换智能体，追加发送需先选择追加方式', async () => {
   const { controller } = harness({ send: async (command) => receipt(command.commandId, 'running') });
   await ready(controller);

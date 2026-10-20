@@ -31,14 +31,17 @@ export function sameQuote(left: AssistantQuote | null, right: AssistantQuote | n
   if (left === null || right === null) return left === right;
   if (left.sourceKind === 'mcp' || right.sourceKind === 'mcp') return left.sourceKind === 'mcp' && right.sourceKind === 'mcp' && left.text === right.text && left.sourceSessionId === right.sourceSessionId && Object.keys(left.sourceMcp).every(key => left.sourceMcp[key as keyof typeof left.sourceMcp] === right.sourceMcp[key as keyof typeof right.sourceMcp]);
   if (left.sourceKind === 'book' || right.sourceKind === 'book') return left.sourceKind === 'book' && right.sourceKind === 'book' && left.text === right.text && JSON.stringify([left.sourceBook, left.sourceMessage ?? null, left.sourceNote ?? null]) === JSON.stringify([right.sourceBook, right.sourceMessage ?? null, right.sourceNote ?? null]);
+  if (left.sourceKind === 'file' || right.sourceKind === 'file') return left.sourceKind === 'file' && right.sourceKind === 'file' &&
+    (left.quoteKind ?? 'selection') === (right.quoteKind ?? 'selection') && left.text === right.text &&
+    left.sourceSessionId === right.sourceSessionId && left.sourceTitle === right.sourceTitle &&
+    left.sourceFile.root === right.sourceFile.root && left.sourceFile.path === right.sourceFile.path &&
+    left.sourceFile.line === right.sourceFile.line && left.sourceFile.endLine === right.sourceFile.endLine && left.sourceFile.section === right.sourceFile.section;
   return left.sourceRuntimeSessionId === right.sourceRuntimeSessionId &&
     left.sourceRuntimeEntryId === right.sourceRuntimeEntryId &&
     left.sourceRole === right.sourceRole &&
     left.text === right.text &&
     left.sourceSessionId === right.sourceSessionId &&
-    left.sourceTitle === right.sourceTitle &&
-    left.sourceFile?.root === right.sourceFile?.root && left.sourceFile?.path === right.sourceFile?.path &&
-    left.sourceFile?.line === right.sourceFile?.line && left.sourceFile?.endLine === right.sourceFile?.endLine && left.sourceFile?.section === right.sourceFile?.section;
+    left.sourceTitle === right.sourceTitle;
 }
 
 /** 工具条不越出视口；贴近底部时翻到选区上方，避免压住输入区与发送按钮。 */
