@@ -153,6 +153,10 @@ export interface McpAuthorization {
   argumentsFingerprint: string;
   arguments: { [key: string]: McpJson };
   effects: McpEffect[];
+  /** 工具尚无用户分类：本次许可同时确认效果，效果在决定前为空。旧记录缺省即已分类。 */
+  classificationRequired?: boolean;
+  /** 按服务注解给出的预选效果，只是提示，不授予可信等级。 */
+  suggestedEffects?: McpEffect[];
   status: 'pending' | 'allowed' | 'denied' | 'expired' | 'cancelled' | 'invalidated';
   createdAt: string;
   expiresAt: string;

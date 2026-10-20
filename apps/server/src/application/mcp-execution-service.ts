@@ -13,6 +13,10 @@ export interface McpExecutionHost {
 }
 interface Capability { capabilityId: string; identity: McpOperationIdentity; tool: McpTool; connectionId: string | null; preferred: boolean }
 
+const ALL_EFFECTS: McpEffect[] = ['read', 'local-write', 'external-write', 'data-transfer'];
+/** 效果未知时无法判断是否越界，只有上限覆盖全部效果的宿主（工作会话）才允许首次调用时确认。 */
+const coversAllEffects = (ceiling: readonly McpEffect[]) => ALL_EFFECTS.every(effect => ceiling.includes(effect));
+
 /** 公共工具端口；两个 harness 均只依赖同一个发现/调用入口，不取得授权决定方法。 */
 export class McpExecutionService implements McpOperationPolicy {
   private readonly turns = new Map<string, Capability[]>();
@@ -44,8 +48,10 @@ export class McpExecutionService implements McpOperationPolicy {
           definitionVersion: tool.definitionVersion, sessionId, projectId: context.projectId, workingDirectory: context.workingDirectory,
           commandId, toolCallId: 'candidate', taskId: context.taskId, runId: context.runId, agentId: context.agentId, host: context.host, ruleVersions: effective.ruleVersions };
         try {
-          const effects = this.classified(identity, catalog);
-          new McpRules(this.repository).assert(identity, actual, effects);
+          // 未分类的工具只在宿主与智能体上限覆盖全部效果时进入候选，首次调用时由用户确认效果。
+          const effects = this.classifiedOrNull(identity, catalog);
+          if (!effects && !coversAllEffects(effective.effectCeiling)) continue;
+          new McpRules(this.repository).assert(identity, actual, effects ?? []);
           capabilities.push({ capabilityId: mcpFingerprint(identity), identity, tool, preferred: effective.preferred, connectionId: active.find(value => value.accountId === account.accountId)?.connectionId ?? null });
         } catch (error) { if (!(error instanceof McpError)) throw error; }
       }
@@ -56,11 +62,11 @@ export class McpExecutionService implements McpOperationPolicy {
     const capabilities = commandId ? this.turns.get(this.key(sessionId, commandId)) ?? [] : [];
     return capabilities.flatMap(value => {
       try {
-        const effects = this.classified(value.identity); this.assertSnapshot(value.identity, effects);
+        const effects = this.effectsForCall(value.identity); this.assertSnapshot(value.identity, effects ?? []);
         if (value.connectionId) this.connection(value);
         return [{ capabilityId: value.capabilityId, serviceId: value.identity.serviceId, toolId: value.tool.toolId, preferred: value.preferred,
           name: value.tool.name, description: value.tool.description, inputSchema: value.tool.inputSchema, definitionVersion: value.identity.definitionVersion,
-          catalogVersion: value.identity.catalogVersion, effects, ruleVersions: value.identity.ruleVersions }];
+          catalogVersion: value.identity.catalogVersion, effects: effects ?? '首次调用时由用户确认', ruleVersions: value.identity.ruleVersions }];
       } catch (error) { if (error instanceof McpError) return []; throw error; }
     });
   }
@@ -87,7 +93,7 @@ export class McpExecutionService implements McpOperationPolicy {
     }
     if (signal.aborted) throw new McpError('cancelled', '本轮已停止，MCP 调用尚未执行。');
     // 建连仅使用用户已选择的账号与宿主隔离；不调用第三方工具，不扩大路径、网络或派生进程权限。
-    this.assertSnapshot(identity, this.classified(identity));
+    this.assertSnapshot(identity, this.effectsForCall(identity) ?? []);
     validateMcpArguments(capability.tool.inputSchema, args);
     await this.ensureConnection(capability, signal);
     const request = await this.authorizations.request(identity, args);
@@ -141,6 +147,12 @@ export class McpExecutionService implements McpOperationPolicy {
     this.assertSnapshot(identity, effects);
     await this.connections.refresh(this.connection(capability).connection.connectionId, identity.sessionId);
     this.catalog(identity); this.assertSnapshot(identity, effects);
+  }
+  allowsUnclassified(identity: McpOperationIdentity): boolean {
+    const context = this.host.context(identity.sessionId, identity.commandId), service = this.repository.get('service', identity.serviceId);
+    if (!service) return false;
+    const effective = new McpRules(this.repository).resolve(identity.serviceId, { ...context, accountId: identity.accountId, transportAllowed: this.host.transport(service, context) });
+    return effective.available && coversAllEffects(effective.effectCeiling);
   }
   userIdentity(sessionId: string, connectionId: string, toolId: string): McpOperationIdentity {
     const { connection, catalog } = this.connections.get(connectionId, sessionId), context = this.host.context(sessionId, null);
@@ -208,6 +220,16 @@ export class McpExecutionService implements McpOperationPolicy {
       for (const candidates of this.turns.values()) for (const value of candidates) if (value.identity.sessionId === identity.sessionId && value.identity.serviceId === identity.serviceId && value.identity.accountId === identity.accountId) value.connectionId = connectionId;
       if (this.connection(capability).catalog.version !== identity.catalogVersion) throw new McpError('catalog-changed', '连接后的目录版本已变化，请重新发现并发送。');
     } finally { this.opening.delete(key); }
+  }
+  private classifiedOrNull(identity: McpOperationIdentity, catalog?: McpCatalog): McpEffect[] | null {
+    try { return this.classified(identity, catalog); }
+    catch (error) { if (error instanceof McpError && error.code === 'classification-required') return null; throw error; }
+  }
+  /** 调用前的效果：已分类返回分类；未分类且宿主允许首次确认时返回 null；否则按缺少分类拒绝。 */
+  private effectsForCall(identity: McpOperationIdentity): McpEffect[] | null {
+    const effects = this.classifiedOrNull(identity);
+    if (effects || this.allowsUnclassified(identity)) return effects;
+    throw new McpError('classification-required', '工具需要用户确认效果。');
   }
   private classified(identity: McpOperationIdentity, catalog?: McpCatalog): McpEffect[] {
     // 发送时允许读取已经固定的目录；真实调用与许可始终通过活跃连接的 identity 校验。

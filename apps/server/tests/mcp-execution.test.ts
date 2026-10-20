@@ -23,8 +23,10 @@ test('MCP 公共工具经 Pi 工具桥与 Fake harness 注入，原调用等待�
   try {
     ledger.sessions.insertIfAbsent({ sessionId: 'session', title: 'MCP 工具桥测试', kind: 'work', workspaceId: ledger.sessions.listAll()[0]!.workspaceId,
       createdAt: new Date().toISOString(), workingDirectory: { kind: 'session-temp', path: '/workspace' } });
-    f.mcp.prepare('session', 'unclassified'); assert.deepEqual(f.mcp.list('session', 'unclassified'), []);
-    f.classify(); f.mcp.prepare('session', 'command');
+    f.mcp.prepare('session', 'unclassified');
+    assert.equal(f.mcp.list('session', 'unclassified')[0]!.effects, '首次调用时由用户确认');
+    assert.equal(f.repository.list('classification').length, 0);
+    f.mcp.prepare('session', 'command');
     const capabilityId = f.mcp.list('session', 'command')[0]!.capabilityId;
     const tools = new InternalToolService({ tools: MCP_EXECUTION_TOOLS, services: testToolServices({ mcp: f.mcp }), calls: ledger.internalToolCalls,
       currentTurn: () => ({ commandId: 'command', windowId: null }) });
@@ -36,7 +38,16 @@ test('MCP 公共工具经 Pi 工具桥与 Fake harness 注入，原调用等待�
     assert.equal(f.sent.filter(value => value.method === 'tools/call').length, 0);
     const request = f.mcp.authorizations.all()[0]!;
     assert.deepEqual(request.arguments, args.arguments);
-    await f.mcp.authorizations.decide(request.requestId, request.revision, 'once', 'user-allow-pi');
+    assert.equal(request.classificationRequired, true);
+    assert.deepEqual(request.effects, []);
+    await assert.rejects(f.mcp.authorizations.decide(request.requestId, request.revision, 'once', 'missing-effects'), /首次调用需要确认/u);
+    await f.mcp.authorizations.decide(request.requestId, request.revision, 'once', 'user-allow-pi', ['read']);
+    await f.mcp.authorizations.decide(request.requestId, request.revision, 'once', 'user-allow-pi', ['read']);
+    assert.deepEqual(f.repository.list('classification').map(value => value.effects), [['read']]);
+    const allowed = f.mcp.authorizations.get(request.requestId);
+    assert.throws(() => f.repository.commit('tamper-effects', mcpFingerprint('tamper-effects'), new Date().toISOString(), tx => tx.put('authorization', {
+      ...allowed, revision: allowed.revision + 1, effects: ['local-write'], revokedAt: new Date().toISOString(),
+    }, allowed.revision)), /迁移冲突/u);
     const result = await pending;
     assert.match(JSON.stringify(result), /实际结果/); assert.equal(JSON.stringify(result).includes('fixture-secret'), false);
     await call.execute('pi-call', args, signal(), undefined, undefined as never);
@@ -52,6 +63,22 @@ test('MCP 公共工具经 Pi 工具桥与 Fake harness 注入，原调用等待�
     assert.equal(f.sent.filter(value => value.method === 'tools/call').length, 2);
     assert.deepEqual(f.leases, ['starting', 'settled', 'starting', 'settled']);
   } finally { fake.dispose(); ledger.close(); await f.dispose(); }
+});
+
+test('MCP 受限宿主不能把未分类工具纳入候选或首次许可', async () => {
+  for (const host of ['coordinator', 'task'] as const) {
+    const f = await mcpExecutionFixture();
+    try {
+      f.context.host = host;
+      f.context.hostEffects = host === 'coordinator' ? ['read', 'data-transfer'] : ['read', 'local-write'];
+      f.mcp.prepare('session', 'restricted');
+      assert.deepEqual(f.mcp.list('session', 'restricted'), []);
+      const identity = f.mcp.userIdentity('session', f.live.connection.connectionId, f.tool.toolId);
+      await assert.rejects(f.mcp.authorizations.request(identity, {}), /尚未由用户确认/u);
+      assert.equal(f.mcp.authorizations.all().length, 0);
+      assert.equal(f.sent.some(message => message.method === 'tools/call'), false);
+    } finally { await f.dispose(); }
+  }
 });
 
 test('MCP 私有读取等待期间规则收紧时，在实际发送前拒绝且保留未开始事实', async () => {

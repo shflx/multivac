@@ -28,6 +28,8 @@ export const AskTaskInputSchema = Type.Object({ commandId: Id, question: Type.St
 export const DecideHumanRequestSchema = Type.Object({
   commandId: Id, revision: Type.Integer({ minimum: 1 }), decision: HumanDecisionSchema,
   answer: Type.Optional(Type.String({ maxLength: 4000 })),
+  /** 仅用于首次调用的 MCP 许可：用户确认的工具效果。 */
+  effects: Type.Optional(Type.Array(Type.Union([Type.Literal('read'), Type.Literal('local-write'), Type.Literal('external-write'), Type.Literal('data-transfer')]), { minItems: 1, maxItems: 4, uniqueItems: true })),
 }, { additionalProperties: false });
 export type DecideHumanRequest = Type.Static<typeof DecideHumanRequestSchema>;
 

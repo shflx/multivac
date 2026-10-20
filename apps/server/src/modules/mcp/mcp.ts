@@ -170,7 +170,12 @@ export function assertMcpTransition(kind: McpFactKind, before: McpFacts[McpFactK
     const previous = before as McpAuthorization, next = after as McpAuthorization;
     const deciding = previous.status === 'pending' && next.status !== 'pending' && next.revokedAt === null;
     const revoking = previous.status === 'allowed' && next.status === 'allowed' && previous.revokedAt === null && next.revokedAt !== null && previous.decidedAt === next.decidedAt;
-    if ((!deciding && !revoking) || mcpCanonical(previous.effects) !== mcpCanonical(next.effects)
+    // 首次允许时可把待确认的空效果固定为用户选择；拒绝、撤销及已分类请求不能改变效果。
+    const classifying = deciding && previous.classificationRequired === true && !previous.effects.length
+      && next.status === 'allowed' && next.effects.length > 0;
+    if ((!deciding && !revoking) || !classifying && mcpCanonical(previous.effects) !== mcpCanonical(next.effects)
+      || Boolean(previous.classificationRequired) !== Boolean(next.classificationRequired)
+      || mcpCanonical(previous.suggestedEffects ?? []) !== mcpCanonical(next.suggestedEffects ?? [])
       || previous.expiresAt !== next.expiresAt || previous.createdAt !== next.createdAt
       || mcpCanonical(previous.operation) !== mcpCanonical(next.operation)) conflict();
   }
