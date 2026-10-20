@@ -3,6 +3,7 @@ import { IMAGE_LIMITS } from '@multivac/contracts';
 import { constants } from 'node:fs';
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { assistantQuoteWithinLimit, SESSION_FILE_LIMITS, type AssistantFileQuote, type CoordinatorFileQuote, type SessionFileContent, type SessionFileEntry, type SessionFileList, type SessionFileTarget, type WorkspaceSession } from '@multivac/contracts';
+import { finderArguments, runRevealCommand, type RevealCommand } from './system-file-reveal.js';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 
 export class SessionFilesError extends Error {
@@ -11,7 +12,7 @@ export class SessionFilesError extends Error {
 
 /** 用户主动浏览只读取会话目录，不触发模型，也不扩大会话工具的授权范围。 */
 export class SessionFilesService {
-  constructor(private readonly sessions: { get(id: string): Pick<WorkspaceSession, 'archivedAt' | 'workingDirectory'> & Partial<Pick<WorkspaceSession, 'title' | 'host'>> }, private readonly dataDir: string) {}
+  constructor(private readonly sessions: { get(id: string): Pick<WorkspaceSession, 'archivedAt' | 'workingDirectory'> & Partial<Pick<WorkspaceSession, 'title' | 'host'>> }, private readonly dataDir: string, private readonly system: { platform?: NodeJS.Platform; run?: RevealCommand } = {}) {}
 
   async validateQuote(quote: AssistantFileQuote): Promise<CoordinatorFileQuote> {
     if (quote.quoteKind === 'source') {
@@ -55,6 +56,20 @@ export class SessionFilesService {
     const stat = await lstat(location.absolute);
     if ((kind === 'file' && !stat.isFile()) || (kind === 'directory' && !stat.isDirectory())) throw new SessionFilesError(409, '目标类型已变化，请重新打开菜单。');
     return { ...location, name: basename(location.absolute), kind };
+  }
+
+  /** 仅由本机用户 HTTP 入口调用，不向模型或内部工具暴露。 */
+  async reveal(id: string, path: string, expectedRoot: string, kind: SessionFileEntry['kind']): Promise<{ message: string }> {
+    if ((this.system.platform ?? process.platform) !== 'darwin') throw new SessionFilesError(400, '系统文件定位仅支持本机 macOS Finder，当前平台不支持。');
+    const target = await this.target(id, path, expectedRoot, kind);
+    const before = await lstat(target.absolute);
+    const checked = await this.target(id, path, expectedRoot, kind);
+    const current = await lstat(checked.absolute);
+    if (checked.absolute !== target.absolute || current.ino !== before.ino || current.dev !== before.dev) throw new SessionFilesError(409, '目标已变化，请重新打开菜单。');
+    if (this.sessions.get(id).workingDirectory?.path !== expectedRoot || this.sessions.get(id).archivedAt) throw new SessionFilesError(409, '会话工作目录已变化，请重新打开文件。');
+    try { await (this.system.run ?? runRevealCommand)('/usr/bin/open', finderArguments(checked.absolute, kind)); }
+    catch { throw new SessionFilesError(502, '系统定位请求失败或超时，无法确认 Finder 是否显示。'); }
+    return { message: 'Finder 定位命令已退出；请在本机查看显示结果。' };
   }
 
   async list(id: string, path = '', query = '', expectedRoot?: string): Promise<SessionFileList> {

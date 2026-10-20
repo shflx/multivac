@@ -7,6 +7,8 @@ export const SessionFileEntrySchema = Type.Object({
 });
 export type SessionFileEntry = Static<typeof SessionFileEntrySchema>;
 
+export const SessionFileRevealResultSchema = Type.Object({ message: Type.String() });
+
 export const SessionFileTargetSchema = Type.Object({
   root: Type.String(), path: Type.String(), absolute: Type.String(), name: Type.String(),
   kind: Type.Union([Type.Literal('directory'), Type.Literal('file')]),
