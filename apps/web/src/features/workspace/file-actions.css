@@ -1,0 +1,7 @@
+.file-action-target { display: flex; align-items: center; min-width: 0; flex: 1; }
+.file-action-target > :first-child { min-width: 0; flex: 1; }
+.browser-tree .file-action-target > button:first-child { width: auto; }
+.browser-tree .file-action-target > .file-action-trigger, .file-action-target > .file-action-trigger { width: 32px; min-width: 32px; flex: 0 0 32px; padding: 6px; }
+.file-action-menu { position: fixed; z-index: 1000; min-width: 180px; max-width: calc(100vw - 16px); padding: 4px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); box-shadow: 0 8px 24px #0003; }
+.file-action-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); text-align: left; font: inherit; }
+.file-action-menu button:hover, .file-action-menu button:focus-visible { background: var(--surface-strong); }

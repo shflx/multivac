@@ -1,8 +1,8 @@
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import { IMAGE_LIMITS } from '@multivac/contracts';
 import { constants } from 'node:fs';
-import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { assistantQuoteWithinLimit, SESSION_FILE_LIMITS, type AssistantFileQuote, type CoordinatorFileQuote, type SessionFileContent, type SessionFileEntry, type SessionFileList, type WorkspaceSession } from '@multivac/contracts';
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { assistantQuoteWithinLimit, SESSION_FILE_LIMITS, type AssistantFileQuote, type CoordinatorFileQuote, type SessionFileContent, type SessionFileEntry, type SessionFileList, type SessionFileTarget, type WorkspaceSession } from '@multivac/contracts';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 
 export class SessionFilesError extends Error {
@@ -44,6 +44,13 @@ export class SessionFilesService {
     const actual = await realpath(absolute);
     if (!isPathWithin(canonicalRoot, actual) || isPathWithin(protectedRoot, actual)) throw new SessionFilesError(403, '文件超出可浏览范围。');
     return { root, absolute: actual, path: relative(canonicalRoot, actual).split(sep).join('/') };
+  }
+
+  async target(id: string, path: string, expectedRoot: string, kind: SessionFileEntry['kind']): Promise<SessionFileTarget> {
+    const location = await this.locate(id, path, expectedRoot);
+    const stat = await lstat(location.absolute);
+    if ((kind === 'file' && !stat.isFile()) || (kind === 'directory' && !stat.isDirectory())) throw new SessionFilesError(409, '目标类型已变化，请重新打开菜单。');
+    return { ...location, name: basename(location.absolute), kind };
   }
 
   async list(id: string, path = '', query = '', expectedRoot?: string): Promise<SessionFileList> {

@@ -6,10 +6,12 @@ import { MarkdownBody } from '../assistant/markdown-body.js';
 import { fileLocationElement, findTextRanges, isolatedHtml } from './file-preview.js';
 import type { ReadingPosition } from './reading-scene.js';
 import { captureFileSelection, type FileSelection } from './file-selection.js';
+import { FileActions } from './file-actions.js';
 import { highlightFileLines } from './file-syntax.js';
 
-export function FileReader({ sessionId, root, path, position, onPosition, visible, onSelection, onReadingFocus }: {
+export function FileReader({ sessionId, root, path, position, onPosition, visible, onSelection, onReadingFocus, onNotice }: {
   sessionId: string; root: string; path: string; position: ReadingPosition; onPosition: (change: Partial<ReadingPosition>) => void; visible: boolean;
+  onNotice: (message: string, error: boolean) => void;
   onSelection: (selection: FileSelection | null) => void; onReadingFocus: () => void;
 }) {
   const [content, setContent] = useState<SessionFileContent | null>(null);
@@ -96,7 +98,7 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
   }, [query, match, findOpen, content, frameVersion, visible]);
   const closeFind = () => { setFindOpen(false); trigger.current?.focus(); };
   return <div className="file-reader" onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'f') { event.preventDefault(); event.stopPropagation(); openFind(); } }}>
-    <header className="browser-toolbar"><strong title={`${root}/${path}`}>{path}</strong><button ref={trigger} className="icon-button" title="查找原文" aria-label="查找原文" disabled={!content} onClick={openFind}><Search /></button></header>
+    <header className="browser-toolbar"><FileActions sessionId={sessionId} root={root} path={path} kind="file" onNotice={onNotice}><strong title={`${root}/${path}`}>{path}</strong></FileActions><button ref={trigger} className="icon-button" title="查找原文" aria-label="查找原文" disabled={!content} onClick={openFind}><Search /></button></header>
     {findOpen && <div className="browser-search content-find-bar"><Search /><input ref={input} aria-label="原文内查找" value={query} onChange={(event) => { findChanged.current = true; setQuery(event.target.value); setMatch(0); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); findChanged.current = true; setMatch(match + 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFind(); } }} /><span>{query ? `${count ? match % count + 1 : 0}/${count}${count === 5000 ? '+' : ''}` : ''}</span><button className="icon-button" title="查找下一个" aria-label="查找下一个" disabled={!count} onClick={() => { findChanged.current = true; setMatch(match + 1); }}><ArrowDown /></button><button className="icon-button" title="收起原文查找" aria-label="收起原文查找" onClick={closeFind}><X /></button></div>}
     {error ? <p className="browser-empty" role="alert">{error}</p> : !content ? <p className="browser-empty" role="status">正在读取文件…</p> : content.kind === 'html' ?
       <iframe ref={frame} title={`预览 ${path}`} className="discussion-html" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={html} onLoad={() => setFrameVersion((value) => value + 1)} /> :
