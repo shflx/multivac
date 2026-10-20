@@ -1,4 +1,4 @@
-import { MoreHorizontal } from 'lucide-react';
+import { Copy, FolderOpen, MoreHorizontal, Quote, TextCursorInput } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { AssistantFileQuote, SessionFileEntry } from '@multivac/contracts';
@@ -82,10 +82,14 @@ export function FileActions({ sessionId, root, path, kind, onNotice, children }:
         items[event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length]?.focus();
       }
     }}>
-      <button type="button" role="menuitem" onClick={() => void copy('absolute')}>复制绝对路径</button>
-      <button type="button" role="menuitem" onClick={() => void copy('name')}>复制{kind === 'file' ? '文件' : '目录'}名</button>
-      {kind === 'file' && onQuote && <button type="button" role="menuitem" onClick={reference}>引用到当前会话</button>}
-      <button type="button" role="menuitem" onClick={event => void reveal(event)}>在系统文件管理器中显示</button>
+      {kind === 'file' && onQuote && <>
+        <button type="button" role="menuitem" onClick={reference}><Quote aria-hidden="true" />引用到当前会话</button>
+        <div className="file-action-separator" role="separator" />
+      </>}
+      <button type="button" role="menuitem" onClick={() => void copy('absolute')}><Copy aria-hidden="true" />复制绝对路径</button>
+      <button type="button" role="menuitem" onClick={() => void copy('name')}><TextCursorInput aria-hidden="true" />复制{kind === 'file' ? '文件' : '目录'}名</button>
+      <div className="file-action-separator" role="separator" />
+      <button type="button" role="menuitem" onClick={event => void reveal(event)}><FolderOpen aria-hidden="true" />在文件管理器中显示</button>
     </div>, document.body)}
   </div>;
 }
