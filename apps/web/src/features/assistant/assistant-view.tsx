@@ -819,13 +819,6 @@ function AssistantSessionView({
                   {remote ? <ConversationConfirmations /> : <SessionTaskRequests sessionId={session.sessionId} />}
                 </>
               )}
-              {allowAgentSelection && session.failedSubmissions.filter(item => item.agentId).map(item => <div className="agent-failed-submission" key={item.commandId} role="note" aria-label="智能体发送恢复">
-                <ExecutorLabel executor={item.executor ?? null} />
-                <p>{item.error}</p><p>{item.text || '图片消息'}</p>
-                <button type="button" disabled={runBusy || submitting || Boolean(pageState.draft || (pageState.agentId && pageState.agentId !== item.agentId) || pageState.quote)} onClick={() => session.restoreFailedSubmission(item.commandId)}>恢复到输入框</button>
-                <button type="button" disabled={runBusy || submitting || Boolean(session.pendingSubmission)} onClick={() => void session.retryFailedSubmission(item.commandId)}>按原选择再次发送</button>
-                <button type="button" onClick={() => session.dismissFailedSubmission(item.commandId)}>移除记录</button>
-              </div>)}
               {contentSendError && (
                 <div className="send-error" role="alert">
                   <CircleAlert aria-hidden="true" />

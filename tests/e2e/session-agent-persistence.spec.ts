@@ -31,21 +31,12 @@ async function openAgentSession(page: Page, request: APIRequestContext) {
   return { agent, panel, draft, mention, choose, stateUrl, sends };
 }
 
-test('执行失败后保留智能体，恢复按钮兼容相同选择且不覆盖另一智能体，再次发送沿用原选择', async ({ page, request }) => {
-  const { agent, panel, draft, mention, choose, sends } = await openAgentSession(page, request);
+test('执行失败后与默认智能体同样处理：草稿连同智能体回到输入区，再次发送沿用原选择', async ({ page, request }) => {
+  const { agent, panel, draft, mention, sends } = await openAgentSession(page, request);
   const text = '失败场景：保留智能体并恢复正文';
   await draft.fill(text); await panel.getByRole('button', { name: '发送消息', exact: true }).click();
-  const failed = panel.getByRole('note', { name: '智能体发送恢复' });
-  await expect(failed).toBeVisible();
-  await expect(draft).toHaveValue(text);
-  await expect(mention).toContainText('沿用审查');
-  const restore = failed.getByRole('button', { name: '恢复到输入框' });
-  await expect(restore).toBeDisabled();
-  await draft.fill('');
-  await expect(restore).toBeEnabled();
-  await choose('通用执行'); await expect(restore).toBeDisabled();
-  await choose('沿用审查'); await expect(restore).toBeEnabled();
-  await restore.click();
+  await expect(panel.getByRole('note', { name: '本次运行失败原因' })).toBeVisible();
+  await expect(panel.getByRole('note', { name: '智能体发送恢复' })).toHaveCount(0);
   await expect(draft).toHaveValue(text);
   await expect(mention).toContainText('沿用审查');
   await panel.getByRole('button', { name: '发送消息', exact: true }).click();
