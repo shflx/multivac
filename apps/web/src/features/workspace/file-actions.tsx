@@ -49,12 +49,11 @@ export function FileActions({ sessionId, root, path, kind, onNotice, children }:
       if (alive.current) onNotice(field === 'absolute' ? '已复制绝对路径。' : `已复制${kind === 'file' ? '文件' : '目录'}名。`, false);
     } catch (reason) { if (alive.current) onNotice(reason instanceof Error ? reason.message : '复制失败，请检查剪贴板权限。', true); }
   };
-  const reference = async () => {
+  const reference = () => {
     close();
-    try {
-      const target = await getSessionFileTarget(sessionId, path, root, 'file');
-      if (alive.current) onQuote?.({ sourceKind: 'file', quoteKind: 'source', sourceSessionId: sessionId, sourceFile: { root: target.root, path: target.path }, text: '' });
-    } catch (reason) { if (alive.current) onNotice(reason instanceof Error ? reason.message : '文件来源无法核对。', true); }
+    // 来源来自该菜单的固定入口；立即更新草稿，避免迟到请求覆盖后续引用。
+    // 不读正文；文件失效或根变化由发送前的服务端复核反馈，草稿仍保留。
+    onQuote?.({ sourceKind: 'file', quoteKind: 'source', sourceSessionId: sessionId, sourceFile: { root, path }, text: '' });
   };
   const reveal = async (event: MouseEvent<HTMLButtonElement>) => {
     if (!event.isTrusted || !navigator.userActivation?.isActive) { onNotice('请在本机点击文件菜单执行系统定位。', true); return; }
@@ -85,7 +84,7 @@ export function FileActions({ sessionId, root, path, kind, onNotice, children }:
     }}>
       <button type="button" role="menuitem" onClick={() => void copy('absolute')}>复制绝对路径</button>
       <button type="button" role="menuitem" onClick={() => void copy('name')}>复制{kind === 'file' ? '文件' : '目录'}名</button>
-      {kind === 'file' && onQuote && <button type="button" role="menuitem" onClick={() => void reference()}>引用到当前会话</button>}
+      {kind === 'file' && onQuote && <button type="button" role="menuitem" onClick={reference}>引用到当前会话</button>}
       <button type="button" role="menuitem" onClick={event => void reveal(event)}>在系统文件管理器中显示</button>
     </div>, document.body)}
   </div>;

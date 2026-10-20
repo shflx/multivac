@@ -18,9 +18,10 @@ test('文件来源只更新所属草稿，目录无引用，刷新及发送拒�
   await browser.getByRole('button', { name: '「folder」的文件操作', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: '引用到当前会话', exact: true })).toHaveCount(0);
   await page.keyboard.press('Escape');
-  const read: string[] = [], sent: string[] = [];
+  const read: string[] = [], targets: string[] = [], sent: string[] = [];
   page.on('request', call => {
     if (call.url().includes('/files/content')) read.push(call.url());
+    if (call.url().includes('/files/target')) targets.push(call.url());
     if (call.method() === 'POST' && call.url().includes('/turns')) sent.push(call.url());
   });
   await browser.getByRole('button', { name: '「binary.bin」的文件操作', exact: true }).click();
@@ -28,7 +29,7 @@ test('文件来源只更新所属草稿，目录无引用，刷新及发送拒�
   await expect(panel.locator('.composer-quote')).toContainText('binary.bin');
   await expect(panel.locator('.composer-quote')).toContainText('文件来源');
   await expect(panel.getByLabel('Multivac 草稿')).toHaveValue('保留原正文');
-  expect(read).toHaveLength(0); expect(sent).toHaveLength(0);
+  expect(read).toHaveLength(0); expect(targets).toHaveLength(0); expect(sent).toHaveLength(0);
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/sessions/${sessionId}/page-state`)).json()).quote?.quoteKind).toBe('source');
   await page.reload(); await openPanel(page, 'workspace');
   await expect(panel.locator('.composer-quote')).toContainText('binary.bin');
