@@ -262,7 +262,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (preferencesRoutes && await preferencesRoutes(request, response)) return;
       if (usageRoutes && await usageRoutes(request, response)) return;
       if (workspaceSessionRoutes && await workspaceSessionRoutes(request, response)) return;
-      if (sessionFilesRoutes && await sessionFilesRoutes(request, response)) return;
+      if (sessionFilesRoutes && await sessionFilesRoutes(request, response, access ?? undefined)) return;
       if (imageRoutes && await imageRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
     })().catch(() => {

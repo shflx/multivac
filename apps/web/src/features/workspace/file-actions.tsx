@@ -1,8 +1,8 @@
 import { MoreHorizontal } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { AssistantFileQuote, SessionFileEntry } from '@multivac/contracts';
-import { getSessionFileTarget } from '../../data/session-files-api.js';
+import { getSessionFileTarget, revealSessionFile } from '../../data/session-files-api.js';
 import './file-actions.css';
 
 export const FileActionsActive = createContext(true);
@@ -22,6 +22,7 @@ export function FileActions({ sessionId, root, path, kind, onNotice, children }:
   const host = useRef<HTMLDivElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const alive = useRef(false);
+  const revealing = useRef(false);
   useEffect(() => { alive.current = active; if (!active) setAnchor(null); return () => { alive.current = false; }; }, [active]);
   const close = () => { setAnchor(null); trigger.current?.focus({ preventScroll: true }); };
   useLayoutEffect(() => {
@@ -55,6 +56,17 @@ export function FileActions({ sessionId, root, path, kind, onNotice, children }:
       if (alive.current) onQuote?.({ sourceKind: 'file', quoteKind: 'source', sourceSessionId: sessionId, sourceFile: { root: target.root, path: target.path }, text: '' });
     } catch (reason) { if (alive.current) onNotice(reason instanceof Error ? reason.message : '文件来源无法核对。', true); }
   };
+  const reveal = async (event: MouseEvent<HTMLButtonElement>) => {
+    if (!event.isTrusted || !navigator.userActivation?.isActive) { onNotice('请在本机点击文件菜单执行系统定位。', true); return; }
+    if (revealing.current) return;
+    revealing.current = true;
+    close();
+    try {
+      const result = await revealSessionFile(sessionId, path, root, kind);
+      if (alive.current) onNotice(result.message, false);
+    } catch (reason) { if (alive.current) onNotice(reason instanceof Error ? reason.message : '系统定位结果无法确认，请查看本机 Finder。', true); }
+    finally { revealing.current = false; }
+  };
   return <div className="file-action-target" ref={host} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setAnchor({ left: event.clientX, top: event.clientY }); }} onKeyDown={event => {
     if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); event.stopPropagation(); const rect = trigger.current!.getBoundingClientRect(); setAnchor({ left: rect.left, top: rect.bottom }); }
   }}>
@@ -74,6 +86,7 @@ export function FileActions({ sessionId, root, path, kind, onNotice, children }:
       <button type="button" role="menuitem" onClick={() => void copy('absolute')}>复制绝对路径</button>
       <button type="button" role="menuitem" onClick={() => void copy('name')}>复制{kind === 'file' ? '文件' : '目录'}名</button>
       {kind === 'file' && onQuote && <button type="button" role="menuitem" onClick={() => void reference()}>引用到当前会话</button>}
+      <button type="button" role="menuitem" onClick={event => void reveal(event)}>在系统文件管理器中显示</button>
     </div>, document.body)}
   </div>;
 }
