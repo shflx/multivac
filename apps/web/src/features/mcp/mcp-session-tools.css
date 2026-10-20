@@ -1,0 +1,2 @@
+/* 连接确认卡中的本机运行提醒：工作会话与全局对话的 stdio 以用户身份运行。 */
+.mcp-run-notice { margin: 10px 0 0; padding: 8px 10px; border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn); font-size: var(--t-sm); line-height: 1.6; }

@@ -934,7 +934,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
     transport: (service, context) => {
       if (service.transport.kind === 'legacy-sse') return false;
-      if (service.transport.kind === 'stdio') return process.platform === 'darwin' && isAbsolute(service.transport.command)
+      // 任务的 stdio 走原生隔离，只支持 macOS 与绝对路径；工作会话与全局对话按 bash 方式托管，可用 npx 等命令。
+      if (service.transport.kind === 'stdio') return (context.host === 'task' ? process.platform === 'darwin' && isAbsolute(service.transport.command) : process.platform !== 'win32')
         && (service.transport.cwd === null || service.transport.cwd === context.workingDirectory);
       if (context.host === 'task') return false;
       const url = new URL(service.transport.url);

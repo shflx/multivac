@@ -4,7 +4,8 @@ import { useConfirm, ConfirmCard } from '../../components/confirm-card.js';
 import { listWorkspaceSessions } from '../../data/workspace-api.js';
 import { McpAccountEditor } from './mcp-account.js';
 import { McpScope } from './mcp-scope.js';
-import { MCP_EFFECTS, MCP_EFFECT_LABELS, McpRequestError, mcpApi, mcpCommand, mcpStateLabel } from './mcp-api.js';
+import './mcp-session-tools.css';
+import { MCP_EFFECTS, MCP_EFFECT_LABELS, MCP_LOCAL_PROCESS_NOTICE, mcpRunsAsUser, McpRequestError, mcpApi, mcpCommand, mcpStateLabel } from './mcp-api.js';
 
 export function McpDetail({ detail, refresh, onEdit, onBusy, onDirty, onOpenSession }: { detail: McpManagementDetail; refresh: () => Promise<void>; onEdit: () => void; onBusy: (value: boolean) => void; onDirty: (value: boolean) => void; onOpenSession?: (id: string) => void }) {
   const confirm = useConfirm(), service = detail.service;
@@ -78,7 +79,7 @@ export function McpDetail({ detail, refresh, onEdit, onBusy, onDirty, onOpenSess
     </section>
     {!service.removed ? <McpScope kind="session" id={sessionId} /> : <details><summary>移除前的作用域规则</summary><pre className="mcp-json">{JSON.stringify(detail.rules, null, 2)}</pre></details>}
     <section className="detail-section"><h3>最近调用</h3><p className="section-hint">成功、失败、取消请求和结果未知分别显示。结果未知时不自动重发。</p><ul className="mcp-records">{detail.calls.map(value => <li key={value.callId}><span>{mcpStateLabel(value.state)} · {value.identity.sessionId} · {value.errorCode ?? '无错误码'}</span><button type="button" className="inline-link" disabled={working} onClick={() => void run(async () => setCall(await mcpApi(`/call?callId=${value.callId}`)))}>查看此调用结果</button></li>)}</ul>{call && <div><p>调用 {call.callId} · {mcpStateLabel(call.state)}</p><pre className="mcp-json">{call.resultText ?? '没有已核对的结果正文。'}</pre><button type="button" className="inline-link" onClick={() => setCall(null)}>关闭结果</button></div>}</section>
-    {proof && <ConfirmCard title="确认连接 MCP 服务" confirmLabel="按此范围连接" confirmDisabled={!proof.available} busy={busy} onCancel={() => setProof(null)} onConfirm={() => void connect()} details={[`来源：${proof.source}`, `账号：${proof.accountLabel}（版本 ${proof.accountRevision}）`, `会话：${proof.sessionId}`, `宿主：${proof.host}；项目：${proof.projectId ?? '日常'}`, `实际目录：${proof.workingDirectory}`]}><pre className="mcp-json">{JSON.stringify(proof.transport, null, 2)}</pre>{proof.reasons.map(reason => <p key={reason} role="status">{reason}</p>)}</ConfirmCard>}
+    {proof && <ConfirmCard title="确认连接 MCP 服务" confirmLabel="按此范围连接" confirmDisabled={!proof.available} busy={busy} onCancel={() => setProof(null)} onConfirm={() => void connect()} details={[`来源：${proof.source}`, `账号：${proof.accountLabel}（版本 ${proof.accountRevision}）`, `会话：${proof.sessionId}`, `宿主：${proof.host}；项目：${proof.projectId ?? '日常'}`, `实际目录：${proof.workingDirectory}`]}>{mcpRunsAsUser(proof) && <p className="mcp-run-notice" role="note">{MCP_LOCAL_PROCESS_NOTICE}</p>}<pre className="mcp-json">{JSON.stringify(proof.transport, null, 2)}</pre>{proof.reasons.map(reason => <p key={reason} role="status">{reason}</p>)}</ConfirmCard>}
   </section>;
 }
 export function McpToolRow({ detail, catalogId, toolId, connectionId, sessionId, disabled, run }: { detail: McpManagementDetail; catalogId: string; toolId: string; connectionId: string | undefined; sessionId: string; disabled: boolean; run: (action: () => Promise<unknown>) => Promise<void> }) {
