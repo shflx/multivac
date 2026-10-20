@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Type } from 'typebox';
-import { InboxItemSchema, InboxListSchema, InboxStateSchema, type InboxItem, type InboxList, type InboxDecision, HumanRequestSchema, HumanRequestListSchema, type HumanRequestList, type HumanRequest, type DecideHumanRequest } from '@multivac/contracts';
+import { InboxItemSchema, InboxListSchema, InboxStateSchema, type InboxItem, type InboxList, type InboxDecision, HumanRequestSchema, HumanRequestListSchema, type HumanRequestList, type HumanRequest, type DecideHumanRequest, type McpEffect } from '@multivac/contracts';
 import { fetchJson } from '../../data/assistant-api.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
@@ -92,13 +92,14 @@ export class TaskRequestsStore {
     try { await this.stateWrite(id, { seen: true }); await this.refreshInbox(); }
     catch { /* 查看写入失败仍保留未查看点，下次打开详情重试。 */ }
   };
-  decideItem = async (item: InboxItem, decision: InboxDecision['decision']) => {
+  /** effects 仅用于首次调用的 MCP 许可：用户在决定中一并确认的工具效果。 */
+  decideItem = async (item: InboxItem, decision: InboxDecision['decision'], effects?: McpEffect[]) => {
     if (item.human && !item.authorization) {
       if (decision === 'acknowledge') return;
       await this.decide(item.human, decision); await this.refreshInbox().catch(() => undefined); return;
     }
     if (this.state.pending.has(item.id)) return;
-    const input = { revision: item.revision, decision, answer: decision === 'acknowledge' ? '' : this.state.drafts[item.id] ?? '' };
+    const input = { revision: item.revision, decision, answer: decision === 'acknowledge' ? '' : this.state.drafts[item.id] ?? '', ...(effects?.length ? { effects } : {}) };
     this.replace({ ...this.state, pending: new Set([...this.state.pending, item.id]), errors: { ...this.state.errors, [item.id]: '' } });
     try {
       const result = await fetchJson(`/api/inbox/${encodeURIComponent(item.id)}/decision`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...input, commandId: this.command(item.id, input) }) }, Type.Object({ item: InboxItemSchema }));

@@ -121,7 +121,7 @@ export class InboxService {
     this.states.claimCommand(input.commandId, fingerprint({ id, ...input }));
     if (item.mcp) {
       if (!['once', 'deny'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', 'MCP 调用只支持本次允许或拒绝。');
-      await this.mcp!.decide(item.mcp.requestId, input.revision, input.decision as 'once' | 'deny', input.commandId);
+      await this.mcp!.decide(item.mcp.requestId, input.revision, input.decision as 'once' | 'deny', input.commandId, 'effects' in input ? input.effects : undefined);
     } else if (item.external) await this.external!.decide(id, input);
     else if (item.authorization) {
       if (!['once', 'session', 'project', 'deny'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '目录授权决定无效。');

@@ -8,6 +8,15 @@ export interface McpOperationPolicy {
   verify(identity: McpOperationIdentity, args: Record<string, McpJson>, effects: McpEffect[]): Promise<void>;
   /** 活跃连接的真实目录；目录通知失效时必须抛错，不能用旧快照冒充当前目录。 */
   catalog(identity: McpOperationIdentity): McpCatalog;
+  /** 未分类工具能否以“首次调用时确认”进入许可：仅宿主与智能体上限覆盖全部效果时成立。 */
+  allowsUnclassified(identity: McpOperationIdentity): boolean;
+}
+const ALL_EFFECTS: McpEffect[] = ['read', 'local-write', 'external-write', 'data-transfer'];
+
+/** 按服务注解预选效果：只作提示，用户确认后才成为分类。 */
+function suggestEffects(tool: McpCatalog['tools'][number]): McpEffect[] {
+  const annotations = tool.annotations as { readOnlyHint?: unknown } | null;
+  return annotations && typeof annotations === 'object' && annotations.readOnlyHint === true ? ['read'] : [];
 }
 /** Agent 仅拿到 request/inspect；decide 和 confirmClassification 只装配到用户决定入口。 */
 export class McpAuthorizationService {
@@ -43,17 +52,23 @@ export class McpAuthorizationService {
     return value;
   }
   confirmClassification(commandId: string, identity: McpOperationIdentity, effects: McpEffect[]): McpClassification {
+    const classification = this.classification(commandId, identity, effects);
+    this.repository.commit(`classify:${commandId}`, mcpFingerprint({ identity, effects }), this.at(), tx => tx.put('classification', classification, 0));
+    return this.repository.get('classification', classification.classificationId)!;
+  }
+  /** 构造一份用户分类；管理页确认与首次调用许可共用，绑定当前账号、配置、目录与工具定义版本。 */
+  private classification(commandId: string, identity: McpOperationIdentity, effects: McpEffect[]): McpClassification {
     const { catalog, tool } = this.identity(identity);
-    const fingerprint = mcpFingerprint({ identity, effects });
-    const classificationId = mcpFingerprint(['classification', commandId, identity.serviceId, identity.toolId]);
-    this.repository.commit(`classify:${commandId}`, fingerprint, this.at(), tx => {
-      if (!effects.length || new Set(effects).size !== effects.length || effects.some(effect => !['read', 'local-write', 'external-write', 'data-transfer'].includes(effect)))
-        throw new McpError('invalid-config', '请明确选择工具的实际效果。', 400);
-      tx.put('classification', { classificationId, revision: 1, serviceId: identity.serviceId, accountId: identity.accountId,
-        accountRevision: identity.accountRevision, configVersion: identity.configVersion, catalogVersion: catalog.version, toolId: tool.toolId,
-        definitionVersion: tool.definitionVersion, effects, sourceDecisionId: commandId, confirmedAt: this.at(), revokedAt: null }, 0);
-    });
-    return this.repository.get('classification', classificationId)!;
+    if (!effects.length || new Set(effects).size !== effects.length || effects.some(effect => !ALL_EFFECTS.includes(effect)))
+      throw new McpError('invalid-config', '请明确选择工具的实际效果。', 400);
+    return { classificationId: mcpFingerprint(['classification', commandId, identity.serviceId, identity.toolId]), revision: 1, serviceId: identity.serviceId,
+      accountId: identity.accountId, accountRevision: identity.accountRevision, configVersion: identity.configVersion, catalogVersion: catalog.version,
+      toolId: tool.toolId, definitionVersion: tool.definitionVersion, effects: [...effects].sort(), sourceDecisionId: commandId, confirmedAt: this.at(), revokedAt: null };
+  }
+  /** 当前适用的效果；尚无分类时返回 null，由调用方决定能否首次调用时确认。 */
+  private currentEffects(identity: McpOperationIdentity): McpEffect[] | null {
+    try { return this.effects(identity); }
+    catch (error) { if (error instanceof McpError && error.code === 'classification-required') return null; throw error; }
   }
   effects(identity: McpOperationIdentity): McpEffect[] {
     this.identity(identity);
@@ -73,40 +88,56 @@ export class McpAuthorizationService {
   }
   async request(identity: McpOperationIdentity, args: Record<string, McpJson>): Promise<McpAuthorization> {
     identity = structuredClone(identity); args = structuredClone(args);
-    const effects = this.effects(identity);
-    validateMcpArguments(this.identity(identity).tool.inputSchema, args);
+    const classified = this.currentEffects(identity);
+    // 未分类工具只在宿主允许全部效果时进入许可，由用户在本次决定中一并确认效果。
+    if (!classified && !this.policy.allowsUnclassified(identity)) throw new McpError('classification-required', 'MCP 工具效果尚未由用户确认，或适用版本已变化。');
+    const effects = classified ?? [];
+    const { tool } = this.identity(identity);
+    validateMcpArguments(tool.inputSchema, args);
     await this.policy.verify(identity, args, effects); this.identity(identity);
     if (identity.host === 'coordinator' && effects.some(effect => effect === 'local-write' || effect === 'external-write')) throw new McpError('rule-denied', '全局 Multivac 不开放第三方写工具。');
-    const fingerprint = mcpFingerprint({ identity, args, effects });
+    const fingerprint = mcpFingerprint({ identity, args, effects, classificationRequired: !classified });
     const commandId = `mcp-permit:${mcpFingerprint([identity.sessionId, identity.toolCallId])}`;
     const old = this.repository.receipt(commandId, fingerprint);
     if (old) return this.get(old.changes[0]!.id);
     const service = this.repository.get('service', identity.serviceId)!, account = this.repository.get('account', identity.accountId)!;
     const request: McpAuthorization = { requestId: randomUUID(), revision: 1, identity, argumentsFingerprint: mcpFingerprint(args), arguments: args,
       operation: { serviceName: service.name, source: service.source, transport: service.transport, accountLabel: account.label, toolName: this.identity(identity).tool.name },
-      effects, status: 'pending', createdAt: this.at(), expiresAt: new Date(this.now() + 10 * 60_000).toISOString(), decidedAt: null, revokedAt: null };
+      effects, ...(classified ? {} : { classificationRequired: true, suggestedEffects: suggestEffects(tool) }), status: 'pending', createdAt: this.at(), expiresAt: new Date(this.now() + 10 * 60_000).toISOString(), decidedAt: null, revokedAt: null };
     this.repository.commit(commandId, fingerprint, this.at(), tx => tx.put('authorization', request, 0));
     this.notify(request.requestId); return request;
   }
-  async decide(id: string, revision: number, decision: 'once' | 'deny', commandId: string): Promise<McpAuthorization> {
-    const fingerprint = mcpFingerprint({ id, revision, decision });
+  async decide(id: string, revision: number, decision: 'once' | 'deny', commandId: string, chosen?: McpEffect[]): Promise<McpAuthorization> {
+    const fingerprint = mcpFingerprint({ id, revision, decision, ...(chosen ? { effects: [...chosen].sort() } : {}) });
     const receipt = this.repository.receipt(`mcp-decision:${commandId}`, fingerprint);
     if (receipt) return this.get(id);
     let request = this.get(id);
     if (request.status === 'pending' && Date.parse(request.expiresAt) <= this.now()) return this.terminal(request, 'expired');
     if (request.revision !== revision || request.status !== 'pending') throw new McpError('authorization-invalid', 'MCP 请求版本已变化或已终结。');
+    // 首次调用：用户必须同时确认效果；分类与许可在同一次提交中写入。
+    const classifying = decision === 'once' && request.classificationRequired && !request.effects.length;
+    if (classifying && !chosen?.length) throw new McpError('invalid-config', '首次调用需要确认这个工具的实际效果。', 400);
+    let classification: McpClassification | null = null, effects = request.effects;
     if (decision === 'once') {
       try {
         this.assertRequestCurrent(request);
-        await this.policy.verify(request.identity, request.arguments, request.effects);
+        if (classifying) {
+          classification = this.classification(commandId, request.identity, chosen!);
+          effects = [...new Set([...classification.effects, ...(request.operation.transport.kind === 'streamable-http' ? ['data-transfer' as const] : [])])].sort();
+        }
+        await this.policy.verify(request.identity, request.arguments, effects);
         this.assertRequestCurrent(request);
-      } catch {
+      } catch (error) {
+        if (error instanceof McpError && error.code === 'invalid-config') throw error;
         request = this.terminal(request, 'invalidated');
         return request;
       }
     }
-    const next: McpAuthorization = { ...request, revision: revision + 1, status: decision === 'once' ? 'allowed' : 'denied', decidedAt: this.at() };
-    this.repository.commit(`mcp-decision:${commandId}`, fingerprint, this.at(), tx => tx.put('authorization', next, revision));
+    const next: McpAuthorization = { ...request, revision: revision + 1, effects, status: decision === 'once' ? 'allowed' : 'denied', decidedAt: this.at() };
+    this.repository.commit(`mcp-decision:${commandId}`, fingerprint, this.at(), tx => {
+      if (classification) tx.put('classification', classification, 0);
+      tx.put('authorization', next, revision);
+    });
     this.notify(id); return next;
   }
   assertAuthorized(id: string, identity: McpOperationIdentity, args: Record<string, McpJson>): void {
@@ -144,7 +175,8 @@ export class McpAuthorizationService {
     const current = this.get(request.requestId);
     if (current.revision !== request.revision || current.revokedAt !== null) throw new McpError('authorization-invalid', 'MCP 请求已变化或已撤销。');
     this.identity(request.identity);
-    if (Date.parse(request.expiresAt) <= this.now() || mcpCanonical(this.effects(request.identity)) !== mcpCanonical(request.effects)) throw new McpError('authorization-invalid', 'MCP 请求的分类或时间已失效。');
+    // 待确认分类的请求在决定前效果为空，当前也必须仍未分类；其他请求的效果须与当前分类一致。
+    if (Date.parse(request.expiresAt) <= this.now() || mcpCanonical(this.currentEffects(request.identity) ?? []) !== mcpCanonical(request.effects)) throw new McpError('authorization-invalid', 'MCP 请求的分类或时间已失效。');
   }
   private identity(identity: McpOperationIdentity) {
     const service = this.repository.get('service', identity.serviceId), account = this.repository.get('account', identity.accountId);

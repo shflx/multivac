@@ -12,7 +12,7 @@ import { mcpAt, mcpFixture } from './fixtures/mcp-fixture.js';
 
 function fixture() {
   const f = mcpFixture(); let clock = Date.parse(mcpAt), allowed = true, catalog = f.catalog;
-  const permits = new McpAuthorizationService(f.repository, { catalog: () => catalog, async verify() { if (!allowed) throw new Error('宿主拒绝'); } }, () => {}, () => clock);
+  const permits = new McpAuthorizationService(f.repository, { catalog: () => catalog, allowsUnclassified: () => false, async verify() { if (!allowed) throw new Error('宿主拒绝'); } }, () => {}, () => clock);
   f.db.exec(INBOX_MIGRATION);
   const inbox = new InboxService({ list: () => [] } as unknown as HumanRequestService, { all: () => [] } as unknown as ToolAuthorizationService,
     new SqliteInboxRepository(f.db), new WorkbenchEvents(), undefined, undefined, permits);
