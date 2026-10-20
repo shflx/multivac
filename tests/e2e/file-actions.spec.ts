@@ -21,11 +21,11 @@ test('文件操作在树、搜索与当前文件中固定目标，并如实反�
   const menu = page.getByRole('menu', { name: `「${name}」的文件操作`, exact: true });
   await browser.getByRole('button', { name, exact: true }).click({ button: 'right' });
   await menu.getByRole('menuitem', { name: '复制绝对路径', exact: true }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(join(root, name));
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(join(root, name));
   await expect(browser.getByRole('article')).toHaveCount(0);
   await browser.getByRole('button', { name: `「${name}」的文件操作`, exact: true }).click();
   await menu.getByRole('menuitem', { name: '复制文件名', exact: true }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(name);
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(name);
   await browser.getByRole('button', { name, exact: true }).focus();
   await page.keyboard.press('Shift+F10'); await expect(menu).toBeVisible();
   await page.keyboard.press('ArrowDown'); await page.keyboard.press('Escape');
@@ -33,12 +33,12 @@ test('文件操作在树、搜索与当前文件中固定目标，并如实反�
   await browser.getByLabel('搜索工作目录文件').fill('中文');
   await browser.getByRole('button', { name: `「${name}」的文件操作`, exact: true }).click();
   await menu.getByRole('menuitem', { name: '复制文件名', exact: true }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(name);
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(name);
   await browser.getByRole('button', { name: new RegExp('中文 空格') }).filter({ has: page.locator('span') }).click();
   await expect(browser.getByRole('article')).toContainText('真实文件');
   await browser.locator('.file-reader header strong').click({ button: 'right' });
   await menu.getByRole('menuitem', { name: '复制绝对路径', exact: true }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(join(root, name));
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(join(root, name));
   await page.evaluate(() => { Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: () => Promise.reject(new Error('剪贴板拒绝')) }); });
   await browser.locator('.file-reader').getByRole('button', { name: `「${name}」的文件操作`, exact: true }).click();
   await menu.getByRole('menuitem', { name: '复制文件名', exact: true }).click();
