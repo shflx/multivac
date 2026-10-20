@@ -27,7 +27,7 @@ test('系统定位只从真实菜单点击发出，固定目标且保留阅读�
   const scroll = await article.evaluate(element => element.scrollTop);
   const trigger = browser.locator('.file-reader').getByRole('button', { name: '「notes.txt」的文件操作', exact: true });
   await trigger.click();
-  const action = page.getByRole('menuitem', { name: '在系统文件管理器中显示', exact: true });
+  const action = page.getByRole('menuitem', { name: '在文件管理器中显示', exact: true });
   await action.evaluate(element => (element as HTMLButtonElement).click());
   expect(calls).toHaveLength(0);
   await expect(browser.getByRole('alert')).toContainText('请在本机点击');
