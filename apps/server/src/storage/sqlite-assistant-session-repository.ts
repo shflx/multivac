@@ -70,14 +70,17 @@ function quoteFromColumn(value: string | null): AssistantQuote | null {
 function sameQuote(left: AssistantQuote | null, right: AssistantQuote | null): boolean {
   if (left === null || right === null) return left === right;
   if (left.sourceKind === 'book' || right.sourceKind === 'book') return left.sourceKind === 'book' && right.sourceKind === 'book' && left.text === right.text && JSON.stringify([left.sourceBook, left.sourceMessage ?? null, left.sourceNote ?? null]) === JSON.stringify([right.sourceBook, right.sourceMessage ?? null, right.sourceNote ?? null]);
+  if (left.sourceKind === 'file' || right.sourceKind === 'file') return left.sourceKind === 'file' && right.sourceKind === 'file' &&
+    (left.quoteKind ?? 'selection') === (right.quoteKind ?? 'selection') && left.text === right.text &&
+    left.sourceSessionId === right.sourceSessionId && left.sourceTitle === right.sourceTitle &&
+    left.sourceFile.root === right.sourceFile.root && left.sourceFile.path === right.sourceFile.path &&
+    left.sourceFile.line === right.sourceFile.line && left.sourceFile.endLine === right.sourceFile.endLine && left.sourceFile.section === right.sourceFile.section;
   return left.sourceRuntimeSessionId === right.sourceRuntimeSessionId &&
     left.sourceRuntimeEntryId === right.sourceRuntimeEntryId &&
     left.sourceRole === right.sourceRole &&
     left.text === right.text &&
     left.sourceSessionId === right.sourceSessionId &&
-    left.sourceTitle === right.sourceTitle &&
-    left.sourceFile?.root === right.sourceFile?.root && left.sourceFile?.path === right.sourceFile?.path &&
-    left.sourceFile?.line === right.sourceFile?.line && left.sourceFile?.endLine === right.sourceFile?.endLine && left.sourceFile?.section === right.sourceFile?.section;
+    left.sourceTitle === right.sourceTitle;
 }
 
 function pageStateFromRow(row: PageStateRow | undefined): AssistantPageState {

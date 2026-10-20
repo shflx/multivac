@@ -1,11 +1,12 @@
 import { MoreHorizontal } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { SessionFileEntry } from '@multivac/contracts';
+import type { AssistantFileQuote, SessionFileEntry } from '@multivac/contracts';
 import { getSessionFileTarget } from '../../data/session-files-api.js';
 import './file-actions.css';
 
 export const FileActionsActive = createContext(true);
+export const FileSourceQuote = createContext<((quote: AssistantFileQuote) => void) | null>(null);
 
 export interface FileActionProps {
   sessionId: string; root: string; path: string; kind: SessionFileEntry['kind'];
@@ -15,6 +16,7 @@ export interface FileActionProps {
 /** 每个入口持有自己的目标，不读取当前选中项或工作区焦点。 */
 export function FileActions({ sessionId, root, path, kind, onNotice, children }: FileActionProps & { children: ReactNode }) {
   const active = useContext(FileActionsActive);
+  const onQuote = useContext(FileSourceQuote);
   const [anchor, setAnchor] = useState<{ left: number; top: number } | null>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -46,6 +48,13 @@ export function FileActions({ sessionId, root, path, kind, onNotice, children }:
       if (alive.current) onNotice(field === 'absolute' ? '已复制绝对路径。' : `已复制${kind === 'file' ? '文件' : '目录'}名。`, false);
     } catch (reason) { if (alive.current) onNotice(reason instanceof Error ? reason.message : '复制失败，请检查剪贴板权限。', true); }
   };
+  const reference = async () => {
+    close();
+    try {
+      const target = await getSessionFileTarget(sessionId, path, root, 'file');
+      if (alive.current) onQuote?.({ sourceKind: 'file', quoteKind: 'source', sourceSessionId: sessionId, sourceFile: { root: target.root, path: target.path }, text: '' });
+    } catch (reason) { if (alive.current) onNotice(reason instanceof Error ? reason.message : '文件来源无法核对。', true); }
+  };
   return <div className="file-action-target" ref={host} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); setAnchor({ left: event.clientX, top: event.clientY }); }} onKeyDown={event => {
     if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) { event.preventDefault(); event.stopPropagation(); const rect = trigger.current!.getBoundingClientRect(); setAnchor({ left: rect.left, top: rect.bottom }); }
   }}>
@@ -64,6 +73,7 @@ export function FileActions({ sessionId, root, path, kind, onNotice, children }:
     }}>
       <button type="button" role="menuitem" onClick={() => void copy('absolute')}>复制绝对路径</button>
       <button type="button" role="menuitem" onClick={() => void copy('name')}>复制{kind === 'file' ? '文件' : '目录'}名</button>
+      {kind === 'file' && onQuote && <button type="button" role="menuitem" onClick={() => void reference()}>引用到当前会话</button>}
     </div>, document.body)}
   </div>;
 }

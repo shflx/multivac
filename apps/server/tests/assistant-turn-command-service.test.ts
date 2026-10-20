@@ -66,6 +66,7 @@ async function harness(
     promptReturnBarrier?: Promise<void>;
     abortBarrier?: Promise<void>;
   } = {},
+  resolveFileQuote?: (quote: import('@multivac/contracts').AssistantFileQuote) => Promise<import('@multivac/contracts').CoordinatorFileQuote>,
 ) {
   const root = await mkdtemp(join(tmpdir(), 'multivac-assistant-turn-'));
   const store = new SqliteAssistantStore(join(root, 'data.sqlite'));
@@ -92,6 +93,7 @@ async function harness(
     adapter,
     commandRepository,
     eventStream,
+    ...(resolveFileQuote ? { resolveFileQuote } : {}),
   });
   const projector = new AssistantEventProjector({
     adapter,
@@ -129,6 +131,31 @@ SendAssistantMessageCommand {
     ...(streamingBehavior ? { streamingBehavior } : {}),
   };
 }
+
+test('文件来源发送前复核，重放不重复发送，类型与位置参与幂等且跨会话拒绝', async () => {
+  let valid = true;
+  let checked = 0;
+  const target = await harness(0, undefined, {}, async quote => {
+    checked++;
+    if (!valid) throw new Error('文件来源已失效');
+    return { sourceKind: 'file', quoteKind: quote.quoteKind, sourceFile: quote.sourceFile, text: quote.text, source: { sessionId: quote.sourceSessionId, title: '来源' } };
+  });
+  const quote = { sourceKind: 'file' as const, quoteKind: 'source' as const, sourceSessionId: 'global-coordinator', sourceFile: { root: '/workspace', path: 'a.bin' }, text: '' as const };
+  try {
+    const command = { ...send('file-source', '检查来源'), quote };
+    const result = await target.commandService.send(command);
+    assert.equal(checked, 2);
+    valid = false;
+    assert.deepEqual(await target.commandService.send(command), result);
+    assert.equal(checked, 2);
+    assert.equal(target.adapter.calls.filter(call => call.method === 'prompt').length, 1);
+    await assert.rejects(target.commandService.send({ ...command, quote: { ...quote, sourceFile: { ...quote.sourceFile, path: 'b.bin' } } }), /commandId 已被不同请求使用/);
+    await assert.rejects(target.commandService.send({ ...command, commandId: 'invalid-source' }), /文件来源已失效/);
+    assert.equal(target.commandService.get('invalid-source').receipt, null);
+    await assert.rejects(target.commandService.send({ ...command, commandId: 'foreign-source', quote: { ...quote, sourceSessionId: 'other' } }), /所属工作会话/);
+    assert.equal(checked, 3);
+  } finally { await target.close(); }
+});
 
 test('同 commandId 并发同 payload 单飞，不同 fingerprint 在 barrier 前立即冲突', async () => {
   let releasePrompt!: () => void;

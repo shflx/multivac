@@ -58,6 +58,7 @@ export interface CoordinatorMessageQuote {
 
 export interface CoordinatorFileQuote {
   sourceKind: 'file';
+  quoteKind?: 'selection' | 'source';
   sourceFile: import('./assistant-session.js').FileQuoteSource;
   text: string;
   source: { sessionId: string; title: string; runtimeSessionId?: never };

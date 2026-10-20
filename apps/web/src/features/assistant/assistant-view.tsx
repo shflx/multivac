@@ -543,7 +543,7 @@ function AssistantSessionView({
   const quoteSourceTitle = (quote: AssistantQuote): string | null =>
     quote.sourceKind === 'book' ? `书籍「${quote.sourceTitle ?? quote.sourceBook.bookId}」` :
     quote.sourceKind === 'mcp' ? `${quote.sourceMcp.serviceName} · ${quote.sourceMcp.uri} · ${quote.sourceMcp.readAt}${quote.sourceMcp.truncated ? ' · 已截断快照' : ''}` :
-    quote.sourceKind === 'file' ? `${quote.sourceFile.path}${quote.sourceFile.line ? ` · 第 ${quote.sourceFile.line}${quote.sourceFile.endLine ? `-${quote.sourceFile.endLine}` : ''} 行` : quote.sourceFile.section ? ` · ${quote.sourceFile.section}` : ''}${quote.sourceSessionId !== session.sessionId ? ` · ${quote.sourceTitle ?? '来源会话'}` : ''}` :
+    quote.sourceKind === 'file' ? `${quote.quoteKind === 'source' ? `${quote.sourceFile.root}/` : ''}${quote.sourceFile.path}${quote.sourceFile.line ? ` · 第 ${quote.sourceFile.line}${quote.sourceFile.endLine ? `-${quote.sourceFile.endLine}` : ''} 行` : quote.sourceFile.section ? ` · ${quote.sourceFile.section}` : ''}${quote.sourceSessionId !== session.sessionId ? ` · ${quote.sourceTitle ?? '来源会话'}` : ''}` :
     quote.sourceSessionId && quote.sourceSessionId !== session.sessionId ? quote.sourceTitle ?? null : null;
   const composerCollapsed = composerCollapsedNow;
   // 运行失败已有所属轨迹时不重复展示同一错误；未进入运行的发送错误仍在内容区反馈。
@@ -776,7 +776,7 @@ function AssistantSessionView({
                               {quoteSourceTitle(item.message.quote) && (
                                 <cite>来自「{quoteSourceTitle(item.message.quote)}」</cite>
                               )}
-                              {item.message.quote.text}{item.message.quote.sourceKind === 'book' && <BookReferenceLink reference={item.message.quote.sourceBook} />}
+                              {item.message.quote.sourceKind === 'file' && item.message.quote.quoteKind === 'source' ? '文件来源' : item.message.quote.text}{item.message.quote.sourceKind === 'book' && <BookReferenceLink reference={item.message.quote.sourceBook} />}
                             </span>
                           </blockquote>
                         )}
@@ -920,7 +920,7 @@ function AssistantSessionView({
                     {quoteSourceTitle(pageState.quote) && (
                       <small className="quote-source">来自「{quoteSourceTitle(pageState.quote)}」</small>
                     )}
-                    <p>{pageState.quote.text}</p>{pageState.quote.sourceKind === 'book' && <BookReferenceLink reference={pageState.quote.sourceBook} />}
+                    <p>{pageState.quote.sourceKind === 'file' && pageState.quote.quoteKind === 'source' ? '文件来源（发送时核对，不附加全文）' : pageState.quote.text}</p>{pageState.quote.sourceKind === 'book' && <BookReferenceLink reference={pageState.quote.sourceBook} />}
                   </div>
                   <button type="button" aria-label="移除引用" title="移除引用" onClick={removeQuote}>
                     <X aria-hidden="true" />

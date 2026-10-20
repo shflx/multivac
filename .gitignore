@@ -40,6 +40,7 @@ docs/design/*
 !docs/runtime-configuration.md
 !docs/harness-integration.md
 !docs/mcp.md
+!docs/file-browser-actions.md
 !docs/design/work-session-agent.md
 output/
 .multica/
