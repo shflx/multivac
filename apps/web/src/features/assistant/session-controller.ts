@@ -697,15 +697,15 @@ export class AssistantSessionController {
     return true;
   }
 
-  private rejectSubmission(owner: CommandIdentity, error: string, received = false, executor?: AssistantExecutor): void {
+  private rejectSubmission(owner: CommandIdentity, error: string, received = false): void {
     const pending = this.state.pendingCommand;
     if (!pending || !sameCommand(pending, owner)) return;
-    // 服务端已接收后的执行失败仍是会话事实，不自动撤回为未发送提问。
-    const agentId = pending.agentId ?? executor?.agentId;
-    if (pending.clearOnSubmit && (pending.confirmed || received) && !agentId) return;
+    // 服务端已接收后的执行失败仍是会话事实，不自动撤回为未发送提问；指定智能体的命令同样处理，
+    // 未送达时草稿连同智能体选择回到输入区，重试即按原选择发送。
+    if (pending.clearOnSubmit && (pending.confirmed || received)) return;
     const restored = received || pending.confirmed ? false : this.restoreUnsentCommandDraft(owner);
-    if (pending.clearOnSubmit || agentId) this.updateFailedSubmissions((current) => [...current.filter((item) => item.commandId !== pending.commandId).slice(-19), {
-      commandId: pending.commandId, text: pending.text, ...(agentId ? { agentId } : {}), ...(executor ? { executor } : {}), omitQuote: pending.omitQuote ?? false,
+    if (pending.clearOnSubmit) this.updateFailedSubmissions((current) => [...current.filter((item) => item.commandId !== pending.commandId).slice(-19), {
+      commandId: pending.commandId, text: pending.text, ...(pending.agentId ? { agentId: pending.agentId } : {}), omitQuote: pending.omitQuote ?? false,
       ...(pending.imageIds ? { imageIds: pending.imageIds } : {}), quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs,
       createdAt: pending.echoCreatedAt ?? this.now(), restoredDraftVersion: restored ? this.saver.draftVersion : null, error,
     }]);
@@ -743,7 +743,7 @@ export class AssistantSessionController {
     const successful = receipt.terminalOutcome === 'succeeded' || receipt.terminalOutcome === 'accepted';
     if (!successful) {
       this.clearLocalEcho(owner);
-      this.rejectSubmission(owner, receipt.error?.message ?? '消息未发送成功。', receipt.terminalOutcome !== 'rejected', receipt.executor);
+      this.rejectSubmission(owner, receipt.error?.message ?? '消息未发送成功。', receipt.terminalOutcome !== 'rejected');
       this.setPendingCommand(null);
       this.update({ sendError: unsuccessfulSendError(receipt.terminalOutcome, receipt.error, expired) });
       return true;
