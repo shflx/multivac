@@ -5,7 +5,7 @@ import { MCP_EFFECTS, MCP_EFFECT_LABELS, mcpApi, mcpCommand, mcpStateLabel } fro
 import './mcp.css';
 
 /** 项目、智能体和会话使用同一规则入口；草稿与最新版本分开，冲突不能覆盖输入。 */
-export function McpScope({ kind, id, active = true }: { kind: McpRuleTarget['kind']; id: string; active?: boolean }) {
+export function McpScope({ kind, id, active = true, title = 'MCP 服务与工具' }: { kind: McpRuleTarget['kind']; id: string; active?: boolean; title?: string }) {
   const [entries, setEntries] = useState<McpScopeEntry[]>([]), [error, setError] = useState('');
   const generation = useRef(0);
   async function load() {
@@ -16,7 +16,7 @@ export function McpScope({ kind, id, active = true }: { kind: McpRuleTarget['kin
   useEffect(() => { setEntries([]); if (active) void load(); return () => { generation.current++; }; }, [kind, id, active]);
   useOptionalWorkbenchEvents(event => { if (active && ['mcp.changed', 'workbench.connected', 'session.changed'].includes(event.type)) void load(); });
   return <section className="detail-section mcp-scope" aria-label="MCP 服务规则">
-    <div className="section-title"><h3>MCP 服务与工具</h3><button type="button" className="inline-link" onClick={() => void load()}>核对最新规则</button></div>
+    <div className="section-title"><h3>{title}</h3><button type="button" className="inline-link" onClick={() => void load()}>核对最新规则</button></div>
     <p className="section-hint">{kind === 'project' ? '项目可以排除服务并明确选择账号。账号未选择时，不自动回落到其他账号。' : kind === 'agent' ? '偏好只调整顺序。效果上限与项目、会话和宿主限制共同生效。' : '临时停用持续到本会话明确重新启用；刷新、重启和归档恢复不会清除它。'} 每次实际调用仍需要单次许可。</p>
     {error && <p role="alert" className="form-error">{error}</p>}
     {!entries.length && !error && <p className="section-hint">尚无已登记服务，或正在读取。</p>}
@@ -46,6 +46,7 @@ function ScopeRow({ entry, kind, ownerId, reload }: { entry: McpScopeEntry; kind
     {!entry.editable && <p className="section-hint">此归属当前只读，规则仍保留。</p>}
     {base !== (entry.rule?.revision ?? 0) && dirty && <p role="status">规则已在别处变化。输入已保留，请核对最新规则后重新编辑。</p>}
     {error && <p role="alert" className="form-error">{error}</p>}
-    <div className="mcp-actions"><button type="button" className="secondary-button" disabled={busy || !dirty} onClick={() => { setDraft(entry.rule?.target ?? empty); setBase(entry.rule?.revision ?? 0); setDirty(false); setError(''); }}>放弃草稿并采用最新规则</button><button className="primary-button" disabled={busy || !entry.editable || !dirty || base !== (entry.rule?.revision ?? 0)}>保存规则</button></div>
+    {/* 只有改动后才出现保存与放弃，未修改的规则保持安静。 */}
+    {dirty && <div className="mcp-actions"><button type="button" className="secondary-button" disabled={busy} onClick={() => { setDraft(entry.rule?.target ?? empty); setBase(entry.rule?.revision ?? 0); setDirty(false); setError(''); }}>放弃草稿并采用最新规则</button><button className="primary-button" disabled={busy || !entry.editable || base !== (entry.rule?.revision ?? 0)}>保存规则</button></div>}
   </form>;
 }

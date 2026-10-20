@@ -1,4 +1,4 @@
-import type { McpManagementList, McpService } from '@multivac/contracts';
+import type { McpCatalog, McpManagementDetail, McpManagementList, McpService } from '@multivac/contracts';
 
 export class McpRequestError extends Error {
   constructor(message: string, readonly unknown: boolean) { super(message); }
@@ -32,3 +32,13 @@ export const MCP_LOCAL_PROCESS_NOTICE = '此服务将以你的身份在本机运
 export const mcpRunsAsUser = (preview: { transport: { kind: string }; host: string }) => preview.transport.kind === 'stdio' && preview.host !== 'task';
 export const MCP_EFFECTS = ['read', 'local-write', 'external-write', 'data-transfer'] as const;
 export const MCP_EFFECT_LABELS = { read: '读取', 'local-write': '本地写入', 'external-write': '外部写入', 'data-transfer': '数据外传' };
+/** 传输方式的展示名称：列表与预览中替代协议标识。 */
+export function mcpTransportLabel(kind: McpService['transport']['kind']): string {
+  return ({ stdio: '本地命令', 'streamable-http': '远程 HTTP', 'legacy-sse': '旧版 SSE' } as const)[kind];
+}
+/** 仍然有效的工具分类：账号、配置、目录与工具定义版本都与当前一致且未撤销；任一变化都使旧分类失效。 */
+export function applicableClassifications(detail: McpManagementDetail, catalog: McpCatalog, tool: McpCatalog['tools'][number]) {
+  return detail.classifications.filter(value => detail.accounts.some(account => account.accountId === catalog.accountId && account.revision === catalog.accountRevision)
+    && value.toolId === tool.toolId && value.accountId === catalog.accountId && value.accountRevision === catalog.accountRevision
+    && value.configVersion === detail.service.configVersion && value.catalogVersion === catalog.version && value.definitionVersion === tool.definitionVersion && !value.revokedAt);
+}

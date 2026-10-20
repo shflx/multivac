@@ -1,2 +1,148 @@
+/*
+ * 输入区的 MCP 状态：不是可选择的输入，放在底栏右侧、发送按钮旁，弱化为状态指示；
+ * 弹层与 Skill、智能体选择弹层同一套视觉，从输入卡片右上方展开。
+ */
+.mcp-session-tools { display: inline-flex; flex-shrink: 0; align-items: center; }
+.assistant-composer:has(.mcp-session-menu) { position: relative; }
+
+.mcp-session-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mcp-session-trigger:hover:not(:disabled),
+.mcp-session-trigger[aria-expanded='true'] { color: var(--ink); }
+.mcp-session-trigger:disabled { opacity: 0.5; cursor: default; }
+.mcp-session-trigger svg { flex-shrink: 0; width: 16px; height: 16px; }
+/* 有未连接或待分类的服务时，文字后跟一个小点提示，不打断输入。 */
+.mcp-session-attention { flex-shrink: 0; width: 6px; height: 6px; margin-left: 1px; border-radius: 50%; background: var(--warn); }
+
+.mcp-session-menu {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 12px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  width: min(300px, calc(100% - 24px));
+  max-height: min(400px, 60vh);
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 10px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-menu);
+}
+
+.mcp-session-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 2px 12px 8px; }
+.mcp-session-heading > span { color: var(--faint); font-size: var(--t-xs); }
+.mcp-session-heading strong { color: var(--ink); font-size: var(--t-sm); font-weight: 600; }
+
+.mcp-session-error { display: flex; align-items: flex-start; gap: 7px; margin: 0 12px 8px; padding: 9px; border-radius: 6px; background: var(--danger-soft); color: var(--danger); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.mcp-session-error svg { flex: 0 0 14px; width: 14px; height: 14px; }
+
+.mcp-session-list { display: grid; gap: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 6px; scrollbar-width: thin; }
+.mcp-session-empty { display: flex; align-items: center; gap: 8px; margin: 0; padding: 16px 6px; color: var(--muted); font-size: var(--t-xs); }
+.mcp-session-empty svg { width: 14px; height: 14px; }
+
+.mcp-session-group { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; margin-top: 2px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--faint); font-size: var(--t-xs); text-align: left; cursor: pointer; }
+.mcp-session-group:hover { color: var(--muted); }
+.mcp-session-group svg { width: 12px; height: 12px; transition: transform 120ms ease; }
+.mcp-session-group[aria-expanded='true'] svg { transform: rotate(90deg); }
+
+.mcp-session-service { border-radius: 6px; }
+.mcp-session-service:hover { background: var(--surface-subtle); }
+.mcp-session-service > header { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px; }
+/* 不可用的服务：去掉底色并整体变淡，与可操作项区分。 */
+.mcp-session-service.blocked { opacity: 0.55; }
+.mcp-session-service.blocked:hover { background: transparent; }
+.mcp-session-service.blocked > header { min-height: 28px; }
+
+.mcp-session-name { display: flex; flex: 1; align-items: baseline; gap: 8px; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; }
+button.mcp-session-name { cursor: pointer; }
+.mcp-session-name strong { flex-shrink: 0; font-size: var(--t-sm); font-weight: 600; white-space: nowrap; }
+.mcp-session-name small { min-width: 0; margin-left: auto; overflow: hidden; text-align: right; color: var(--muted); font-size: var(--t-xs); text-overflow: ellipsis; white-space: nowrap; }
+.mcp-session-name small.pending { flex-shrink: 0; padding: 0 6px; border-radius: 999px; background: var(--warn-soft); color: var(--warn); line-height: 1.7; }
+.mcp-session-chevron { flex-shrink: 0; align-self: center; width: 13px; height: 13px; color: var(--faint); transition: transform 120ms ease; }
+.mcp-session-service.expanded .mcp-session-chevron { transform: rotate(90deg); }
+.mcp-session-service.paused .mcp-session-name strong { color: var(--muted); }
+
+.mcp-session-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--line-strong); }
+.mcp-session-dot.ready { background: var(--success); }
+.mcp-session-dot.disconnected { background: var(--warn); }
+
+.mcp-session-connect {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
+
+.mcp-session-connect:hover:not(:disabled) { background: var(--accent-soft); }
+.mcp-session-connect:disabled { opacity: 0.5; cursor: default; }
+.mcp-session-connect svg { width: 12px; height: 12px; }
+
+.mcp-session-service ul { display: grid; gap: 2px; margin: 0; padding: 0 8px 6px 23px; list-style: none; }
+.mcp-session-service li { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: var(--t-xs); }
+.mcp-session-service li svg { flex-shrink: 0; width: 12px; height: 12px; color: var(--faint); }
+.mcp-session-service li code { overflow: hidden; color: var(--ink); text-overflow: ellipsis; white-space: nowrap; }
+.mcp-session-service li span { margin-left: auto; white-space: nowrap; }
+.mcp-session-service li span.ready { color: var(--muted); }
+.mcp-session-service li span.pending { color: var(--warn); }
+
+.mcp-session-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-shrink: 0; padding: 6px 8px 6px 12px; border-top: 1px solid var(--line); color: var(--faint); font-size: var(--t-xs); }
+
+.mcp-session-footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+
+.mcp-session-footer button:hover { background: var(--accent-soft); }
+.mcp-session-footer svg { width: 13px; height: 13px; }
+.mcp-session-trigger:focus-visible,
+.mcp-session-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 资源引用对话框：可选中的资源行，与弹层列表同一视觉。 */
+.mcp-resource-options { display: grid; gap: 4px; max-height: 300px; overflow-y: auto; margin: 8px 0; }
+.mcp-resource-options label { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: 8px; background: var(--surface-subtle); cursor: pointer; overflow-wrap: anywhere; }
+.mcp-resource-options label.selected { background: var(--accent-soft); }
+.mcp-resource-options input { margin-top: 3px; accent-color: var(--accent); }
+.mcp-resource-options label > span { display: grid; gap: 2px; min-width: 0; }
+.mcp-resource-options strong { font-size: var(--t-sm); font-weight: 550; }
+.mcp-resource-options small { color: var(--muted); font-size: var(--t-xs); }
+.mcp-resource-empty { margin: 8px 0; color: var(--faint); font-size: var(--t-sm); }
+.mcp-resource-pages { display: flex; gap: 8px; }
+.mcp-resource-params { display: grid; gap: 6px; margin-top: 8px; color: var(--muted); font-size: var(--t-xs); font-weight: 600; }
+.mcp-resource-params textarea { min-height: 64px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-md); font-family: ui-monospace, monospace; font-size: var(--t-xs); }
+
 /* 连接确认卡中的本机运行提醒：工作会话与全局对话的 stdio 以用户身份运行。 */
 .mcp-run-notice { margin: 10px 0 0; padding: 8px 10px; border-radius: var(--r-md); background: var(--warn-soft); color: var(--warn); font-size: var(--t-sm); line-height: 1.6; }

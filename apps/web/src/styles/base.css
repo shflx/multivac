@@ -5037,11 +5037,14 @@ svg {
 .confirm-card-details {
   display: grid;
   gap: 4px;
+  min-width: 0;
   margin: 13px 0 0;
   padding-left: 18px;
   color: var(--muted);
   font-size: var(--t-sm);
   line-height: 1.6;
+  /* 路径、地址等长串在卡片内换行，不撑出卡片。 */
+  overflow-wrap: anywhere;
 }
 
 .confirm-card-error {

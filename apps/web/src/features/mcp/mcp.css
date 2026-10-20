@@ -1,26 +1,305 @@
-/* 能力页复用管理页布局；窄栏转为上下排列，不让配置和长身份撑开容器。 */
-.capabilities-page { min-width: 0; }
+/* ---------- 管理 · 设置 · 能力：页签 + 列表 + 详情，与 Skill、智能体页同一视觉 ---------- */
+.capabilities-page { min-width: 0; margin-top: 22px; }
 .capabilities-page > [hidden] { display: none; }
-.capability-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
-.capability-tabs button { padding: 8px 16px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-subtle); color: var(--muted); }
-.capability-tabs button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.capabilities-page .projects-page { margin-top: 0; }
+.capability-tabs { margin-bottom: 20px; }
+.segmented.capability-tabs button { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 0 14px; font-size: var(--t-sm); }
+.segmented.capability-tabs button svg { width: 14px; height: 14px; }
+
 .mcp-page { container-type: inline-size; min-width: 0; }
-.mcp-page > .projects-layout.mcp-layout { grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap: 24px; min-height: 0; overflow: visible; border: 0; }
-.mcp-page .project-list-pane { align-self: start; padding: 10px; border-radius: var(--r-lg); background: var(--surface-subtle); }
-.mcp-page .project-list { display: grid; gap: 4px; }
-.mcp-page .project-list button { display: block; width: 100%; min-height: 56px; padding: 10px; border: 0; border-radius: var(--r-md); text-align: left; background: transparent; }
-.mcp-page .project-list button.selected { background: var(--accent-soft); }
-.mcp-detail, .mcp-import, .mcp-scope { min-width: 0; overflow-wrap: anywhere; }
-.mcp-detail label, .mcp-import label, .mcp-scope label { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; font-size: var(--t-sm); }
-.mcp-detail input:not([type="checkbox"]), .mcp-detail select, .mcp-import input, .mcp-import textarea, .mcp-scope select { box-sizing: border-box; max-width: 100%; min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: inherit; }
-.mcp-import textarea { display: block; width: 100%; font-family: monospace; }
-.mcp-detail fieldset, .mcp-import fieldset, .mcp-scope fieldset { min-width: 0; margin: 8px 0; padding: 0; border: 0; }
-.mcp-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
-.mcp-json { max-width: 100%; max-height: 320px; padding: 12px; overflow: auto; border-radius: var(--r-md); background: var(--surface-subtle); font-size: var(--t-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
-.mcp-records { display: grid; gap: 12px; margin: 12px 0; padding: 0; list-style: none; }
-.mcp-records li { display: grid; gap: 6px; padding: 12px; border-radius: var(--r-md); background: var(--surface-subtle); }
-.mcp-tool, .mcp-preview, .mcp-rule-row { margin: 12px 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-md); }
-.mcp-tool summary { cursor: pointer; font-weight: 600; }
-.mcp-account form, .mcp-detail > section > form { margin-top: 12px; }
-@container (max-width: 640px) { .mcp-page > .projects-layout.mcp-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; } .mcp-page .project-list { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); } }
-@media (max-width: 640px) { .mcp-actions > button { white-space: normal; } .mcp-detail input:not([type="checkbox"]), .mcp-detail select, .mcp-scope select { width: 100%; } }
+
+/* 选择器多带一层 .projects-layout，确保不受 base.css 中列表样式加载顺序的影响。 */
+.mcp-page > .projects-layout.mcp-layout { grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 32px; min-height: 0; overflow: visible; border: 0; }
+.mcp-page .project-list-pane { align-self: start; padding: 10px; border: 0; border-radius: var(--r-lg); background: var(--surface-subtle); }
+.mcp-page .projects-layout .project-list { display: grid; gap: 4px; border: 0; }
+
+.mcp-page .projects-layout .project-list button {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.mcp-page .projects-layout .project-list button:hover:not(:disabled) { background: var(--surface-strong); }
+.mcp-page .projects-layout .project-list button.selected { background: var(--accent-soft); box-shadow: none; }
+.mcp-page .projects-layout .project-list .session-list-copy strong { font-size: var(--t-sm); font-weight: 650; }
+.mcp-page .projects-layout .project-list .session-list-copy small { margin-top: 2px; color: var(--muted); font-size: var(--t-xs); }
+.mcp-page .settings-list-hint { margin: 16px 10px 6px; }
+
+.mcp-list-icon,
+.mcp-heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.mcp-list-icon svg { width: 17px; height: 17px; }
+.mcp-page .projects-layout .project-list button.selected .mcp-list-icon { color: var(--accent); }
+.mcp-heading-icon { width: 40px; height: 40px; background: var(--accent-soft); color: var(--accent); }
+.mcp-heading-icon svg { width: 20px; height: 20px; }
+
+.mcp-status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); }
+.mcp-status-dot.on { background: var(--success); }
+.mcp-status-dot.removed { background: transparent; box-shadow: inset 0 0 0 1px var(--line-strong); }
+
+.mcp-list-empty { display: grid; justify-items: center; gap: 10px; padding: 28px 12px 12px; text-align: center; }
+.mcp-list-empty svg { width: 28px; height: 28px; color: var(--faint); stroke-width: 1.4; }
+.mcp-list-empty p { margin: 0; color: var(--muted); font-size: var(--t-sm); line-height: 1.6; }
+.mcp-detail-state { min-height: 320px; margin-top: 0; }
+.mcp-detail-state > p { max-width: 360px; }
+
+/* 详情：标题区 + 分区，最大宽度与 Skill 详情一致。 */
+.mcp-detail-pane { min-width: 0; max-width: 860px; padding: 8px 0 24px; overflow-wrap: anywhere; }
+.mcp-head .project-title { flex-wrap: wrap; gap: 10px 12px; }
+.mcp-head .project-title h2 { margin: 0; }
+.mcp-head .project-title-note { margin: 8px 0 0; padding-left: 52px; color: var(--muted); font-size: var(--t-sm); line-height: 1.6; }
+.mcp-head-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.mcp-head-actions svg,
+.mcp-connect svg,
+.mcp-form svg { width: 14px; height: 14px; }
+
+/* 元信息行：以分隔点串联；分隔点用行内块，不继承链接样式。 */
+.mcp-meta { display: flex; flex-wrap: wrap; align-items: center; margin: 6px 0 0; color: var(--faint); font-size: var(--t-xs); line-height: 1.7; }
+.mcp-head > .mcp-meta { padding-left: 52px; }
+.mcp-meta > * + *::before { content: '·'; display: inline-block; margin: 0 6px; color: var(--faint); }
+.mcp-meta .warn { color: var(--warn); }
+
+.mcp-tag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.mcp-tag.success { background: var(--success-soft, var(--surface-strong)); color: var(--success); }
+.mcp-tag.warn { background: var(--warn-soft); color: var(--warn); }
+.mcp-tag.muted { background: var(--surface-strong); color: var(--muted); }
+
+.mcp-alert,
+.mcp-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.mcp-alert { background: var(--danger-soft); color: var(--danger); }
+.mcp-notice { background: var(--surface-subtle); color: var(--muted); }
+.mcp-alert svg,
+.mcp-notice svg { flex-shrink: 0; width: 16px; height: 16px; margin-top: 3px; }
+.mcp-page > .mcp-alert { margin: 0 0 16px; }
+
+.mcp-page .mcp-section { padding-top: 0; margin-top: 28px; border: 0; }
+.mcp-section .section-title { margin-bottom: 10px; }
+.mcp-section .section-title h3 { color: var(--ink); font-size: var(--t-sm); }
+.mcp-section > .section-hint { margin-top: -4px; }
+.mcp-empty-note { margin: 0; color: var(--faint); font-size: var(--t-sm); }
+
+/* 浅底卡片与事实格：配置、预览、连接区共用。 */
+.mcp-card { margin-top: 12px; padding: 16px; border-radius: var(--r-lg); background: var(--surface-subtle); }
+.mcp-card > p:first-child { margin-top: 0; }
+.mcp-warning { background: var(--warn-soft); color: var(--warn); }
+
+.mcp-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.mcp-facts > div { display: grid; align-content: start; gap: 4px; min-width: 0; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-subtle); }
+.mcp-card .mcp-facts > div { background: var(--surface); }
+.mcp-facts dt { color: var(--muted); font-size: var(--t-xs); font-weight: 600; }
+.mcp-facts dd { margin: 0; color: var(--ink); font-size: var(--t-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.mcp-facts code { font-size: var(--t-xs); }
+.mcp-raw-toggle { margin-top: 8px; font-size: var(--t-xs); }
+
+.mcp-json {
+  max-width: 100%;
+  max-height: 320px;
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: var(--r-md);
+  background: var(--surface-subtle);
+  font-size: var(--t-xs);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mcp-card .mcp-json { background: var(--surface); }
+
+/* 表单：标题在上、控件在下；输入框与 Skill、智能体表单一致。 */
+.mcp-page fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.mcp-form > fieldset { display: grid; gap: 16px; }
+.mcp-field { display: grid; flex: 1; gap: 6px; min-width: 0; color: var(--muted); font-size: var(--t-xs); font-weight: 600; }
+.mcp-form-row { display: flex; align-items: flex-end; gap: 8px; }
+.mcp-form-row .secondary-button { height: 38px; }
+
+.mcp-page input:not([type='checkbox']):not([type='file']),
+.mcp-page select,
+.mcp-page textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 400;
+}
+
+.mcp-page textarea { height: auto; padding: 10px 12px; font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--t-xs); line-height: 1.6; resize: vertical; }
+.mcp-page input::placeholder,
+.mcp-page textarea::placeholder { color: var(--faint); }
+
+.mcp-page input:not([type='checkbox']):focus,
+.mcp-page select:focus,
+.mcp-page textarea:focus { border-color: var(--accent-focus); outline: 0; box-shadow: var(--focus-halo); }
+
+.mcp-preview header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.mcp-preview > .section-hint { margin: 12px 0; }
+
+/* 行列表：账号、连接、调用共用，浅底容器内每行“图标 · 名称 · 说明 · 状态/操作”。 */
+.mcp-rows { display: grid; margin: 0; padding: 4px 14px; border-radius: var(--r-md); background: var(--surface-subtle); list-style: none; }
+.mcp-row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.mcp-row + .mcp-row { border-top: 1px solid var(--line); }
+.mcp-row > svg { flex-shrink: 0; width: 15px; height: 15px; color: var(--muted); }
+.mcp-row > span:not(.mcp-tag):not(.mcp-status-dot):not(.mcp-record-copy):not(.mcp-record-actions) { flex: 1; min-width: 0; font-size: var(--t-sm); }
+.mcp-row > small { color: var(--faint); font-size: var(--t-xs); white-space: nowrap; }
+
+.mcp-account-row { width: 100%; padding: 0; border: 0; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.mcp-account-row.selected > span:first-of-type { color: var(--accent); font-weight: 600; }
+.mcp-account-row.selected > svg { color: var(--accent); }
+.mcp-account-row:disabled { cursor: default; }
+
+.mcp-add-row > fieldset { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; }
+.mcp-add-row > fieldset > svg { flex-shrink: 0; width: 15px; height: 15px; color: var(--muted); }
+.mcp-page .mcp-add-row input:not([type='checkbox']) { flex: 1; height: 32px; }
+.mcp-page .mcp-add-row select { width: auto; height: 32px; }
+
+.mcp-record { align-items: flex-start; padding: 10px 0; }
+.mcp-record > .mcp-status-dot { margin-top: 7px; }
+.mcp-record > .mcp-tag { margin-top: 2px; }
+.mcp-record-copy { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.mcp-record-copy strong { font-size: var(--t-sm); font-weight: 550; }
+.mcp-record-copy small { color: var(--muted); font-size: var(--t-xs); }
+.mcp-record-copy small.warn { color: var(--warn); }
+.mcp-record-actions { display: flex; flex-wrap: wrap; flex-shrink: 0; gap: 4px 12px; }
+.mcp-record-actions .inline-link { font-size: var(--t-xs); }
+
+.mcp-connect { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.mcp-connect > .primary-button { height: 38px; }
+.mcp-connect > .section-hint { flex-basis: 100%; margin: 0; }
+.mcp-section > .mcp-records { margin-top: 12px; }
+
+/* 工具：可展开的行，摘要显示名称、描述与分类状态。 */
+.mcp-catalog + .mcp-catalog { margin-top: 20px; }
+.mcp-catalog > .mcp-meta { margin: 0 0 8px; }
+.mcp-tools { display: grid; overflow: hidden; border-radius: var(--r-md); background: var(--surface-subtle); }
+.mcp-tool + .mcp-tool { border-top: 1px solid var(--line); }
+.mcp-tool > summary { display: flex; align-items: center; gap: 10px; padding: 11px 14px; cursor: pointer; list-style: none; }
+.mcp-tool > summary::-webkit-details-marker { display: none; }
+.mcp-tool > summary:hover { background: var(--surface-strong); }
+.mcp-tool > summary > svg:first-child { flex-shrink: 0; width: 15px; height: 15px; color: var(--muted); }
+.mcp-tool-copy { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.mcp-tool-copy strong { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--t-sm); font-weight: 550; }
+.mcp-tool-copy small { overflow: hidden; color: var(--muted); font-size: var(--t-xs); text-overflow: ellipsis; white-space: nowrap; }
+.mcp-tool-chevron { flex-shrink: 0; width: 14px; height: 14px; color: var(--faint); transition: transform 120ms ease; }
+.mcp-tool[open] > summary .mcp-tool-chevron { transform: rotate(90deg); }
+.mcp-tool-body { display: grid; gap: 12px; padding: 4px 14px 14px 39px; }
+.mcp-tool-body .section-hint { margin: 0; }
+
+.mcp-effects legend { margin-bottom: 8px; color: var(--muted); font-size: var(--t-xs); font-weight: 600; }
+.mcp-effects { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.mcp-effects legend { flex-basis: 100%; }
+.mcp-effect-options { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.mcp-effect-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
+
+.mcp-effect-options label.checked { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+.mcp-effect-options input { accent-color: var(--accent); }
+.mcp-classifications h4 { margin: 0 0 4px; color: var(--muted); font-size: var(--t-xs); }
+.mcp-classifications p { margin: 0; font-size: var(--t-sm); }
+
+.mcp-fold { margin-top: 8px; }
+.mcp-fold > summary { color: var(--muted); font-size: var(--t-xs); cursor: pointer; }
+.mcp-fold > summary:hover { color: var(--ink); }
+.mcp-resources { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.mcp-resources li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: var(--t-sm); }
+.mcp-resources code,
+.mcp-resources small { color: var(--muted); font-size: var(--t-xs); }
+
+/* 账号编辑与作用域规则：嵌在分区内的浅底卡片，标签在上、控件在下。 */
+.mcp-detail .mcp-account { margin-top: 12px; padding: 16px; border: 0; border-radius: var(--r-lg); background: var(--surface-subtle); }
+.mcp-account > h3 { margin: 0 0 4px; font-size: var(--t-sm); }
+.mcp-account form { margin-top: 12px; }
+.mcp-account fieldset,
+.mcp-scope fieldset { display: grid; gap: 10px; min-width: 0; margin: 8px 0; padding: 0; border: 0; }
+.mcp-account label,
+.mcp-scope label { display: grid; gap: 6px; color: var(--muted); font-size: var(--t-xs); font-weight: 600; }
+.mcp-scope label:has(> input[type='checkbox']),
+.mcp-account label:has(> input[type='checkbox']) { display: flex; align-items: center; gap: 8px; color: var(--ink); font-size: var(--t-sm); font-weight: 400; }
+.mcp-account input:not([type='checkbox']),
+.mcp-scope select { box-sizing: border-box; width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink); font: inherit; font-size: var(--t-sm); }
+.mcp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.mcp-actions .secondary-button,
+.mcp-actions .primary-button { min-height: 30px; padding: 0 10px; font-size: var(--t-xs); }
+
+.mcp-detail .mcp-scope { padding-top: 0; margin-top: 28px; border: 0; }
+.mcp-scope .section-title h3 { color: var(--ink); font-size: var(--t-sm); }
+.mcp-rule-row { margin: 10px 0 0; padding: 14px 16px; border: 0; border-radius: var(--r-md); background: var(--surface-subtle); }
+.mcp-rule-row > strong { font-size: var(--t-sm); }
+.mcp-rule-row .section-hint { margin: 6px 0 0; }
+
+@container (max-width: 860px) {
+  .mcp-page > .projects-layout.mcp-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .mcp-page .projects-layout .project-list { max-height: 240px; overflow-y: auto; }
+}
+
+@container (max-width: 580px) {
+  .mcp-heading-icon { width: 32px; height: 32px; }
+  .mcp-head .project-title-note,
+  .mcp-head > .mcp-meta { padding-left: 0; }
+  .mcp-head-actions { flex-basis: 100%; margin-left: 0; }
+  .mcp-facts { grid-template-columns: minmax(0, 1fr); }
+  .mcp-form-row,
+  .mcp-add-row > fieldset { flex-direction: column; align-items: stretch; }
+  .mcp-record { flex-wrap: wrap; }
+  .mcp-tool-body { padding-left: 14px; }
+}

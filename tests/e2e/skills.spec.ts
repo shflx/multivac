@@ -18,6 +18,7 @@ test('真实 Skill 导入、预览取消、键盘确认、停用与窄容器', a
       .getByRole('complementary', { name: '管理导航' })
       .getByRole('button', { name: '能力', exact: true })
       .click();
+    await page.getByRole('navigation', { name: '能力类型' }).getByRole('button', { name: 'Skill', exact: true }).click();
     await expect(page.getByText('还没有 Skill。选择包含 SKILL.md 的目录，预览后确认导入。')).toBeVisible();
     await page.getByText('从 Claude Code / Codex 来源导入', { exact: true }).click();
     await page.getByLabel('来源目录', { exact: true }).fill(root);
