@@ -1,0 +1,39 @@
+/* 输入区“+”菜单：从按钮上方展开的小菜单，样式与其他输入区弹层一致。 */
+.composer-add { position: relative; display: inline-flex; }
+
+.composer-add-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+  width: 240px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-menu);
+}
+
+.composer-add-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer-add-menu button:hover:not(:disabled) { background: var(--surface-subtle); }
+.composer-add-menu button:disabled { opacity: 0.5; cursor: default; }
+.composer-add-menu button > svg { flex-shrink: 0; width: 16px; height: 16px; color: var(--muted); }
+.composer-add-menu button > span { display: grid; gap: 1px; min-width: 0; }
+.composer-add-menu strong { font-size: var(--t-sm); font-weight: 550; }
+.composer-add-menu small { color: var(--muted); font-size: var(--t-xs); }
+.composer-add-menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

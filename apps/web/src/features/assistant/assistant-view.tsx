@@ -1,4 +1,5 @@
-import { McpResourcePicker } from '../mcp/mcp-resource-picker.js';
+import { McpSessionTools } from '../mcp/mcp-session-tools.js';
+import { ComposerAddMenu } from './composer-add-menu.js';
 import { useSkillPicker } from '../skills/skill-picker.js';
 import {
   ArrowRight,
@@ -24,6 +25,7 @@ import { captureFocusReturn, restoreFocusReturn, type FocusReturn } from '../../
 import {
   ASSISTANT_QUOTE_MAX_UTF8_BYTES,
   assistantQuoteWithinLimit,
+  type AssistantMcpQuote,
   type AssistantQuote,
   type SessionFileReference,
 } from '@multivac/contracts';
@@ -31,7 +33,7 @@ import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import { useAssistantSession, type AssistantSession, type RunFeedback } from './assistant-session.js';
 import { SessionModelContext } from './session-model.js';
 import { MarkdownBody } from './markdown-body';
-import { ImageInput, ImageDraftPreview } from './image-input.js';
+import { ImageDraftPreview } from './image-input.js';
 import { ImageGallery } from './image-gallery.js';
 import { imageContentUrl } from '@multivac/contracts';
 import {
@@ -938,7 +940,6 @@ function AssistantSessionView({
                   <span>{quoteError}</span>
                 </div>
               )}
-              {allowAgentSelection && !isCoordinator && !remote && <McpResourcePicker key={session.sessionId} sessionId={session.sessionId} disabled={status !== 'ready' || runBusy || submitting} onQuote={quote => { session.setQuote(quote); composerRef.current?.focus(); }} />}
               {skillPicker.view}
               {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
@@ -1003,7 +1004,10 @@ function AssistantSessionView({
               )}
               <div className="composer-bar">
                 <div className="composer-meta">
-                  <ImageInput draft={session.imageDraft} />
+                  <ComposerAddMenu draft={session.imageDraft} {...(allowAgentSelection && !isCoordinator && !remote ? { mcpResources: {
+                    sessionId: session.sessionId, disabled: status !== 'ready' || runBusy || submitting,
+                    onQuote: (quote: AssistantMcpQuote) => { session.setQuote(quote); composerRef.current?.focus(); },
+                  } } : {})} />
                   {skillPicker.trigger}
                   {!remote && <ModelSelector
                     active={active}
@@ -1016,6 +1020,8 @@ function AssistantSessionView({
                   {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} mentionTarget={agentMentionTarget} focusComposer={() => composerRef.current?.focus()} />}
                   {remote && !modelState.available && <span role="status">当前模型不可用，请在本机配置。</span>}
                 </div>
+                {/* MCP 是本会话的状态而非可选择的输入，与左侧的添加、Skill 等操作分开，靠近发送按钮。 */}
+                {!remote && (isCoordinator || allowAgentSelection) && <McpSessionTools key={session.sessionId} sessionId={session.sessionId} disabled={status !== 'ready'} />}
                 <button
                   type="button"
                   className="composer-send-button"

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ComponentProps } from 'react';
+import { Layers, Plug } from 'lucide-react';
 import { SkillsPage } from '../skills/skills-page.js';
 import { McpPage } from './mcp-page.js';
 
@@ -9,7 +10,12 @@ export function CapabilitiesPage(props: ComponentProps<typeof SkillsPage>) {
   const [skillBusy, setSkillBusy] = useState(false), [mcpBusy, setMcpBusy] = useState(false);
   useEffect(() => props.onDirtyChange(skillDirty || mcpDirty), [skillDirty, mcpDirty, props.onDirtyChange]);
   useEffect(() => props.onBusyChange(skillBusy || mcpBusy), [skillBusy, mcpBusy, props.onBusyChange]);
-  return <div className="capabilities-page"><nav className="capability-tabs" aria-label="能力类型"><button type="button" aria-pressed={tab === 'mcp'} disabled={skillBusy || mcpBusy} onClick={() => setTab('mcp')}>服务与工具</button><button type="button" aria-pressed={tab === 'skill'} disabled={skillBusy || mcpBusy} onClick={() => setTab('skill')}>Skill</button></nav>
+  const busy = skillBusy || mcpBusy;
+  // 页签沿用应用的分段控件，与页内列表 + 详情布局左对齐。
+  return <div className="capabilities-page"><nav className="segmented capability-tabs" aria-label="能力类型">
+    <button type="button" className={tab === 'mcp' ? 'active' : ''} aria-pressed={tab === 'mcp'} disabled={busy} onClick={() => setTab('mcp')}><Plug aria-hidden="true" />服务与工具</button>
+    <button type="button" className={tab === 'skill' ? 'active' : ''} aria-pressed={tab === 'skill'} disabled={busy} onClick={() => setTab('skill')}><Layers aria-hidden="true" />Skill</button>
+  </nav>
     <div hidden={tab !== 'mcp'}><McpPage {...props} active={props.active && tab === 'mcp'} onDirtyChange={setMcpDirty} onBusyChange={setMcpBusy} /></div>
     <div hidden={tab !== 'skill'}><SkillsPage {...props} active={props.active && tab === 'skill'} onDirtyChange={setSkillDirty} onBusyChange={setSkillBusy} /></div>
   </div>;
