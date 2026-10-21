@@ -20,6 +20,7 @@ interface Options {
   access?: ModelAccessService;
   lock: AssistantOperationLock;
   isRunning: () => boolean;
+  onChanged?: (sessionId: string) => void;
   /** 选模所属会话；缺省为全局协调会话。 */
   sessionId?: string;
 }
@@ -224,7 +225,10 @@ export class SessionModelSelectionService {
     if (result.status === 'succeeded' && !result.selection.availability.available) {
       result.status = 'failed'; result.error = 'MODEL_UNAVAILABLE';
     }
-    try { this.options.repository.finishSelection(finished, { ...ledger, result }); }
+    try {
+      this.options.repository.finishSelection(finished, { ...ledger, result });
+      this.options.onChanged?.(this.sessionId);
+    }
     catch {
       return this.result(command.commandId, 'unknown', 'SELECTION_STORAGE_FAILED', false, {
         ...finished, pending: begun.pending, recoveryError: 'Pi 可能已切换，但系统保存失败；只允许读取对账，禁止自动重发。',
@@ -268,11 +272,15 @@ export class SessionModelSelectionService {
     const result = await this.result(command.commandId, 'failed', 'SELECTION_INTERRUPTED', false, reconciled);
     // 仅账本对账：重启、重复 GET 和事件恢复不调用任何 Pi setter。
     this.options.repository.finishSelection(reconciled, { ...command, result });
+    this.options.onChanged?.(this.sessionId);
   }
 
   private async begin(selection: StoredSessionSelection, command: StoredSelectionCommand, previous: StoredSessionSelection): Promise<SessionModelCommandResult | null> {
-    try { this.options.repository.beginSelection(selection, command); return null; }
-    catch {
+    try {
+      this.options.repository.beginSelection(selection, command);
+      if (JSON.stringify(selection) !== JSON.stringify(previous)) this.options.onChanged?.(this.sessionId);
+      return null;
+    } catch {
       let unknown = true;
       try { unknown = Boolean(this.options.repository.getSelectionCommand(command.commandId)); } catch { /* 读取失败时保持未知，不派发 Pi。 */ }
       return this.result(command.commandId, unknown ? 'unknown' : 'failed', 'SELECTION_STORAGE_FAILED', false,

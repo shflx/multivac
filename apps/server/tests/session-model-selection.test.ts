@@ -37,13 +37,15 @@ async function harness(adapter = new FakeCoordinatorAdapter(), defaultProfileId:
     pageStateRepository: store.pageStates, runtimeConfig: config, selectionRepository: store.selections, resolveWorkingDirectory: () => ({ kind: 'session-temp', path: '/workspace' }),
     resolveNewSessionRuntimeConfig: createNewSessionRuntimeConfigResolver(settings, config) });
   const lock = new AssistantOperationLock();
+  const changes: Array<{ sessionId: string; running: boolean; revision: number | undefined }> = [];
+  const notify = (sessionId = id) => changes.push({ sessionId, running: commands.isRunning(), revision: store.selections.getSelection(id)?.revision });
   const commands: AssistantTurnCommandService = new AssistantTurnCommandService({ sessionService, adapter,
-    commandRepository: store.commands, eventStream: new AssistantEventStream(), operationLock: lock,
+    commandRepository: store.commands, eventStream: new AssistantEventStream(), operationLock: lock, onRunningChanged: notify,
     validateSelectionForSend: () => selection.validateForSend() });
   const selection: SessionModelSelectionService = new SessionModelSelectionService({ sessionService, adapter, repository: store.selections, settings, lock,
-    isRunning: () => commands.isRunning() });
+    isRunning: () => commands.isRunning(), onChanged: notify });
   await sessionService.initialize();
-  return { adapter, store, settings, selection, commands, auth: (value: boolean) => { authenticated = value; },
+  return { adapter, store, settings, selection, commands, changes, auth: (value: boolean) => { authenticated = value; },
     close: () => { adapter.dispose(); store.close(); } };
 }
 const model = (commandId: string, revision: number, profileId = 'claude') => ({ commandId, revision, sessionId: id as 'global-coordinator', profileId });
@@ -346,5 +348,24 @@ test('默认推理等级失效不封锁既有 Pi 会话，但新建和主动选�
     assert.equal(h.adapter.calls.filter(call => call.method === 'setModel').length, 0);
     h.auth(false);
     assert.equal((await h.selection.getOptions()).selection.availability.available, false);
+  } finally { h.close(); }
+});
+
+test('选模通知在账本提交后发布，只读不重复通知，prompt 收尾通知可读到空闲', async () => {
+  const h = await harness();
+  try {
+    await h.selection.getOptions();
+    assert.equal(h.changes.length, 0);
+    await h.selection.setModel(model('event-model', 0));
+    assert.deepEqual(h.changes.map(change => change.revision), [1, 1]);
+    assert.ok(h.changes.every(change => change.sessionId === id));
+    h.changes.length = 0;
+    await h.selection.getOptions();
+    await h.selection.getOptions();
+    await h.selection.setModel(model('event-model', 0));
+    assert.equal(h.changes.length, 0);
+    await h.commands.send(send('event-send'));
+    assert.equal(h.changes.at(-1)?.running, false);
+    assert.equal((await h.selection.getOptions()).running, false);
   } finally { h.close(); }
 });
