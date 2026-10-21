@@ -207,6 +207,16 @@
   .note-editor-footer time { display: none; }
 }
 
+/* 图片保持正文流内位置，宽度不超过文档，原图比例不变。 */
+.note-image { display: inline-block; max-width: 100%; vertical-align: middle; margin: 8px 2px; }
+.note-image > button { display: inline-block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
+.note-image img { display: block; max-width: 100%; height: auto; max-height: 600px; object-fit: contain; border-radius: var(--r-md); }
+.note-image > span { color: var(--muted); font-size: var(--t-xs); }
+.note-image [hidden], .note-image-upload [hidden] { display: none !important; }
+.note-image-upload { display: inline-flex; max-width: 100%; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-subtle); color: var(--muted); font-size: var(--t-sm); }
+.note-image-upload button { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); padding: 3px 7px; cursor: pointer; }
+.note-image.ProseMirror-selectednode, .note-image-upload.ProseMirror-selectednode { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+
 /* 版本历史独立于写作和聊天区域；预览只读，恢复沿用编辑器的保存保护。 */
 .note-versions-dialog { width: min(960px, calc(100vw - 48px)); height: min(740px, calc(100dvh - 64px)); max-width: none; max-height: none; padding: 0; border: 1px solid var(--line); border-radius: var(--r-lg); color: var(--ink); background: var(--surface); box-shadow: 0 16px 64px rgb(0 0 0 / 16%); }
 .note-versions-dialog[open] { display: flex; flex-direction: column; }

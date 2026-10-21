@@ -8,6 +8,13 @@ import { TableKit } from '@tiptap/extension-table';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 
+const NoteImageUpload = Node.create({
+  name: 'noteImageUpload', group: 'inline', inline: true, atom: true,
+  addAttributes: () => ({ id: { default: '' }, alt: { default: '' } }),
+  parseHTML: () => [],
+  renderHTML: () => ['span', { 'data-note-upload': '', class: 'note-image-placeholder' }, '图片上传中…'],
+  renderMarkdown: () => '',
+});
 const NoteImage = Node.create({
   name: 'noteImage', group: 'inline', inline: true, atom: true,
   addAttributes: () => ({ src: { default: '' }, alt: { default: '' }, title: { default: null } }),
@@ -46,5 +53,5 @@ export const noteRichTextExtensions = [
     return `${fence}${String(node.attrs?.language ?? '').replace(/[\r\n`]/g, '')}\n${code}\n${fence}`;
   } }),
   ListItem.extend({ content: 'block+' }),
-  Markdown, TableKit.configure({ table: { resizable: false } }), TaskList, TaskItem.extend({ content: 'block+' }).configure({ nested: true }), NoteImage, rawMarkdown(false), rawMarkdown(true),
+  Markdown, TableKit.configure({ table: { resizable: false } }), TaskList, TaskItem.extend({ content: 'block+' }).configure({ nested: true }), NoteImage, NoteImageUpload, rawMarkdown(false), rawMarkdown(true),
 ];

@@ -37,7 +37,7 @@ function fitSize(natural: Size, box: Size): Size {
   return { width: natural.width * scale, height: natural.height * scale };
 }
 
-function ImagePreview({ sources, start, close }: { sources: ImageSource[]; start: number; close: () => void }) {
+export function ImagePreview({ sources, start, close, portalRoot }: { sources: ImageSource[]; start: number; close: () => void; portalRoot?: HTMLElement | null }) {
   const [index, setIndex] = useState(start);
   const [zoom, setZoom] = useState(MIN_ZOOM);
   const [failed, setFailed] = useState(false);
@@ -155,7 +155,7 @@ function ImagePreview({ sources, start, close }: { sources: ImageSource[]; start
     onWheel={event => event.stopPropagation()}
     onKeyDown={event => {
       event.stopPropagation();
-      if (event.key === 'Escape') close();
+      if (event.key === 'Escape') { event.preventDefault(); close(); }
       if (event.key === 'ArrowLeft') { event.preventDefault(); move(-1); }
       if (event.key === 'ArrowRight') { event.preventDefault(); move(1); }
       if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomIn(); }
@@ -231,7 +231,7 @@ function ImagePreview({ sources, start, close }: { sources: ImageSource[]; start
         <button type="button" className="image-preview-nav next" aria-label="下一张图片" title="下一张（→）" onClick={() => move(1)}><ChevronRight /></button>
       </>}
     </div>
-  </div>, document.body);
+  </div>, portalRoot ?? document.body);
 }
 
 export function ImageGallery({ sources }: { sources: ImageSource[] }) {

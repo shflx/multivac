@@ -29,6 +29,10 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
   const [error, setError] = useState('');
   const [storageError, setStorageError] = useState('');
   const [busy, setBusy] = useState(false);
+  const imageInput = useRef<((files: File[]) => void) | null>(null);
+  const uploadCount = useRef(0);
+  const [uploads, setUploads] = useState(0);
+  const uploadsChanged = useCallback((count: number) => { uploadCount.current = count; setUploads(count); }, []);
   const deletionKey = `multivac:note-delete:${initial.id}`;
   const [pendingDeletion, setPendingDeletion] = useState<DeleteNote | null>(() => {
     try { const value: unknown = JSON.parse(sessionStorage.getItem(deletionKey) ?? 'null'); return checkSchema(DeleteNoteSchema, value) ? value : null; } catch { return null; }
@@ -45,7 +49,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
   const [companionToggleRoot, setCompanionToggleRoot] = useState<HTMLSpanElement | null>(null);
   const confirm = useConfirm();
   const dirty = noteDirty(draft);
-  const saveLabel = busy ? '保存中…' : draft.pending ? '核对并重试保存' : dirty ? '保存笔记' : '已保存';
+  const saveLabel = uploads ? '图片待处理' : busy ? '保存中…' : draft.pending ? '核对并重试保存' : dirty ? '保存笔记' : '已保存';
   const titleHelpId = useId();
   const titleStart = useRef({ title: draft.title, revision: draft.base.revision });
   const bodyEditor = useRef<HTMLDivElement>(null);
@@ -83,7 +87,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
     return () => { mounted.current = false; };
   }, [storage]);
   useEffect(() => {
-    const before = (event: BeforeUnloadEvent) => { if (storageError && (noteDirty(current.current) || current.current.pending)) { event.preventDefault(); event.returnValue = ''; } };
+    const before = (event: BeforeUnloadEvent) => { if (uploadCount.current || storageError && (noteDirty(current.current) || current.current.pending)) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', before);
     return () => window.removeEventListener('beforeunload', before);
   }, [storageError]);
@@ -94,7 +98,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
       if (!mounted.current) return;
       const local = current.current;
       if (note.revision <= local.base.revision || note.revision <= (remoteRef.current?.revision ?? 0)) return;
-      if (noteDirty(local) || local.pending) { remoteRef.current = note; setRemote(note); }
+      if (noteDirty(local) || local.pending || uploadCount.current) { remoteRef.current = note; setRemote(note); }
       else { put(noteRefreshed(local, note)); onSaved(note); }
     }).finally(() => { refreshing.current = null; });
     refreshing.current = request; return request;
@@ -118,6 +122,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
   function save(): Promise<Note | null> {
     if (deleting || pendingDeletion) return Promise.resolve(null);
     if (saving.current) return saving.current;
+    if (uploadCount.current) { setError('请等待图片上传完成，或重试/移除未完成的图片后保存。'); return Promise.resolve(null); }
     if (remoteRef.current && !current.current.pending) { setError('请先核对版本冲突。'); return Promise.resolve(null); }
     const local = current.current;
     if (!noteDirty(local) && !local.pending) return Promise.resolve(local.base);
@@ -145,7 +150,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
   }
   async function restoreVersion(version: Note): Promise<boolean> {
     const local = current.current;
-    if (deleting || pendingDeletion || version.id !== initial.id || saving.current || remote || noteDirty(local) || local.pending || version.title === local.title && version.body === local.body) return false;
+    if (uploadCount.current || deleting || pendingDeletion || version.id !== initial.id || saving.current || remote || noteDirty(local) || local.pending || version.title === local.title && version.body === local.body) return false;
     // 恢复复用普通保存的命令与草稿保护，未知结果也能按原请求重试；不改写旧快照。
     put({ ...local, title: version.title, body: version.body, edit: local.edit + 1 });
     setSelection(null);
@@ -173,7 +178,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
     } finally { if (mounted.current) setDeleting(false); }
   }
   async function rebase() {
-    if (!remote || busy) return;
+    if (!remote || busy || uploadCount.current) return;
     const latest = remote;
     const accepted = await confirm({ title: '以服务端最新版本继续编辑？', description: '保留当前本机标题与正文，下一次保存将以你已核对的服务端版本为基线。请先对照内容并合并需要保留的修改。', confirmLabel: '保留本机内容并继续' });
     if (!accepted) return;
@@ -186,13 +191,14 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
       }
     }}>
       <div className="note-editor-toolbar">
-        <NoteRichTextTools editor={richEditor} disabled={deleting || !!pendingDeletion} />
-        <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className="note-history-toggle" disabled={deleting || !!pendingDeletion} aria-label="版本历史" title="版本历史" onClick={() => { clearSelection(); setHistoryOpen(true); }}><History size={16} aria-hidden="true" /></button><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} aria-label={saveLabel} title={dirty && !draft.pending && !busy ? '保存笔记（Ctrl/⌘+S）' : saveLabel} aria-keyshortcuts="Control+s Meta+s" disabled={deleting || !!pendingDeletion || busy || !!remote && !draft.pending || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={16} aria-hidden="true" /> : dirty || draft.pending ? <Save size={16} aria-hidden="true" /> : <><Check size={13} aria-hidden="true" /><span>已保存</span></>}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
+        <NoteRichTextTools editor={richEditor} disabled={deleting || !!pendingDeletion} onImages={files => imageInput.current?.(files)} />
+        <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className="note-history-toggle" disabled={deleting || !!pendingDeletion} aria-label="版本历史" title="版本历史" onClick={() => { clearSelection(); setHistoryOpen(true); }}><History size={16} aria-hidden="true" /></button><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} aria-label={saveLabel} title={dirty && !draft.pending && !busy ? '保存笔记（Ctrl/⌘+S）' : saveLabel} aria-keyshortcuts="Control+s Meta+s" disabled={uploads > 0 || deleting || !!pendingDeletion || busy || !!remote && !draft.pending || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={16} aria-hidden="true" /> : dirty || draft.pending || uploads ? <Save size={16} aria-hidden="true" /> : <><Check size={13} aria-hidden="true" /><span>已保存</span></>}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
       </div>
       {deleteError && <div className="notes-error" role="alert">{deleteError}</div>}
       {pendingDeletion && <p className="notes-hint">删除结果待核对，请重试原删除请求；核对期间暂停编辑与保存。</p>}
       {(storageError || error) && <div className="notes-error" role="alert">{storageError || error}<button type="button" disabled={busy} onClick={() => void save()}>重试保存</button></div>}
-      {remote && <div className="note-conflict" role="alert"><strong>服务端已有 v{remote.revision}，本机草稿已保留</strong><details><summary>对照服务端最新内容</summary><h3>{remote.title}</h3><pre>{remote.body}</pre></details><button type="button" disabled={busy} onClick={() => void rebase()}>核对后继续编辑本机草稿</button></div>}
+      {remote && <div className="note-conflict" role="alert"><strong>服务端已有 v{remote.revision}，本机草稿已保留</strong><details><summary>对照服务端最新内容</summary><h3>{remote.title}</h3><pre>{remote.body}</pre></details><button type="button" disabled={busy || uploads > 0} onClick={() => void rebase()}>核对后继续编辑本机草稿</button></div>}
+      {uploads > 0 && <p className="notes-hint" role="status">还有 {uploads} 张图片未完成。上传完成后可保存；失败图片可重试或移除。关闭或刷新前请完成处理。</p>}
       {draft.pending && <p className="notes-hint">原保存命令仍待核对；重试使用原内容。新输入继续保留。</p>}
       <div className="note-document-scroll" ref={paperScroll}><div className="note-paper">
         <header className="note-document-header">
@@ -216,7 +222,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
           <div className="note-document-meta"><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
         </header>
         <div className="note-writing-surface" onPointerDown={selectionToolbar.onPointerDown} onKeyDown={selectionToolbar.onEditorKeyDown}>
-          <NoteRichText body={draft.body} disabled={deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={setError} onChange={body => {
+          <NoteRichText noteId={initial.id} active={active} imageInputRef={imageInput} onUploadsChange={uploadsChanged} body={draft.body} disabled={deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={setError} onChange={body => {
             dismissedSelection.current = null; put({ ...current.current, body, edit: current.current.edit + 1 }); setSelection(null);
           }} onSelection={picked => {
             const dismissed = dismissedSelection.current;
@@ -228,8 +234,8 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
       </div></div>
       <footer className="note-editor-footer"><span>笔记<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
     </section>
-    {historyOpen && <NoteVersions current={draft.base} knownRevision={Math.max(draft.base.revision, remote?.revision ?? 0)} blocked={busy ? '请等待当前保存完成。' : remote ? '请先核对笔记的版本冲突。' : draft.pending ? '请先核对原保存结果。' : dirty ? '请先保存当前草稿，再恢复历史版本。' : ''} onRestore={restoreVersion} onClose={() => setHistoryOpen(false)} />}
+    {historyOpen && <NoteVersions current={draft.base} knownRevision={Math.max(draft.base.revision, remote?.revision ?? 0)} blocked={uploads ? '请先处理未完成的图片。' : busy ? '请等待当前保存完成。' : remote ? '请先核对笔记的版本冲突。' : draft.pending ? '请先核对原保存结果。' : dirty ? '请先保存当前草稿，再恢复历史版本。' : ''} onRestore={restoreVersion} onClose={() => setHistoryOpen(false)} />}
     {deleteRoot && createPortal(<button type="button" className="note-delete" aria-label={deleteLabel} title={draft.pending ? '请先核对原保存结果' : remote ? '请先核对版本冲突' : deleteLabel} disabled={busy || deleting || !!draft.pending || !!remote && !pendingDeletion} onClick={() => void remove()}><Trash2 size={15} aria-hidden="true" /></button>, deleteRoot)}
-    {companion?.({ note: draft.base, active: active && !focused, busy: busy || deleting || !!pendingDeletion, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save })}
+    {companion?.({ note: draft.base, active: active && !focused, busy: busy || deleting || !!pendingDeletion || uploads > 0, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save })}
   </div>;
 }
