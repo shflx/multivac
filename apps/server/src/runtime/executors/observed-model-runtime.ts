@@ -1,5 +1,6 @@
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { diagnosticError, type ExecutionDiagnostics, type ModelRequestObservation, type DiagnosticModel } from '../../application/execution-diagnostics.js';
+import { idleGuardedFetch } from './model-stream-idle-guard.js';
 
 /** 只记录白名单响应标识；不记录 URL 路径、查询参数、请求头或任意响应头。 */
 function responseIds(headers: Headers): Record<string, string> {
@@ -56,23 +57,33 @@ export function observedFetch(original: typeof fetch, observation: ModelRequestO
   };
 }
 
-/** 代理仍从 getter 取得当前运行时；选模 activate/rollback 不改变观测身份或 SDK 调用语义。 */
+/** 已验证支持 fetch 注入的协议；其他协议不注入，避免改变能力。 */
+const FETCH_INJECTABLE_APIS = ['openai-responses', 'openai-completions', 'anthropic-messages'];
+
+/**
+ * 代理仍从 getter 取得当前运行时；选模 activate/rollback 不改变观测身份或 SDK 调用语义。
+ * 支持 fetch 注入的协议始终加流式空闲超时；执行诊断开启时再叠加传输观测。
+ */
 export function observedModelRuntime(current: () => ModelRuntime, sessionId: string, diagnostics?: ExecutionDiagnostics): ModelRuntime {
   return new Proxy(current(), { get(_target, property) {
     const runtime = current();
     const value = Reflect.get(runtime, property, runtime) as unknown;
-    if (diagnostics && ['stream', 'streamSimple', 'complete', 'completeSimple'].includes(String(property)) && typeof value === 'function') {
-      return (model: DiagnosticModel, context: unknown, options: Record<string, unknown> = {}) => {
-        if (!diagnostics.enabled) return value.call(runtime, model, context, options);
-        // 仅向已验证支持 fetch 注入的协议添加传输观测；其他协议仍记录 SDK 阶段，避免改变能力。
-        const httpObserved = ['openai-responses', 'openai-completions', 'anthropic-messages'].includes(model.api ?? '');
+    if (['stream', 'streamSimple', 'complete', 'completeSimple'].includes(String(property)) && typeof value === 'function') {
+      return (model: DiagnosticModel, context: unknown, rawOptions: Record<string, unknown> = {}) => {
+        const httpObserved = FETCH_INJECTABLE_APIS.includes(model.api ?? '');
+        const options = httpObserved
+          ? { ...rawOptions, fetch: idleGuardedFetch((rawOptions.fetch as typeof fetch | undefined) ?? globalThis.fetch) }
+          : rawOptions;
+        if (!diagnostics?.enabled) return value.call(runtime, model, context, options);
+        // 未注入 fetch 的协议仍记录 SDK 阶段。
         const observation = diagnostics.beginRequest(sessionId, model, httpObserved);
         if (!observation) return value.call(runtime, model, context, options);
         const payload = options.onPayload as ((...args: unknown[]) => unknown) | undefined;
-        const originalFetch = options.fetch as typeof fetch | undefined;
+        const guardedFetch = options.fetch as typeof fetch | undefined;
         const observedOptions = { ...options,
           onPayload: async (...args: unknown[]) => { const result = await payload?.(...args); observation.payloadReady(); return result; },
-          ...(httpObserved ? { fetch: observedFetch(originalFetch ?? globalThis.fetch, observation) } : {}),
+          // 观测包在空闲超时之外，超时中断会作为 body_failed 记录。
+          ...(httpObserved && guardedFetch ? { fetch: observedFetch(guardedFetch, observation) } : {}),
         };
         try {
           const result = value.call(runtime, model, context, observedOptions);
