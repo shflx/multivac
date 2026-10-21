@@ -41,6 +41,11 @@ test('无冻结来源与不支持浏览保留普通文字，错误区间不绑�
   const unavailable = renderToStaticMarkup(<MarkdownBody text={linkText} identity="no-browser-link" fileReferences={messageFileReferences(linkText, '/workspace')} />);
   assert.ok(!unavailable.includes('<a '));
   assert.ok(unavailable.includes('源码'));
+  const legacy = render('[缺少来源的旧文件](a.ts#L2) [目录内文件](src/Makefile) [网页](https://example.com) [章节](#章节)', []);
+  assert.ok(!legacy.includes('href="a.ts'));
+  assert.ok(!legacy.includes('href="src/Makefile'));
+  assert.ok(legacy.includes('href="https://example.com"'));
+  assert.ok(legacy.includes(`href="#${encodeURI('章节')}"`));
 });
 
 test('图片、外部链接、章节锚点、代码块与复制数据源保持原行为', () => {

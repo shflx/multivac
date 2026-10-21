@@ -147,6 +147,8 @@ function MarkdownLink({ href, children, ...properties }: React.ComponentProps<'a
     if (!href) return <span>{children}</span>;
     const object = parseMultivacObjectLink(href);
     if (object) return <ObjectLink target={object}>{children}</ObjectLink>;
+    // 本地文件入口必须先匹配冻结来源；没有来源时不交给浏览器导航。
+    if (!/^(?:https?:|mailto:|\/\/|#)/i.test(href)) return <span>{children}</span>;
     return <a {...properties} href={href} {...linkAttributes(href)}>{children}</a>;
 }
 
