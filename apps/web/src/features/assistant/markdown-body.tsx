@@ -1,5 +1,5 @@
 import { Copy } from 'lucide-react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -199,27 +199,33 @@ export const MarkdownBody = memo(function MarkdownBody({
         'data-quote-role': quoteRole,
       }
     : {};
-  const fileButton = (source: SessionFileReference, children: React.ReactNode) => <button type="button" className="file-reference-link" aria-label={`打开原文 ${source.path}${source.line ? `:${source.line}${source.endLine ? `–${source.endLine}` : ''}` : source.section ? `#${source.section}` : ''}`} title={fileReferenceTitle(source)} onClick={(event) => {
-    const selection = event.currentTarget.ownerDocument.getSelection();
-    if (event.detail > 0 && selection && !selection.isCollapsed && selection.containsNode(event.currentTarget, true)) return;
-    onOpenFileReference?.(source);
-  }}>{children}</button>;
-  const fileComponents: Components = fileReferences ? { ...components,
-    a: ({ href, children, node, ...properties }) => {
-      const source = fileReferences.find((reference) => reference.kind !== 'image' && fileReferenceHrefMatches(reference, href) &&
-        (reference.startOffset === undefined || (reference.startOffset === node?.position?.start.offset && reference.endOffset === node?.position?.end.offset)));
-      if (source) return onOpenFileReference ? fileButton(source, children) : <span>{children}</span>;
-      return <MarkdownLink href={href} {...properties}>{children}</MarkdownLink>;
-    },
-    span: ({ node, children, ...properties }) => {
-      const index = node?.properties['data-file-reference'];
-      const source = typeof index === 'number' ? fileReferences[index] : undefined;
-      return source ? fileButton(source, children) : <span {...properties}>{children}</span>;
-    },
-  } : components;
+  const referenceRendering = useRef({ fileReferences, onOpenFileReference });
+  referenceRendering.current = { fileReferences, onOpenFileReference };
+  // 指针按下会更新阅读焦点；保持渲染器身份，避免抬起前重建按钮而丢失 click。
+  const fileComponents = useMemo<Components>(() => {
+    const fileButton = (source: SessionFileReference, children: React.ReactNode) => <button type="button" className="file-reference-link" aria-label={`打开原文 ${source.path}${source.line ? `:${source.line}${source.endLine ? `–${source.endLine}` : ''}` : source.section ? `#${source.section}` : ''}`} title={fileReferenceTitle(source)} onClick={(event) => {
+      const selection = event.currentTarget.ownerDocument.getSelection();
+      if (event.detail > 0 && selection && !selection.isCollapsed && selection.containsNode(event.currentTarget, true)) return;
+      referenceRendering.current.onOpenFileReference?.(source);
+    }}>{children}</button>;
+    return { ...components,
+      a: ({ href, children, node, ...properties }) => {
+        const { fileReferences, onOpenFileReference } = referenceRendering.current;
+        const source = fileReferences?.find((reference) => reference.kind !== 'image' && fileReferenceHrefMatches(reference, href) &&
+          (reference.startOffset === undefined || (reference.startOffset === node?.position?.start.offset && reference.endOffset === node?.position?.end.offset)));
+        if (source) return onOpenFileReference ? fileButton(source, children) : <span>{children}</span>;
+        return <MarkdownLink href={href} {...properties}>{children}</MarkdownLink>;
+      },
+      span: ({ node, children, ...properties }) => {
+        const index = node?.properties['data-file-reference'];
+        const source = typeof index === 'number' ? referenceRendering.current.fileReferences?.[index] : undefined;
+        return source ? fileButton(source, children) : <span {...properties}>{children}</span>;
+      },
+    };
+  }, []);
   const bodyRemarkPlugins: NonNullable<React.ComponentProps<typeof Markdown>['remarkPlugins']> = [...remarkPlugins];
   if (fileReferences && onOpenFileReference) bodyRemarkPlugins.push([fileReferencePositions, { references: fileReferences }]);
-  const imageComponents: Components = { ...fileComponents, img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} sessionId={imageSessionId} references={imageReferences} /> };
+  const imageComponents: Components = { ...(fileReferences ? fileComponents : components), img: ({ src, alt }) => <MarkdownImage src={src} alt={alt} sessionId={imageSessionId} references={imageReferences} /> };
   return <div className="markdown-body" {...quoteSource}><Markdown skipHtml urlTransform={(url) => (onOpenFileReference && fileReferences?.some((reference) => fileReferenceHrefMatches(reference, url))) || imageReferences?.some(reference => reference.href === url) ? url : safeUrl(url)} remarkPlugins={bodyRemarkPlugins}
     remarkRehypeOptions={{ clobberPrefix: prefix }}
     rehypePlugins={[...rehypePlugins, [scopeFootnoteLabel, { prefix }], ...(sourceLines ? [sourceLinePositions] : [])]} components={imageComponents}>{text}</Markdown></div>;
