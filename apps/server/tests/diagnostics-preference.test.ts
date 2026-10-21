@@ -11,11 +11,15 @@ import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
 const lines = async (path: string) => (await readFile(path, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
 
-test('默认关闭不创建日志与监视，关闭请求直接委托且不注入 SDK 钩子', async () => {
+test('默认关闭不创建日志与监视，关闭请求直接委托且只注入流式空闲超时', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-diagnostics-off-'));
   const diagnostics = new ExecutionDiagnostics(root, () => { throw new Error('关闭时不应解析来源'); }, { enabled: false });
   const options = { signal: new AbortController().signal }, message = { stopReason: 'stop' }, result = Promise.resolve(message);
-  const original = { completeSimple: (_model: unknown, _context: unknown, input: unknown) => { assert.equal(input, options); return result; } } as unknown as ModelRuntime;
+  const original = { completeSimple: (_model: unknown, _context: unknown, input: Record<string, unknown>) => {
+    assert.deepEqual(Object.keys(input).sort(), ['fetch', 'signal']);
+    assert.equal(input.signal, options.signal); assert.equal(typeof input.fetch, 'function');
+    return result;
+  } } as unknown as ModelRuntime;
   try {
     assert.equal(observedModelRuntime(() => original, 'session', diagnostics).completeSimple({ api: 'openai-responses' } as never, { messages: [] }, options), result);
     diagnostics.sample(); diagnostics.record('ignored'); diagnostics.agentEvent('session', { type: 'agent_start' });
