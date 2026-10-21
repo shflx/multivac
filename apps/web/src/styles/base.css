@@ -4483,6 +4483,7 @@ svg {
 .discussion-html { flex: 1; min-height: 0; width: 100%; border: 0; background: var(--surface); }
 .discussion-code { width: max-content; min-width: 100%; font-size: var(--t-sm); }
 .content-line { display: flex; min-height: 20px; white-space: pre; }
+.content-line.location-line { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
 .content-line-number { flex: 0 0 calc(var(--reader-line-digits, 2) * 1ch + 16px); padding: 0 8px; text-align: right; font-variant-numeric: tabular-nums; color: var(--faint); user-select: none; }
 .content-find-bar span { font-size: var(--t-xs); white-space: nowrap; }
 ::highlight(file-matches) { background: var(--warn-soft); color: var(--ink); }

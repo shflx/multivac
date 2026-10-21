@@ -3,6 +3,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
+// 测试临时资料也保持在当前任务目录内，不使用系统临时目录。
+process.env.TMPDIR = process.cwd();
+
 // 在禁止派生子进程的任务环境中，用 TypeScript 的进程内转换运行针对性测试。
 registerHooks({
   resolve(specifier, context, nextResolve) {

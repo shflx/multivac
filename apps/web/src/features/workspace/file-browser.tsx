@@ -47,6 +47,11 @@ export function FileBrowser({ sessionId, root, reading, setReading, visible, exp
   const onNotice = (message: string, error: boolean) => setNotice({ message, error });
   const query = reading.search;
   const selected = reading.position.path;
+  // 历史条数达到上限后仍按每次导航重建阅读器，不让同文件旧加载或滚动覆盖新目标。
+  const navigation = useRef({ history: reading.history, future: reading.future, id: 0 });
+  if (navigation.current.history !== reading.history || navigation.current.future !== reading.future) {
+    navigation.current = { history: reading.history, future: reading.future, id: navigation.current.id + 1 };
+  }
   const directoryOpen = reading.directoryOpen;
   const setDirectoryOpen = (open: boolean) => setReading((scene) => ({ ...scene, directoryOpen: open }));
   const setQuery = (search: string) => setReading((scene) => ({ ...scene, search: search.slice(0, 200) }));
@@ -90,9 +95,9 @@ export function FileBrowser({ sessionId, root, reading, setReading, visible, exp
         <label className="browser-search"><Search /><input aria-label="搜索工作目录文件" placeholder="搜索文件名" value={query} onChange={(event) => setQuery(event.target.value)} />{selected && <button className="icon-button" aria-label="返回当前文件" title="返回当前文件" onClick={() => setReading((scene) => ({ ...scene, chooser: false }))}><X /></button>}</label>
         {!query && reading.recent.length > 0 && <><h3>最近查看</h3><ul className="browser-tree">{reading.recent.map((path) => <li key={path}><FileActions sessionId={sessionId} root={root} path={path} kind="file" onNotice={onNotice}><button title={`${root}/${path}`} onClick={() => onSelect({ kind: 'file', path, name: path.split('/').at(-1)! })}><FileText /><span>{path}</span></button></FileActions></li>)}</ul></>}
         <h3>{query ? '搜索结果' : '工作目录文件'}</h3>{branch}
-      </div> : <FileReader key={`${selected}:${reading.history.length}:${reading.future.length}`} sessionId={sessionId} root={root} path={selected} position={reading.position} visible={visible}
+      </div> : <FileReader key={JSON.stringify([selected, navigation.current.id])} sessionId={sessionId} root={root} path={selected} position={reading.position} visible={visible}
         onSelection={onSelection} onReadingFocus={onReadingFocus} onNotice={onNotice}
-        onPosition={(change) => setReading((scene) => scene.position.path === selected ? { ...scene, position: { ...scene.position, ...change } } : scene)} />}</div>
+        onPosition={(change) => setReading((scene) => scene.position.path === selected && scene.history === reading.history && scene.future === reading.future ? { ...scene, position: { ...scene.position, ...change } } : scene)} />}</div>
     </div>
   </section></FileActionsActive.Provider></FileSourceQuote.Provider>;
 }

@@ -5,7 +5,7 @@ const Path = Type.String({ maxLength: 4096, pattern: '^(?!/)(?!.*(?:^|/)\\.\\.(?
 const PositionSchema = Type.Object({
   path: Type.Union([Path, Type.Null()]), scrollTop: Type.Number({ minimum: 0, maximum: 100000000 }), scrollLeft: Type.Number({ minimum: 0, maximum: 100000000 }),
   positioned: Type.Boolean(), query: Type.String({ maxLength: 200 }), findOpen: Type.Boolean(),
-  line: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), section: Type.Optional(Type.String({ maxLength: 500 })),
+  line: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), endLine: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), section: Type.Optional(Type.String({ maxLength: 500 })),
 }, { additionalProperties: false });
 export type ReadingPosition = Static<typeof PositionSchema>;
 const SceneSchema = Type.Object({
@@ -35,8 +35,8 @@ export function restoreReading(raw: string | null, root: string): ReadingScene {
 }
 
 /** 导航只替换位置，目录偏好与最近文件不会随历史回滚。 */
-export function openReading(scene: ReadingScene, path: string, target: { line?: number; section?: string } = {}): ReadingScene {
-  if (scene.position.path === path && !target.line && !target.section) return { ...scene, hidden: false, chooser: false };
+export function openReading(scene: ReadingScene, path: string, target: { line?: number; endLine?: number; section?: string } = {}): ReadingScene {
+  if (scene.position.path === path && target.line === undefined && target.endLine === undefined && !target.section) return { ...scene, hidden: false, chooser: false };
   return { ...scene, hidden: false, chooser: false,
     position: { path, scrollTop: 0, scrollLeft: 0, positioned: false, query: '', findOpen: false, ...target },
     recent: [path, ...scene.recent.filter((item) => item !== path)].slice(0, 20),
