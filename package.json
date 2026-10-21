@@ -20,7 +20,7 @@
     "test:e2e": "playwright test",
     "test:coordinator": "npm run test -w @multivac/contracts && npm run test:coordinator -w @multivac/server",
     "test:pi-smoke": "npm run test:pi-smoke -w @multivac/server",
-    "start": "npm run start -w @multivac/server"
+    "start": "MULTIVAC_REMOTE_ENABLED=1 npm run start -w @multivac/server"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
