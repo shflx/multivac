@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { LogOut } from 'lucide-react';
+import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import { MultivacIcon } from '../components/multivac-icon.js';
 import { ConfirmProvider } from '../components/confirm-card.js';
 import { AccessIdentityError, loginRemote, logoutRemote, readAccessIdentity, type AccessIdentity } from '../data/access-api.js';
@@ -8,6 +9,9 @@ import { AssistantView } from '../features/assistant/assistant-view.js';
 import { RemoteConversationContext } from '../features/assistant/remote-context.js';
 import { GlobalEventsProvider } from '../features/events/global-events-provider.js';
 import { ProposalsProvider, useProposalsStore } from '../features/proposals/proposals-provider.js';
+import { InboxButton } from '../features/tasks/inbox-button.js';
+import { InboxDrawer } from '../features/tasks/inbox-view.js';
+import { RemoteTaskRequestsProvider, useTaskRequests } from '../features/tasks/task-requests-provider.js';
 
 const DRAFT_KEY = 'multivac.remote.unsent-draft';
 
@@ -57,18 +61,21 @@ export function AccessEntry({ children }: { children: ReactNode }) {
   }
   if (identity?.kind === 'local') return children;
   if (identity?.authenticated) return <RemoteConversationContext.Provider value={true}>
-    <div className="remote-entry">
-      <header className="remote-header">
-        <span><MultivacIcon />Multivac</span>
-        <button className="icon-button remote-logout-button" type="button" aria-label="退出登录" title="退出登录" disabled={busy} onClick={() => void logout()}>
-          <LogOut aria-hidden="true" />
-        </button>
-      </header>
-      {(error || connectionError) && <p role="alert" className="remote-error">{error || connectionError}</p>}
-      <GlobalEventsProvider><ConfirmProvider><ProposalsProvider><AssistantSessionsProvider>
+    <GlobalEventsProvider><ConfirmProvider><ProposalsProvider><AssistantSessionsProvider><RemoteTaskRequestsProvider>
+      <div className="remote-entry">
+        <header className="remote-header">
+          <span><MultivacIcon />Multivac</span>
+          <div className="remote-header-actions">
+            <RemoteInbox />
+            <button className="icon-button remote-logout-button" type="button" aria-label="退出登录" title="退出登录" disabled={busy} onClick={() => void logout()}>
+              <LogOut aria-hidden="true" />
+            </button>
+          </div>
+        </header>
+        {(error || connectionError) && <p role="alert" className="remote-error">{error || connectionError}</p>}
         <RemoteConversation />
-      </AssistantSessionsProvider></ProposalsProvider></ConfirmProvider></GlobalEventsProvider>
-    </div>
+      </div>
+    </RemoteTaskRequestsProvider></AssistantSessionsProvider></ProposalsProvider></ConfirmProvider></GlobalEventsProvider>
   </RemoteConversationContext.Provider>;
   return <main className="remote-login"><form onSubmit={event => { event.preventDefault(); void login(); }}>
     <MultivacIcon /><h1>连接 Multivac</h1>
@@ -79,6 +86,30 @@ export function AccessEntry({ children }: { children: ReactNode }) {
     {(!identity || !identity.loginEnabled) && <button type="button" onClick={() => void refresh()}>重新检查</button>}
     {identity && <p>未发送的文字草稿保留在当前浏览器标签页。</p>}
   </form></main>;
+}
+
+/** 当前可见的只有全局对话，其中的请求已就地出现，不重复提示。 */
+const REMOTE_VISIBLE_SESSIONS = [GLOBAL_ASSISTANT_SESSION_ID];
+
+/** 手机端 Inbox：与工作台共用请求事实与决定入口，选择和滚动只属于本页面。 */
+function RemoteInbox() {
+  const { items } = useTaskRequests();
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const scroll = useRef<Record<string, number>>({});
+  const choices = useRef<Record<string, string>>({});
+  function show(): void {
+    // 新一次进入时收起已处理回执；待处理和结果待核对的现场继续保留。
+    const item = items.find(value => value.id === selected);
+    if (!item || item.status !== 'pending' && item.status !== 'unknown') { setSelected(null); setDetailOpen(false); }
+    setOpen(true);
+  }
+  return <>
+    <InboxButton open={open} inboxVisible={open} visibleSessionIds={REMOTE_VISIBLE_SESSIONS} onClick={show} />
+    <InboxDrawer open={open} active={open} selected={selected} onSelect={setSelected} detailOpen={detailOpen} onDetail={setDetailOpen}
+      scroll={scroll} choices={choices} onClose={() => setOpen(false)} />
+  </>;
 }
 
 function RemoteConversation() {

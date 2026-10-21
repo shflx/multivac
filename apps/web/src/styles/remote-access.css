@@ -49,3 +49,14 @@
   .remote-entry .proposal-card .receipt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .remote-entry .proposal-card .receipt-actions button { min-height: 44px; }
 }
+.remote-header-actions { display: flex; align-items: center; gap: 4px; }
+.remote-header .shell-inbox { width: 44px; height: 44px; }
+.remote-header .shell-inbox > svg { width: 20px; height: 20px; }
+/* 手机端 Inbox 全屏展示：触控区不小于 44px，避开刘海与底部手势区；输入框 16px 避免 iOS 聚焦缩放。 */
+.inbox-drawer.remote { width: 100vw; border-left: 0; }
+.inbox-drawer.remote .inbox-header { padding-top: max(14px, env(safe-area-inset-top)); }
+.inbox-drawer.remote .icon-button { width: 44px; height: 44px; }
+.inbox-drawer.remote .inbox-action-bar > button, .inbox-drawer.remote .inbox-list-footer button { min-height: 44px; }
+.inbox-drawer.remote .inbox-action-bar, .inbox-drawer.remote .inbox-list-footer { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+.inbox-drawer.remote .inbox-decision-option { min-height: 44px; }
+.inbox-drawer.remote .inbox-answer textarea { font-size: 16px; }
