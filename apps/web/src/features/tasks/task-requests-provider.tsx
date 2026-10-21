@@ -105,7 +105,7 @@ export class TaskRequestsStore {
   };
   /** effects 仅用于首次调用的 MCP 许可：用户在决定中一并确认的工具效果。 */
   decideItem = async (item: InboxItem, decision: InboxDecision['decision'], effects?: McpEffect[]) => {
-    if (item.human && !item.authorization) {
+    if (item.human && !item.authorization && !this.inboxOnly) {
       if (decision === 'acknowledge') return;
       await this.decide(item.human, decision); await this.refreshInbox().catch(() => undefined); return;
     }
@@ -122,7 +122,8 @@ export class TaskRequestsStore {
       this.replace({ ...this.state, pending: new Set([...this.state.pending].filter((id) => id !== item.id)) });
     }
   };
-  constructor() {
+  /** inboxOnly：只经 Inbox 接口读取与决定，用于读不到任务请求列表的远程入口；决定仍由服务端委托原业务服务。 */
+  constructor(private readonly inboxOnly = false) {
     try {
       const saved: unknown = typeof sessionStorage === 'undefined' ? null : JSON.parse(sessionStorage.getItem('inbox-drafts') ?? 'null');
       if (saved && typeof saved === 'object') for (const [id, entry] of Object.entries(saved)) {
@@ -192,6 +193,19 @@ export function TaskRequestsProvider({ children }: { children: ReactNode }) {
     if (['inbox.changed', 'request.changed', 'workbench.connected', 'task.changed'].includes(event.type)) void store.refreshInbox().catch(() => undefined);
     if (event.type === 'workbench.connected' || event.type === 'task.changed') void store.refresh().catch(() => undefined);
   });
+  return <Context.Provider value={store}>{children}</Context.Provider>;
+}
+/** 远程入口没有工作台事件流：可见时定时对账 Inbox，切回前台立即读取一次。 */
+const REMOTE_INBOX_POLL_MS = 5000;
+export function RemoteTaskRequestsProvider({ children }: { children: ReactNode }) {
+  const [store] = useState(() => new TaskRequestsStore(true));
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') void store.refreshInbox().catch(() => undefined); };
+    refresh();
+    const timer = window.setInterval(refresh, REMOTE_INBOX_POLL_MS);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, [store]);
   return <Context.Provider value={store}>{children}</Context.Provider>;
 }
 export function useTaskRequests() {

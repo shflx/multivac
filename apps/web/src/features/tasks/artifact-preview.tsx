@@ -3,15 +3,16 @@ import { ArtifactContentSchema, type ArtifactVersion } from '@multivac/contracts
 import { fetchJson } from '../../data/assistant-api.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
 
-export function ArtifactPreview({ versionId }: { versionId: string }) {
+/** url 缺省按版本读取；Inbox 改用请求绑定入口，避免远程开放任意成果读取。 */
+export function ArtifactPreview({ versionId, url = `/api/artifacts/${encodeURIComponent(versionId)}` }: { versionId: string; url?: string }) {
   const [value, setValue] = useState<{ version: ArtifactVersion; content: string } | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let active = true;
     setValue(null); setError('');
-    void fetchJson(`/api/artifacts/${encodeURIComponent(versionId)}`, undefined, ArtifactContentSchema).then((result) => { if (active) setValue(result); }).catch((failure) => { if (active) setError(failure instanceof Error ? failure.message : '成果未读取。'); });
+    void fetchJson(url, undefined, ArtifactContentSchema).then((result) => { if (active) setValue(result); }).catch((failure) => { if (active) setError(failure instanceof Error ? failure.message : '成果未读取。'); });
     return () => { active = false; };
-  }, [versionId]);
+  }, [url]);
   if (error) return <p role="alert" className="proposal-error">{error}</p>;
   if (!value) return <p className="muted">正在读取成果…</p>;
   return <div className="task-artifact-preview"><div className="task-artifact-meta"><strong>{value.version.title}</strong><span>版本 {value.version.version} · {value.version.size} 字节</span></div><p className="muted">来源运行：{value.version.runId} · 固定版本：{value.version.versionId}</p><p className="muted">SHA-256：<code>{value.version.sha256}</code></p>{value.version.checks.length === 0 && <p>没有服务端自检证据，请按验收要求人工核对。</p>}<ul className="task-artifact-checks">{value.version.checks.map((check) => <li key={check.name} className={check.passed ? 'success' : 'danger'}>{check.name}：{check.passed ? '通过' : '未通过'}<p>{check.evidence || '未提供补充证据。'}</p></li>)}</ul><MarkdownBody identity={`artifact:${versionId}`} text={value.content} /></div>;

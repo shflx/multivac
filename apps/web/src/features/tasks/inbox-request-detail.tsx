@@ -3,6 +3,7 @@ import { ArrowRight, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { Type } from 'typebox';
 import { InboxItemSchema, type InboxDecision, type InboxItem, type McpEffect } from '@multivac/contracts';
 import { fetchJson } from '../../data/assistant-api.js';
+import { useRemoteConversation } from '../assistant/remote-context.js';
 import { approvedDetail, authorizationDeadline, AUTHORIZATION_OUTCOMES, AUTHORIZATION_TOOL_ACTIONS, GRANT_REVOKE_PLACES } from '../assistant/tool-authorizations.js';
 import { ArtifactPreview } from './artifact-preview.js';
 import { McpRequestEvidence } from './mcp-request-evidence.js';
@@ -34,11 +35,14 @@ function receipt(item: InboxItem): string {
 
 /** Inbox 采用证据、决定和固定操作栏；仍通过共享请求存储提交原业务决定。 */
 export function InboxRequestDetail({ item, active, source, sourceAvailable, onSource, onRetainSelection, next, onNext, onReturn, onFinish, compact, scroll, choices }: {
-  item: InboxItem; active: boolean; source: string; sourceAvailable: boolean; onSource: () => void; onRetainSelection: () => void;
+  /** onSource 缺省表示当前入口不提供来源跳转（远程入口）。 */
+  item: InboxItem; active: boolean; source: string; sourceAvailable: boolean; onSource?: (() => void) | undefined; onRetainSelection: () => void;
   next: InboxItem | undefined; onNext: (id: string) => void; onReturn: () => void; onFinish: () => void; compact: boolean;
   scroll: MutableRefObject<Record<string, number>>; choices: MutableRefObject<Record<string, string>>;
 }) {
   const { store, drafts, errors, pending } = useTaskRequests();
+  // 远程入口不产生长期授权，服务端同样拒绝记住范围；这里只展示可用选项。
+  const remote = useRemoteConversation();
   const [choice, setChoice] = useState(() => choices.current[item.id] ?? (item.kind === 'authorization' ? 'once' : ''));
   // 首次调用的 MCP 工具：在许可中一并确认效果，按服务注解预选，用户可修改。
   const [mcpEffects, setMcpEffects] = useState<McpEffect[]>(() => item.mcp?.suggestedEffects ?? []);
@@ -56,7 +60,8 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
   const draft = drafts[item.id] ?? '';
   const busy = pending.has(item.id) || checking;
   const resolved = item.status !== 'pending' && item.status !== 'unknown';
-  const safeChoice = authorization && (choice === 'project' && !authorization.remember?.projectId || choice === 'session' && !authorization.remember) ? 'once' : choice;
+  const remember = remote ? undefined : authorization?.remember;
+  const safeChoice = authorization && (choice === 'project' && !remember?.projectId || choice === 'session' && !remember) ? 'once' : choice;
   useEffect(() => { if (active) setChoice(choices.current[item.id] ?? (item.kind === 'authorization' ? 'once' : '')); }, [active, item.id, item.kind, choices]);
   useEffect(() => { if (active && resolved) result.current?.focus({ preventScroll: true }); }, [active, resolved]);
   useEffect(() => { if (active && (choice === 'changes' || choice === 'answer')) answer.current?.focus({ preventScroll: true }); }, [active, choice]);
@@ -105,9 +110,9 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
           ['操作', AUTHORIZATION_TOOL_ACTIONS[authorization.toolName]], ['目标路径', <code>{authorization.targetPath}</code>], ['工作目录', <code>{authorization.workingDirectory.path}</code>], ['有效期', authorizationDeadline(authorization)],
         ]} /><p className="inbox-operation-effect">目标路径位于当前工作目录之外，需要你的授权。</p><DecisionOptions legend="允许范围" value={safeChoice} onChange={choose} disabled={busy} choices={[
           { value: 'once', label: '仅这一次', description: '再次执行相同操作时仍需确认' },
-          ...(authorization.remember ? [{ value: 'session', label: '当前会话', description: `允许本会话中${AUTHORIZATION_TOOL_ACTIONS[authorization.toolName]}「${authorization.remember.directory}」及其子目录` }] : []),
-          ...(authorization.remember?.projectId ? [{ value: 'project', label: '当前项目', description: `允许当前项目中的会话${AUTHORIZATION_TOOL_ACTIONS[authorization.toolName]}「${authorization.remember.directory}」及其子目录` }] : []),
-        ]} /><p className="inbox-grant-note"><ShieldCheck aria-hidden="true" /><span>{safeChoice === 'once' ? '仅允许本次操作，不新增长期授权。' : `记住的授权可在${safeChoice === 'project' ? GRANT_REVOKE_PLACES.project : GRANT_REVOKE_PLACES.session}中撤销。`}</span></p></section> : external ? <section className="inbox-evidence"><h3>本次发布到哪里</h3><Facts entries={[
+          ...(remember ? [{ value: 'session', label: '当前会话', description: `允许本会话中${AUTHORIZATION_TOOL_ACTIONS[authorization.toolName]}「${remember.directory}」及其子目录` }] : []),
+          ...(remember?.projectId ? [{ value: 'project', label: '当前项目', description: `允许当前项目中的会话${AUTHORIZATION_TOOL_ACTIONS[authorization.toolName]}「${remember.directory}」及其子目录` }] : []),
+        ]} />{remote && authorization.remember && <p className="inbox-muted">远程入口只能授权本次；需要记住授权时请在本机处理。</p>}<p className="inbox-grant-note"><ShieldCheck aria-hidden="true" /><span>{safeChoice === 'once' ? '仅允许本次操作，不新增长期授权。' : `记住的授权可在${safeChoice === 'project' ? GRANT_REVOKE_PLACES.project : GRANT_REVOKE_PLACES.session}中撤销。`}</span></p></section> : external ? <section className="inbox-evidence"><h3>本次发布到哪里</h3><Facts entries={[
           ['目标', external.target], ['远端分支', external.ref], ['固定提交', <code>{external.commit}</code>], ['认证', external.account],
         ]} /><h4>待发布内容</h4><pre className="inbox-output-preview">{external.summary}</pre>{external.result && <p role="status">{external.result}</p>}<p className="inbox-muted">仅创建新的远端分支。拒绝发布会保留已有成果；授权不会自动完成来源任务。</p></section> : item.kind === 'recovery' ? <section className="inbox-evidence"><h3>中断时的现场</h3><Facts entries={[
           ['中断原因', human?.recovery?.reason], ['最后检查点', human?.recovery?.checkpoint ?? '没有已持久化检查点'], ['未核对工具', human?.recovery?.pendingTools ?? '未知'], ['保留目录', human?.recovery?.directory ?? '尚无执行目录'],
@@ -115,7 +120,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
           { value: 'continue', label: '继续上次执行', description: '复用原会话，核对遗留命令后继续', disabled: !human?.recovery?.canResume },
           { value: 'restart', label: '从安全起点重新执行', description: '保留已有变更，从新会话核对后执行', disabled: !human?.recovery?.canResume },
           { value: 'stop', label: '保持停止', description: '保留现场，不恢复任务' },
-        ]} />{!human?.recovery?.canResume && <p className="inbox-muted">停止或副作用尚未核实，继续和重做暂不可用。</p>}</section> : item.kind === 'review' ? <section className="inbox-evidence"><h3>成果与自检</h3><p className="inbox-request-question">{human?.question}</p>{item.artifactVersionId ? <ArtifactPreview versionId={item.artifactVersionId} /> : <p>工作会话完成说明没有后台运行或文件成果自检证据，请核对原文与来源。</p>}{choice === 'changes' && responseField('修改意见', '说明需要修改的内容和期望结果')}</section> : human?.clarificationScope ? <section className="inbox-evidence"><h3>本次想引用什么</h3><Facts entries={[
+        ]} />{!human?.recovery?.canResume && <p className="inbox-muted">停止或副作用尚未核实，继续和重做暂不可用。</p>}</section> : item.kind === 'review' ? <section className="inbox-evidence"><h3>成果与自检</h3><p className="inbox-request-question">{human?.question}</p>{item.artifactVersionId ? <ArtifactPreview versionId={item.artifactVersionId} url={`/api/inbox/${encodeURIComponent(item.id)}/artifact`} /> : <p>工作会话完成说明没有后台运行或文件成果自检证据，请核对原文与来源。</p>}{choice === 'changes' && responseField('修改意见', '说明需要修改的内容和期望结果')}</section> : human?.clarificationScope ? <section className="inbox-evidence"><h3>本次想引用什么</h3><Facts entries={[
           ['资料', human.clarificationScope.materials.join('、')], ['引用范围', human.clarificationScope.scope], ['用途', human.clarificationScope.purpose],
         ]} /><blockquote>{human.clarificationScope.evidence}</blockquote><DecisionOptions legend="决定本次资料引用范围" value={choice} onChange={choose} disabled={busy} choices={[
           { value: 'use_scope', label: '允许本次引用', description: '只用于所列任务和引用范围' }, { value: 'deny', label: '不引用这份资料', description: '按现有已授权资料继续' }, { value: 'answer', label: '指定其他范围', description: '补充可以引用的内容和限制' },
@@ -124,7 +129,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
       {(errors[item.id] || checkError) && <p className="inbox-error" role="alert">{errors[item.id] || checkError}{errors[item.id] && draft && <button className="inline-link" onClick={() => void store?.retryDraft(item.id)}>保留本窗口草稿并重试保存</button>}</p>}
       <details className="inbox-supporting-details"><summary>来源与补充说明</summary>{human && <p className="inbox-request-question">{human.question}</p>}<Facts entries={[
         ['来源', source], ['创建时间', new Date(item.createdAt).toLocaleString()], ['影响', item.status === 'pending' ? item.blocksWork ? '工作等待你的决定' : notification ? '提醒通知，不阻塞工作' : '仅本次操作' : item.status === 'unknown' ? '结果待核对' : '本项已处理'],
-      ]} />{sourceAvailable ? <button className="inline-link" onClick={onSource}>返回来源会话 <ArrowRight /></button> : <p>来源会话不可用；请求仍以服务端记录为准。</p>}</details>
+      ]} />{!onSource ? <p>远程入口不提供来源跳转；需要查看来源会话时请在本机打开。</p> : sourceAvailable ? <button className="inline-link" onClick={onSource}>返回来源会话 <ArrowRight /></button> : <p>来源会话不可用；请求仍以服务端记录为准。</p>}</details>
     </div>
     <footer className="inbox-action-bar">{actions}</footer>
   </>;
