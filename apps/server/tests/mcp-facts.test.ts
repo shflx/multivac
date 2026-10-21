@@ -63,9 +63,10 @@ test('MCP 迁移可重放，旧数据库升级前备份且保留原业务数据'
   try {
     const first = new SqliteAssistantStore(dbPath); first.close();
     const db = new DatabaseSync(dbPath);
-    const latest = Number(db.prepare('SELECT max(version) AS n FROM schema_migrations').get()?.n);
+    // MCP 固定属于第 51 版；后续追加迁移不能改变旧库夹具的回退位置。
+    const mcpMigrationVersion = 51;
     db.exec('DROP TABLE mcp_event; DROP TABLE mcp_command; DROP TABLE mcp_service_version; DROP TABLE mcp_fact;');
-    db.prepare('DELETE FROM schema_migrations WHERE version=?').run(latest); db.close();
+    db.prepare('DELETE FROM schema_migrations WHERE version>=?').run(mcpMigrationVersion); db.close();
     const upgraded = new SqliteAssistantStore(dbPath);
     assert.deepEqual(upgraded.mcp.list('service'), []);
     assert.ok(upgraded.sessions.get(GLOBAL_ASSISTANT_SESSION_ID));
