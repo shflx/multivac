@@ -269,6 +269,7 @@ export class SessionModelSelectionService {
       this.selectionChanged();
     }
     catch {
+      this.notifyCommittedChange(begun);
       return this.result(command.commandId, 'unknown', 'SELECTION_STORAGE_FAILED', false, {
         ...finished, pending: begun.pending, recoveryError: 'Pi 可能已切换，但系统保存失败；只允许读取对账，禁止自动重发。',
       });
@@ -314,6 +315,14 @@ export class SessionModelSelectionService {
     this.selectionChanged();
   }
 
+  /** 存储可能已提交后才报错；只读核实事实变化后通知，不借机重试写入。 */
+  private notifyCommittedChange(previous: StoredSessionSelection): void {
+    try {
+      const actual = this.options.repository.getSelection(this.sessionId);
+      if (actual && JSON.stringify(actual) !== JSON.stringify(previous)) this.selectionChanged();
+    } catch { /* 无法证明已提交时保留未知，由原命令只读对账。 */ }
+  }
+
   private async begin(selection: StoredSessionSelection, command: StoredSelectionCommand, previous: StoredSessionSelection): Promise<SessionModelCommandResult | null> {
     try {
       this.options.repository.beginSelection(selection, command);
@@ -322,6 +331,7 @@ export class SessionModelSelectionService {
     } catch {
       let unknown = true;
       try { unknown = Boolean(this.options.repository.getSelectionCommand(command.commandId)); } catch { /* 读取失败时保持未知，不派发 Pi。 */ }
+      this.notifyCommittedChange(previous);
       return this.result(command.commandId, unknown ? 'unknown' : 'failed', 'SELECTION_STORAGE_FAILED', false,
         unknown ? { ...selection, recoveryError: '模型选择意图的保存结果未知；禁止发送，只允许读取原命令对账。' } : previous);
     }
