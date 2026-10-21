@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useRef,
+  useMemo,
   useState,
   type ReactNode,
 } from 'react';
@@ -20,7 +21,8 @@ import {
 
 import { newCommandId } from '../../data/command-id.js';
 
-const REFRESH_INTERVAL_MS = 1_500;
+import { useOptionalWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import { ModelSelectionRefresh } from './model-selection-refresh.js';
 
 const errors: Record<string, string> = {
   SELECTION_REVISION_CONFLICT: '选择已在其他位置更新，请核对当前模型后重试。',
@@ -56,7 +58,7 @@ export interface SessionModel extends SessionModelState {
 }
 
 /**
- * 会话选模控制器：轮询快照、提交命令并只读对账未知结果。
+ * 会话选模控制器：按事件读取快照、提交命令并只读对账未知结果。
  *
  * 选模属于会话状态，每个会话只有一份；该会话的各呈现实例共享同一快照与在途命令。
  */
@@ -69,21 +71,21 @@ export function useSessionModelController(sessionId: string, active = true): Ses
   const busyRef = useRef(false);
   const pending = useRef<string | null>(null);
   const changing = useRef(false);
-  const reading = useRef(false);
+  const currentSession = useRef(sessionId);
+  currentSession.current = sessionId;
   const mounted = useRef(true);
   const generation = useRef(0);
 
   dataRef.current = data;
   busyRef.current = busy;
 
-  const refresh = useCallback(async () => {
-    if (changing.current || reading.current) return;
-    reading.current = true;
+  const read = useCallback(async () => {
+    if (changing.current) return;
     const request = ++generation.current;
     try {
       if (pending.current) {
         const result = await getSessionModelCommand(sessionId, pending.current);
-        if (request !== generation.current || !mounted.current) return;
+        if (request !== generation.current || !mounted.current || currentSession.current !== sessionId) return;
         if (result.status !== 'unknown') {
           pending.current = null;
           setBusy(false);
@@ -91,31 +93,49 @@ export function useSessionModelController(sessionId: string, active = true): Ses
         }
       }
       const snapshot = await getSessionModelOptions(sessionId);
-      if (request !== generation.current || !mounted.current) return;
+      if (request !== generation.current || !mounted.current || currentSession.current !== sessionId) return;
       setData(snapshot);
       setReadError(null);
     } catch (cause) {
-      if (request === generation.current && mounted.current) {
+      if (request === generation.current && mounted.current && currentSession.current === sessionId) {
         setReadError(cause instanceof Error ? cause.message : '会话模型暂不可读取。');
       }
-    } finally {
-      reading.current = false;
     }
   }, [sessionId]);
 
+  const scheduler = useMemo(() => new ModelSelectionRefresh({
+    read, pending: () => pending.current !== null, visible: () => document.visibilityState === 'visible',
+    clock: { setTimeout: (callback, delay) => window.setTimeout(callback, delay), clearTimeout: timer => window.clearTimeout(timer) },
+  }), [read]);
+  const refresh = useCallback(() => scheduler.request(), [scheduler]);
+  useOptionalWorkbenchEvents(event => { if (active) scheduler.event(event, sessionId); });
+
+  useEffect(() => {
+    pending.current = null;
+    changing.current = false;
+    setBusy(false); setData(null); setError(null); setReadError(null);
+  }, [sessionId]);
   useEffect(() => {
     mounted.current = true;
     if (!active) return;
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
+    scheduler.start();
     const onFocus = () => void refresh();
-    window.addEventListener('focus', onFocus);
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('focus', onFocus);
+    const onVisibility = () => {
+      scheduler.schedule();
+      if (document.visibilityState === 'visible') void refresh();
     };
-  }, [refresh, active]);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      scheduler.stop();
+      ++generation.current;
+      changing.current = false;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [scheduler, refresh, active]);
+  useEffect(() => { scheduler.schedule(); }, [scheduler, busy]);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; ++generation.current; }; }, []);
 
   const change = useCallback(async (value: SessionModelChange): Promise<boolean> => {
     const current = dataRef.current;
@@ -123,7 +143,7 @@ export function useSessionModelController(sessionId: string, active = true): Ses
     const commandId = newCommandId();
     pending.current = commandId;
     changing.current = true;
-    ++generation.current;
+    const request = ++generation.current;
     setBusy(true);
     setError(null);
     try {
@@ -133,6 +153,7 @@ export function useSessionModelController(sessionId: string, active = true): Ses
         revision: current.selection.revision,
         ...value,
       });
+      if (request !== generation.current || !mounted.current || currentSession.current !== sessionId) return false;
       setData((previous) => previous ? { ...previous, selection: result.selection } : previous);
       setError(result.error ? commandErrorMessage(result.error) : null);
       if (result.status !== 'unknown') {
@@ -141,11 +162,14 @@ export function useSessionModelController(sessionId: string, active = true): Ses
       }
       return 'profileId' in value && result.status === 'succeeded' && !result.error;
     } catch {
+      if (request !== generation.current || !mounted.current || currentSession.current !== sessionId) return false;
       setError('切换结果未知，正在只读对账；不会自动重发命令。');
       return false;
     } finally {
-      changing.current = false;
-      void refresh();
+      if (request === generation.current && mounted.current && currentSession.current === sessionId) {
+        changing.current = false;
+        void refresh();
+      }
     }
   }, [refresh, sessionId]);
 
