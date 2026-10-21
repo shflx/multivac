@@ -102,6 +102,8 @@ export class SqliteNotesRepository implements NotesRepository {
   /** 仅供本仓库及建议应用在已有事务中写入；每个正文版本不可变。 */
   writeVersion(note: Note): void {
     if (!Check(NoteSchema, note)) throw new NotesError('笔记内容超过限制或无效。');
+    const existing = this.database.prepare("SELECT id FROM app_note WHERE id=? AND json_extract(record_json,'$.deleted')=1").get(note.id);
+    if (existing) throw new NotesError('笔记已删除，不能重新写入正文版本。', 404);
     new SqliteNoteImagesRepository(this.database).retainReferences(note.id, note.body);
     this.database.prepare('INSERT INTO app_note VALUES (?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json').run(note.id, JSON.stringify(note));
     this.database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run(note.id, note.revision, JSON.stringify(note));

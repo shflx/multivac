@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { NOTE_IMAGE_LIMITS, noteImageReferences, type NoteImage } from '@multivac/contracts';
+import { NOTE_IMAGE_LIMITS, type NoteImage } from '@multivac/contracts';
 import { NotesError } from '../modules/notes/note.js';
-import type { NoteImagesRepository } from '../modules/notes/note-image.js';
+import { noteBodyImageReferences, type NoteImagesRepository } from '../modules/notes/note-image.js';
 import { runInTransaction } from './sqlite-transaction.js';
 
 export const NOTE_IMAGES_MIGRATION = `
@@ -46,7 +46,7 @@ export class SqliteNoteImagesRepository implements NoteImagesRepository {
   /** 调用方在正文版本事务内执行；任何一项失败都会回滚正文和保留状态。 */
   retainReferences(noteId: string, body: string): void {
     let ids: string[];
-    try { ids = noteImageReferences(body); } catch (error) { throw new NotesError((error as Error).message); }
+    try { ids = noteBodyImageReferences(body); } catch (error) { throw new NotesError((error as Error).message); }
     for (const id of ids) {
       const row = this.db.prepare('SELECT id FROM app_note_image WHERE id=? AND note_id=?').get(id, noteId);
       if (!row) throw new NotesError('正文引用了不存在或不属于此笔记的图片。');

@@ -6,6 +6,9 @@ import { DatabaseSync } from 'node:sqlite';
 // 单进程、无网络，仅检查任务目录内的真实文件与新增迁移 SQL；不冒充 TypeScript 或产品链路验证。
 const root = process.cwd();
 const files = [
+  'packages/contracts/src/note-images.ts',
+  'apps/server/src/modules/notes/note-image.ts', 'apps/server/src/application/note-images-service.ts', 'apps/server/src/application/validate-image.ts', 'apps/server/src/adapters/http/note-images-routes.ts',
+  'apps/web/src/data/note-images-api.ts', 'apps/web/src/features/notes/note-image-editing.ts', 'apps/web/src/features/notes/note-image-uploads.ts',
   'packages/contracts/src/notes.ts', 'packages/contracts/src/note-assistant.ts', 'packages/contracts/src/note-suggestions.ts',
   'apps/server/src/storage/sqlite-notes-repository.ts', 'apps/server/src/storage/sqlite-note-summaries.ts', 'apps/server/src/storage/sqlite-note-assistant-repository.ts', 'apps/server/src/storage/sqlite-note-suggestions-repository.ts',
   'apps/server/src/application/notes-service.ts', 'apps/server/src/application/note-assistant-service.ts', 'apps/server/src/application/note-suggestion-parser.ts', 'apps/server/src/application/note-suggestions-service.ts',
@@ -13,6 +16,7 @@ const files = [
   'apps/web/src/data/notes-api.ts', 'apps/web/src/data/note-assistant-api.ts',
   'apps/web/src/features/notes/note-markdown.ts', 'apps/web/src/features/notes/note-rich-text-schema.ts', 'apps/web/src/features/notes/note-rich-text.tsx',
   'apps/web/src/features/notes/note-draft.ts', 'apps/web/src/features/notes/note-editor.tsx', 'apps/web/src/features/notes/notes-app.tsx', 'apps/web/src/features/notes/note-assistant.tsx', 'apps/web/src/features/notes/note-selection-toolbar.ts', 'apps/web/src/features/notes/note-versions.tsx',
+  'apps/server/src/storage/sqlite-note-images-repository.ts',
 ];
 const checks = [];
 for (const file of files) {
@@ -35,7 +39,7 @@ try {
     for (const migration of migrations) { database.exec(migration[1]); database.exec(migration[1]); }
   }
   const names = database.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(row => row.name);
-  assert.deepEqual(names, ['app_note', 'app_note_command', 'app_note_context', 'app_note_discussion', 'app_note_suggestion', 'app_note_suggestion_source', 'app_note_summary', 'app_note_version', 'app_note_version_summary', 'assistant_session_registry']);
+  assert.deepEqual(names, ['app_note', 'app_note_command', 'app_note_context', 'app_note_discussion', 'app_note_image', 'app_note_suggestion', 'app_note_suggestion_source', 'app_note_summary', 'app_note_version', 'app_note_version_summary', 'assistant_session_registry']);
   database.prepare('INSERT INTO app_note VALUES (?,?)').run('note', '{}');
   database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run('note', 1, '{}');
   assert.throws(() => database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run('note', 1, '{}'));

@@ -3,7 +3,14 @@ import { createPortal } from 'react-dom';
 import { History, X } from 'lucide-react';
 import type { Note, NoteVersionList } from '@multivac/contracts';
 import { getNoteVersion, listNoteVersions } from '../../data/notes-api.js';
-import { MarkdownBody } from '../assistant/markdown-body.js';
+import { NoteRichText } from './note-rich-text.js';
+
+const ignore = () => {};
+function NoteVersionBody({ note, previewRoot }: { note: Note; previewRoot: HTMLElement | null }) {
+  const element = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState('');
+  return <><NoteRichText noteId={note.id} body={note.body} disabled elementRef={element} previewRoot={previewRoot} onReady={ignore} onChange={ignore} onSelection={ignore} onError={setError} />{error && <p role="alert">{error}</p>}</>;
+}
 
 export function NoteVersions({ current, knownRevision, blocked, onRestore, onClose }: {
   current: Note; knownRevision: number; blocked: string; onRestore(note: Note): Promise<boolean>; onClose(): void;
@@ -84,7 +91,7 @@ export function NoteVersions({ current, knownRevision, blocked, onRestore, onClo
         {page?.nextBefore && <button type="button" className="note-versions-more" disabled={more || loading || restoring} onClick={() => void loadMore()}>{more ? '正在读取…' : '更早版本'}</button>}
       </nav>
       <section className="note-version-preview" aria-label="历史版本内容" key={selected}>
-        {version ? <><div className="note-version-heading"><span>v{version.revision}</span><time dateTime={version.updatedAt}>{new Date(version.updatedAt).toLocaleString('zh-CN')}</time></div><h3>{version.title || '未命名笔记'}</h3>{version.body ? <MarkdownBody identity={`note-version-${version.id}-${version.revision}`} text={version.body} /> : <p className="note-version-empty">此版本还没有正文。</p>}</> : !readError && <p role="status">正在读取内容…</p>}
+        {version ? <><div className="note-version-heading"><span>v{version.revision}</span><time dateTime={version.updatedAt}>{new Date(version.updatedAt).toLocaleString('zh-CN')}</time></div><h3>{version.title || '未命名笔记'}</h3>{version.body ? <NoteVersionBody key={`${version.id}:${version.revision}`} note={version} previewRoot={dialog.current} /> : <p className="note-version-empty">此版本还没有正文。</p>}</> : !readError && <p role="status">正在读取内容…</p>}
       </section>
     </div>
     {(listError || readError || restoreError) && <div className="notes-error" role="alert">{listError || readError || restoreError}{!restoreError && <button type="button" onClick={() => setAttempt(value => value + 1)}>重试读取</button>}</div>}

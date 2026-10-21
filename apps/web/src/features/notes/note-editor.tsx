@@ -137,7 +137,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
         remoteRef.current = newer;
         if (mounted.current) { setRemote(newer); onSaved(saved); }
         // 发送期间继续编辑或服务端已有更新时，助手不得使用旧正文冒充当前输入。
-        return noteDirty(current.current) || newer ? null : saved;
+        return noteDirty(current.current) || uploadCount.current || newer ? null : saved;
       } catch (e) {
         if (mounted.current) {
           setError((e as Error).message);
