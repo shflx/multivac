@@ -1,6 +1,6 @@
 import { DailyQuote } from './daily-quote.js';
-import { Inbox } from 'lucide-react';
 import { InboxDrawer, InboxView } from '../features/tasks/inbox-view.js';
+import { InboxButton } from '../features/tasks/inbox-button.js';
 import { useTaskRequests } from '../features/tasks/task-requests-provider.js';
 import { ProcessesSection } from '../features/runs/processes-section.js';
 import { RunIndicator } from '../features/runs/run-indicator.js';
@@ -154,6 +154,11 @@ export function App() {
     ? workspaceSessionFocus(workspaceFocus)
     : showManagement && currentPage === 'projects' ? projectFocus(selectedProject)
     : showManagement && currentPage === 'tasks' && taskState.selected ? { ref: { kind: 'task', taskId: taskState.selected }, label: `任务「${taskState.tasks.find((task) => task.taskId === taskState.selected)?.title ?? taskState.selected}」` } : null;
+  /** 正显示的会话：首页或侧栏中的 Multivac，以及工作区的焦点会话。 */
+  const visibleSessionIds = [
+    ...(assistantVisible || sidebarVisible ? ['global-coordinator'] : []),
+    ...(workspaceVisible && workspaceFocus ? [workspaceFocus.sessionId] : []),
+  ];
   const activeReadingFocus = showManagement && currentPage === 'reading' ? readingFocus : null;
 
   /**
@@ -532,7 +537,7 @@ export function App() {
             <div className="shell-actions">
               {narrow && !showManagement && <button className="reading-command" title="读书" aria-label="读书" onClick={() => void openManagementPage('reading')}><BookOpen size={18} /></button>}
               {!narrow && <RunIndicator onViewRuns={() => void openManagementPage('runs')} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} />}
-              <button className="shell-inbox" title={`Inbox · ${inbox.pendingCount} 项待处理`} aria-label={`Inbox，${inbox.pendingCount} 项待处理`} aria-haspopup="dialog" aria-expanded={inboxOpen} onClick={openInboxDrawer}><Inbox aria-hidden="true" />{inbox.pendingCount > 0 && <span className="inbox-count" aria-hidden="true">{inbox.pendingCount}</span>}</button>
+              <InboxButton open={inboxOpen} inboxVisible={inboxOpen || (showManagement && currentPage === 'inbox')} visibleSessionIds={visibleSessionIds} onClick={openInboxDrawer} />
               {navigationError && <span role="alert" className="shell-navigation-error">{navigationError}</span>}
               {showAuthorizationAttention && (
                 <>
