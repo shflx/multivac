@@ -5,8 +5,10 @@ import { fetchJson } from '../../data/assistant-api.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
 const ResponseSchema = Type.Object({ request: HumanRequestSchema }, { additionalProperties: false });
-interface RequestState { items: readonly InboxItem[]; inboxError: string; loaded: boolean; pendingCount: number; unseenCount: number; error: string; requests: readonly HumanRequest[]; drafts: Readonly<Record<string, string>>; pending: ReadonlySet<string>; errors: Readonly<Record<string, string>> }
-const EMPTY: RequestState = { items: [], inboxError: '', loaded: false, pendingCount: 0, unseenCount: 0, error: '', requests: [], drafts: {}, pending: new Set(), errors: {} };
+interface RequestState { items: readonly InboxItem[]; inboxError: string; loaded: boolean; pendingCount: number; unseenCount: number; error: string; requests: readonly HumanRequest[]; drafts: Readonly<Record<string, string>>; pending: ReadonlySet<string>; errors: Readonly<Record<string, string>>; arrival: InboxArrival }
+/** 本页面首次读到之后新出现的待处理条目；seq 每次有新增时递增，一次刷新内的多条合并为一次。 */
+export interface InboxArrival { seq: number; items: readonly InboxItem[] }
+const EMPTY: RequestState = { items: [], inboxError: '', loaded: false, pendingCount: 0, unseenCount: 0, error: '', requests: [], drafts: {}, pending: new Set(), errors: {}, arrival: { seq: 0, items: [] } };
 export class TaskRequestsStore {
   private state: RequestState = EMPTY;
   private readonly listeners = new Set<() => void>();
@@ -17,6 +19,8 @@ export class TaskRequestsStore {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private saving = new Map<string, Promise<void>>();
   private commands = new Map<string, { fingerprint: string; commandId: string }>();
+  /** 本页面见过的待处理条目；首次读取只作为基线，重连或刷新补回的旧条目不算新增。 */
+  private knownPending: Set<string> | null = null;
   private command(id: string, input: unknown): string {
     const fingerprint = JSON.stringify(input);
     const previous = this.commands.get(id);
@@ -47,12 +51,19 @@ export class TaskRequestsStore {
         counts = { pendingCount: page.pendingCount, unseenCount: page.unseenCount };
       } while (offset !== null);
       for (const item of items) this.applyInbox(item);
-      this.replace({ ...this.state, ...counts, loaded: true, inboxError: '' });
+      this.replace({ ...this.state, ...counts, loaded: true, inboxError: '', arrival: this.detectArrival() });
     } catch (error) {
       if (read === this.inboxRead) this.replace({ ...this.state, inboxError: error instanceof Error ? error.message : 'Inbox 未读取。' });
       throw error;
     }
   };
+  private detectArrival(): InboxArrival {
+    const pending = this.state.items.filter((item) => item.status === 'pending');
+    const known = this.knownPending;
+    const fresh = known ? pending.filter((item) => !known.has(item.id)) : [];
+    this.knownPending = new Set([...(known ?? []), ...pending.map((item) => item.id)]);
+    return fresh.length ? { seq: this.state.arrival.seq + 1, items: fresh } : this.state.arrival;
+  }
   private stateWrite = async (id: string, input: { seen?: true; draft?: string }) => {
     const item = this.state.items.find((value) => value.id === id);
     if (!item) return;
