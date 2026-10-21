@@ -34,6 +34,13 @@ const profile: ModelProfileInput = { profileId: 'gpt', displayName: 'GPT', provi
 const missing: ModelProfileInput = { ...profile, profileId: 'missing', provider: 'missing-auth' };
 
 class DelayedAdapter extends FakeCoordinatorAdapter {
+  displayVersion = 0;
+  nativeAvailable = true;
+  override readModelSelection(id: string) {
+    const snapshot = super.readModelSelection(id);
+    if (snapshot.ok) snapshot.value.inspectionVersion = String(this.displayVersion);
+    return snapshot;
+  }
   nativeChecks = 0;
   nativeGate: { nth: number; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | undefined;
   setterGate: { entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | undefined;
@@ -41,7 +48,7 @@ class DelayedAdapter extends FakeCoordinatorAdapter {
     const result = await super.validateModelSelection(id);
     const pending = this.nativeGate;
     if (++this.nativeChecks === pending?.nth) { pending.entered.resolve(); await pending.release.promise; }
-    return result;
+    return this.nativeAvailable ? result : { ok: true as const, value: false };
   }
   override async setModel(id: string, model: CoordinatorModelConfig, assertCurrent?: () => void) {
     const pending = this.setterGate;
@@ -294,4 +301,97 @@ test('离线真实 SDK base 模型异步校验后 auth.json 撤销：版本复�
     assert.equal(options.selection.availability.available, false);
     assert.equal(JSON.stringify(store.selections.getSelection(sessionId)).includes('synthetic-base-admission-key'), false);
   } finally { release.resolve(); await access.close(); adapter.dispose(); store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('同版本展示只校验一次，配置generation、认证、环境和适配版本逐项失效', async () => {
+  const h = await harness();
+  const envKey = 'MULTIVAC_SELECTION_CACHE_TEST_PRESENCE';
+  const previous = process.env[envKey];
+  try {
+    await h.select(); h.adapter.nativeChecks = 0;
+    await h.selection.getOptions(); await h.selection.getOptions();
+    assert.equal(h.adapter.nativeChecks, 1);
+    h.adapter.displayVersion++;
+    await h.selection.getOptions(); assert.equal(h.adapter.nativeChecks, 2);
+    await h.backend.configure(profile);
+    await h.selection.getOptions(); assert.equal(h.adapter.nativeChecks, 3);
+    process.env[envKey] = 'present';
+    await h.selection.getOptions(); assert.equal(h.adapter.nativeChecks, 4);
+    const current = await h.settings.getSnapshot();
+    await h.settings.replaceStateForTest({ revision: current.revision, profiles: current.profiles, defaultProfileId: null, commands: [] });
+    await h.selection.getOptions(); assert.equal(h.adapter.nativeChecks, 5);
+    const options = await h.selection.getOptions();
+    const accepted = h.store.commands.createAccepted({ commandId: 'cached-running', assistantSessionId: sessionId, kind: 'send', payloadFingerprint: 'fixture', runtimeSessionId: h.store.bindings.get(sessionId)!.runtimeSessionId });
+    assert.equal((await h.selection.getOptions()).running, true);
+    assert.equal(h.adapter.nativeChecks, 5);
+    h.store.commands.reconcile(accepted.receipt.commandId, 'failed');
+    assert.equal((await h.selection.getOptions()).running, false);
+    options.selection.modelId = 'caller-mutation';
+    assert.equal((await h.selection.getOptions()).selection.modelId, 'gpt-fixture');
+  } finally { if (previous === undefined) delete process.env[envKey]; else process.env[envKey] = previous; await h.close(); }
+});
+
+test('展示已命中可用缓存仍实时拒绝失效模型的发送、继承与等级切换', async () => {
+  const h = await harness();
+  try {
+    await h.select(); const display = await h.selection.getOptions();
+    assert.equal(display.selection.availability.available, true);
+    h.adapter.nativeAvailable = false;
+    assert.equal((await h.selection.getOptions()).selection.availability.available, true);
+    await assert.rejects(h.send('cache-admission-send'));
+    await assert.rejects(h.selection.snapshotForChild());
+    const switched = await h.selection.setThinkingLevel({ commandId: 'cache-admission-thinking', sessionId, revision: display.selection.revision, thinkingLevel: 'off' });
+    assert.equal(switched.status, 'failed');
+    assert.equal(h.adapter.calls.some(call => call.method === 'prompt'), false);
+  } finally { await h.close(); }
+});
+
+test('展示检查期间版本变化重新读取，旧异步结果不能写入新版本缓存', async () => {
+  const h = await harness();
+  try {
+    await h.select(); h.adapter.nativeChecks = 0;
+    const pending = { nth: 1, entered: gate(), release: gate() };
+    h.adapter.nativeGate = pending;
+    const read = h.selection.getOptions(); await pending.entered.promise;
+    h.adapter.displayVersion++; h.adapter.nativeAvailable = false;
+    pending.release.resolve();
+    assert.equal((await read).selection.availability.available, false);
+    assert.equal(h.adapter.nativeChecks, 2);
+    await h.selection.getOptions(); assert.equal(h.adapter.nativeChecks, 2);
+  } finally { await h.close(); }
+});
+
+test('展示缓存到期重新校验；选择revision和pending对账不能复用旧结果', async () => {
+  const h = await harness(); const originalNow = Date.now;
+  try {
+    await h.select(); h.adapter.nativeChecks = 0;
+    await h.selection.getOptions(); assert.equal(h.adapter.nativeChecks, 1);
+    const now = originalNow(); Date.now = () => now + 30_001;
+    await h.selection.getOptions(); assert.equal(h.adapter.nativeChecks, 2);
+    Date.now = originalNow;
+    const before = h.store.selections.getSelection(sessionId)!;
+    const next = { ...before, revision: before.revision + 1, pending: { commandId: 'cache-pending', previous: before.model, target: before.model } };
+    h.store.selections.beginSelection(next, { commandId: 'cache-pending', fingerprint: 'pending-fixture', result: null });
+    const reconciled = await h.selection.getOptions();
+    assert.equal(reconciled.selection.revision, next.revision);
+    assert.equal(h.store.selections.getSelection(sessionId)?.pending, null);
+    assert.ok(h.adapter.nativeChecks > 2);
+    const checks = h.adapter.nativeChecks;
+    await h.selection.getOptions(); assert.equal(h.adapter.nativeChecks, checks);
+  } finally { Date.now = originalNow; await h.close(); }
+});
+
+test('连通性检查版本变化使展示缓存失效，取消后的结果不继续显示checking', async () => {
+  const h = await harness();
+  try {
+    await h.select(); await h.selection.getOptions();
+    h.backend.behavior = 'wait';
+    const access = await h.access.getSnapshot();
+    await h.access.startCheck({ commandId: 'display-check', profileId: 'gpt', revision: access.revision, accessRevision: access.accessRevision });
+    const checking = await h.selection.getOptions();
+    assert.equal(checking.options.find(option => option.profileId === 'gpt')?.connection?.status, 'checking');
+    await h.access.cancelCheck('display-check');
+    const cancelled = await h.selection.getOptions();
+    assert.equal(cancelled.options.find(option => option.profileId === 'gpt')?.connection?.status, 'cancelled');
+  } finally { await h.close(); }
 });
