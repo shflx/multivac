@@ -2,16 +2,21 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
 import { InboxDecisionSchema, UpdateInboxStateSchema, type InboxQuery } from '@multivac/contracts';
 import type { InboxService } from '../../application/inbox-service.js';
+import type { ArtifactService } from '../../application/artifact-service.js';
 import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ToolAuthorizationServiceError } from '../../application/tool-authorization-service.js';
 import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
 import { requestOrigin } from './window-origin.js';
 import { McpError } from '../../modules/mcp/mcp.js';
+import { isRemoteRequest } from './remote-policy.js';
 
-export function createInboxHandler(service: InboxService) {
+/** 远程入口不产生长期授权：记住会话或项目的目录授权只能回本机处理。 */
+const LOCAL_ONLY_DECISIONS = new Set(['session', 'project']);
+
+export function createInboxHandler(service: InboxService, artifacts?: ArtifactService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
-    const match = /^\/api\/inbox(?:\/([^/]+)(?:\/(state|decision|reconcile))?)?$/.exec(url.pathname);
+    const match = /^\/api\/inbox(?:\/([^/]+)(?:\/(state|decision|reconcile|artifact))?)?$/.exec(url.pathname);
     if (!match) return false;
     const json = (status: number, value: unknown) => { response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); response.end(JSON.stringify(value)); };
     try {
@@ -25,7 +30,13 @@ export function createInboxHandler(service: InboxService) {
         json(200, service.page(query as InboxQuery));
       } else if (url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '详情接口不接受查询参数。');
       else if (id && !match[2] && request.method === 'GET') json(200, { item: service.get(id) });
-      else if (id && match[2] && request.method === 'POST') {
+      else if (id && match[2] === 'artifact' && request.method === 'GET') {
+        // 只读取请求绑定的固定成果版本，入口不接受任意 versionId。
+        const versionId = service.get(id).artifactVersionId;
+        if (!versionId || !artifacts) throw new TaskServiceError('NOT_FOUND', '此请求没有绑定成果。');
+        json(200, await artifacts.read(versionId));
+      }
+      else if (id && match[2] && match[2] !== 'artifact' && request.method === 'POST') {
         if (!request.headers['content-type']?.startsWith('application/json')) throw new TaskServiceError('INVALID_REQUEST', '请求必须使用 JSON。');
         const input = await readJsonBody(request);
         if (match[2] === 'state') {
@@ -35,6 +46,7 @@ export function createInboxHandler(service: InboxService) {
         else if (match[2] === 'reconcile') json(200, { item: await service.reconcile(id) });
         else {
           if (!Check(InboxDecisionSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '决定参数无效。');
+          if (isRemoteRequest(request) && LOCAL_ONLY_DECISIONS.has(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '远程入口只能授权本次操作；记住授权请在本机处理。');
           json(200, { item: await service.decide(id, input, requestOrigin(request)) });
         }
       } else throw new TaskServiceError('NOT_FOUND', '接口不存在。');

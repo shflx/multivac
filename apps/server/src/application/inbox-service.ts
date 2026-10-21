@@ -10,10 +10,14 @@ import type { WorkbenchEvents } from './workbench-events.js';
 import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 
+/** 按来源身份只读解析展示名称；不能读取到对象时返回泛称，不改变请求事实。 */
+export type InboxSourceDescriber = (source: { taskId: string | null; sessionId: string | null }) => string;
+
 /** 统一投影原服务事实，授权镜像不生成第二个决定对象。 */
 export class InboxService {
   constructor(private readonly humans: HumanRequestService, private readonly authorization: ToolAuthorizationService,
-    private readonly states: InboxStateRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService, private readonly reminders?: ReminderRepository, private readonly mcp?: McpAuthorizationService) {}
+    private readonly states: InboxStateRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService, private readonly reminders?: ReminderRepository, private readonly mcp?: McpAuthorizationService,
+    private readonly describeSource?: InboxSourceDescriber) {}
 
   private all(): InboxItem[] {
     const humans = this.humans.list();
@@ -59,7 +63,8 @@ export class InboxService {
       taskId: null, sessionId: notification.sourceSessionId, artifactVersionId: null,
       human: null, authorization: null, notification, state: this.states.get(notification.id),
     });
-    return items.sort(compareInboxItems);
+    const describe = this.describeSource;
+    return (describe ? items.map((item) => ({ ...item, sourceLabel: describe(item) })) : items).sort(compareInboxItems);
   }
   page(query: InboxQuery = {}): InboxList {
     if (!Check(InboxQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', 'Inbox 查询无效。');

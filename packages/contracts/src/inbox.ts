@@ -17,6 +17,8 @@ export const InboxItemSchema = Type.Object({
   status: Type.Union([Type.Literal('pending'), Type.Literal('answered'), Type.Literal('invalidated'), Type.Literal('expired'), Type.Literal('unknown')]),
   title: Type.String(), createdAt: Type.String(), updatedAt: Type.String(), blocksWork: Type.Boolean(),
   taskId: NullableId, sessionId: NullableId, artifactVersionId: NullableId,
+  /** 服务端解析的来源名称，仅供展示；不作为身份或跳转依据。 */
+  sourceLabel: Type.Optional(Type.String({ maxLength: 1000 })),
   human: Type.Union([HumanRequestSchema, Type.Null()]),
   authorization: Type.Union([ToolAuthorizationRequestSchema, Type.Null()]),
   external: Type.Optional(ExternalOperationSchema),

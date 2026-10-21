@@ -58,12 +58,24 @@ test('远程HTTP：未登录拒绝、token登录、直接越界/正文替换拒�
     assert.equal((await http(f.port, '/api/assistant/page-state', 'PUT', { draft: '', quote: foreignQuote, revision: state.revision, anchorEntryId: null, anchorOffsetPx: 0 })).status, 200);
     assert.equal((await http(f.port, '/api/assistant/page-state', 'GET', undefined, headers)).body.quote, null);
     assert.deepEqual((await http(f.port, '/api/assistant/page-state')).body.quote, foreignQuote);
-    for (const path of ['/api/inbox', '/api/tasks', '/api/projects', '/api/preferences', '/api/processes', '/api/reading/books',
+    for (const path of ['/api/task-requests', '/api/artifacts/version', '/api/tasks', '/api/projects', '/api/preferences', '/api/processes', '/api/reading/books',
       '/api/authorization-grants', '/api/sessions/global-coordinator/session', '/api/sessions/other/session',
       `/api/sessions/other/images/${'a'.repeat(64)}/content`, '/api/sessions/other/files']) {
       assert.equal((await http(f.port, path, 'GET', undefined, headers)).status, 403, path);
     }
     for (const path of ['/api/__e2e/reset', '/api/assistant/model-selection/model']) assert.equal((await http(f.port, path, 'POST', {}, headers)).status, 403, path);
+    // Inbox 开放请求事实与原决定入口；远程不产生记住的目录授权，任务请求列表和任意成果仍拒绝。
+    const inbox = await http(f.port, '/api/inbox?status=all', 'GET', undefined, headers);
+    assert.equal(inbox.status, 200); assert.equal(typeof inbox.body.pendingCount, 'number');
+    assert.equal((await http(f.port, '/api/inbox/missing', 'GET', undefined, headers)).status, 404);
+    assert.equal((await http(f.port, '/api/inbox/missing/artifact', 'GET', undefined, headers)).status, 404);
+    assert.equal((await http(f.port, '/api/inbox/missing/artifact', 'POST', {}, headers)).status, 403);
+    assert.equal((await http(f.port, '/api/inbox/missing/decision', 'GET', undefined, headers)).status, 403);
+    assert.equal((await http(f.port, '/api/inbox/%E0%A4%A/decision', 'POST', {}, headers)).status, 403);
+    for (const decision of ['session', 'project']) {
+      const remembered = await http(f.port, '/api/inbox/authorization:missing/decision', 'POST', { commandId: decision, revision: 1, decision }, headers);
+      assert.equal(remembered.status, 400, decision); assert.match(remembered.body.error.message, /只能授权本次/u);
+    }
     assert.equal((await http(f.port, '/api/assistant/turns', 'POST', { assistantSessionId: 'other' }, headers)).status, 403);
     assert.equal((await http(f.port, '/api/assistant/turns/current/cancel', 'POST', { assistantSessionId: 'other' }, headers)).status, 403);
     assert.equal((await http(f.port, '/api/assistant/page-state', 'PUT', { quote: { sourceKind: 'file' } }, headers)).status, 403);
