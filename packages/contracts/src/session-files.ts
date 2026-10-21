@@ -28,6 +28,9 @@ export type SessionFileContent = Static<typeof SessionFileContentSchema>;
 
 export const SessionFileReferenceSchema = Type.Object({
   kind: Type.Optional(Type.Literal('image')),
+  // 消息内的 UTF-16 区间用于区分重复文字；旧来源仍可仅按 Markdown href 使用。
+  startOffset: Type.Optional(Type.Integer({ minimum: 0, maximum: 524288 })),
+  endOffset: Type.Optional(Type.Integer({ minimum: 1, maximum: 524288 })),
   root: Type.String({ minLength: 1, maxLength: 4096 }), path: Type.String({ minLength: 1, maxLength: 4096 }), href: Type.String({ minLength: 1, maxLength: 8192 }),
   line: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), endLine: Type.Optional(Type.Integer({ minimum: 1, maximum: 20000 })), section: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
 }, { additionalProperties: false });
