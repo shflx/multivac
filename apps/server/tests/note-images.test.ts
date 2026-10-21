@@ -64,7 +64,7 @@ test('并发上传不沿用四张限制；额度事务、删除墓碑和服务�
     notes.create({ id: 'gone', commandId: 'gone', title: '', body: '' });
     const pending = images.upload('gone', await png());
     notes.remove('gone', { commandId: 'delete', expectedRevision: 1 });
-    await assert.rejects(pending, /已删除/u);
+    await assert.rejects(pending, /不存在|已删除/u);
     assert.equal(store.database.prepare("SELECT COUNT(*) AS n FROM app_note_image WHERE note_id='gone'").get()!.n, 0);
     const stopped = images.upload('a', await png(61)); images.dispose();
     await assert.rejects(stopped, /已关闭/u);

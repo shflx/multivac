@@ -7,10 +7,17 @@ import { validateImage } from './validate-image.js';
 
 export class NoteImagesService {
   private disposed = false;
+  private tail: Promise<unknown> = Promise.resolve();
   constructor(private readonly repository: NoteImagesRepository, private readonly notes: NotesService) {}
   get(noteId: string, id: string) { return this.repository.get(noteId, id); }
   read(noteId: string, id: string) { return this.repository.read(noteId, id); }
-  async upload(noteId: string, data: Buffer): Promise<NoteImage> {
+  upload(noteId: string, data: Buffer): Promise<NoteImage> {
+    // 所有上传共用有序解码队列，避免多批或多窗口同时解码耗尽内存。
+    const operation = this.tail.then(() => this.save(noteId, data));
+    this.tail = operation.catch(() => {});
+    return operation;
+  }
+  private async save(noteId: string, data: Buffer): Promise<NoteImage> {
     if (this.disposed) throw new NotesError('笔记图片服务已关闭。', 503);
     this.notes.summary(noteId);
     const metadata = await validateImage(data);

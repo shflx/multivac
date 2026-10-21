@@ -5,8 +5,13 @@ import type { Transaction } from '@tiptap/pm/state';
 export function noteWithoutUploads(node: DocumentNode): DocumentNode {
   if (node.isLeaf) return node;
   const content: DocumentNode[] = [];
-  node.forEach(child => { if (child.type.name !== 'noteImageUpload') content.push(noteWithoutUploads(child)); });
-  return node.copy(Fragment.fromArray(content));
+  let changed = false;
+  node.forEach(child => {
+    if (child.type.name === 'noteImageUpload') { changed = true; return; }
+    const next = noteWithoutUploads(child);
+    content.push(next); changed ||= next !== child;
+  });
+  return changed ? node.copy(Fragment.fromArray(content)) : node;
 }
 export function noteUploadCount(doc: DocumentNode): number {
   let count = 0;
