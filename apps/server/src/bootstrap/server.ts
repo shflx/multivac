@@ -174,7 +174,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks, options.workspaceSessionService, options.stopSessionProcesses) : undefined;
   const agentRoutes = options.agents ? createAgentRequestHandler(options.agents) : undefined;
   const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests, options.runs) : undefined;
-  const inboxRoutes = options.inbox ? createInboxHandler(options.inbox) : undefined;
+  const inboxRoutes = options.inbox ? createInboxHandler(options.inbox, options.artifacts) : undefined;
   const conversationConfirmations = options.inbox ? createConversationConfirmationHandler(options.inbox) : undefined;
   const humanRequestRoutes = options.humanRequests ? createHumanRequestHandler(options.humanRequests) : undefined;
   const artifactRoutes = options.artifacts ? createArtifactHandler(options.artifacts) : undefined;
@@ -243,7 +243,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (remote && access) {
         if (!access.authenticated) { accessError(response, 401, 'LOGIN_REQUIRED', '请使用访问 token 登录。'); return; }
         const path = new URL(request.url ?? '/', 'http://localhost').pathname;
-        if (!remoteRouteAllowed(request.method ?? '', path)) { accessError(response, 403, 'ACCESS_DENIED', '远程入口只开放全局 Multivac 对话。'); return; }
+        if (!remoteRouteAllowed(request.method ?? '', path)) { accessError(response, 403, 'ACCESS_DENIED', '远程入口只开放全局 Multivac 对话与 Inbox。'); return; }
         markRemoteRequest(request);
       }
       if (options.testRequestHandler && await options.testRequestHandler(request, response, testControls)) return;

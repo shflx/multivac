@@ -5,17 +5,27 @@ const remoteRequests = new WeakSet<IncomingMessage>();
 export function markRemoteRequest(request: IncomingMessage): void { remoteRequests.add(request); }
 export function isRemoteRequest(request: IncomingMessage): boolean { return remoteRequests.has(request); }
 
-/** 默认拒绝；匹配方法与完整路径，图片仅允许准确的全局会话 ID。 */
+function validRequestId(encoded: string): boolean {
+  try { return /^[A-Za-z0-9._:-]{1,512}$/u.test(decodeURIComponent(encoded)); } catch { return false; }
+}
+
+/**
+ * 默认拒绝；匹配方法与完整路径，图片仅允许准确的全局会话 ID。
+ * Inbox 只开放请求自身事实、绑定成果与原业务决定，不开放来源会话、任务或任意成果读取。
+ */
 export function remoteRouteAllowed(method: string, path: string): boolean {
   if (method === 'GET' && ['/api/assistant/session', '/api/assistant/page-state', '/api/assistant/tools',
     '/api/assistant/model-selection', '/api/assistant/events', '/api/assistant/authorizations',
-    '/api/assistant/proposals', '/api/assistant/confirmations', '/api/events'].includes(path)) return true;
+    '/api/assistant/proposals', '/api/assistant/confirmations', '/api/events', '/api/inbox'].includes(path)) return true;
   const confirmation = /^\/api\/assistant\/confirmations\/([^/]+)(?:\/(decision|reconcile))?$/u.exec(path);
   if (confirmation) {
-    try {
-      if (!/^[A-Za-z0-9._:-]{1,512}$/u.test(decodeURIComponent(confirmation[1]!))) return false;
-      return confirmation[2] ? method === 'POST' : method === 'GET';
-    } catch { return false; }
+    if (!validRequestId(confirmation[1]!)) return false;
+    return confirmation[2] ? method === 'POST' : method === 'GET';
+  }
+  const inbox = /^\/api\/inbox\/([^/]+)(?:\/(state|decision|reconcile|artifact))?$/u.exec(path);
+  if (inbox) {
+    if (!validRequestId(inbox[1]!)) return false;
+    return !inbox[2] || inbox[2] === 'artifact' ? method === 'GET' : method === 'POST';
   }
   if (method === 'GET' && /^\/api\/assistant\/(?:commands|tools)\/[^/%]+$/u.test(path)) return true;
   if (method === 'PUT' && path === '/api/assistant/page-state') return true;

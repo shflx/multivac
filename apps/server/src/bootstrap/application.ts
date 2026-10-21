@@ -992,7 +992,17 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (event.type === 'assistant.run.succeeded' && !store.taskRuns.bySession(event.assistantSessionId)) mcp.finishTurn(event.assistantSessionId);
     else if (['assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled'].includes(event.type)) void mcp.cancelSession(event.assistantSessionId).catch(() => {});
   });
-  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders, mcp.authorizations);
+  // 来源名称与工作台 Inbox 的展示规则一致，供读不到任务和会话列表的远程入口使用。
+  const describeInboxSource = ({ taskId, sessionId }: { taskId: string | null; sessionId: string | null }) => {
+    let task = null; try { task = taskId ? tasks.get(taskId) : null; } catch {}
+    const session = sessionId ? store.sessions.get(sessionId) : undefined;
+    const workspace = session ? store.workspaces.get(session.workspaceId) : undefined;
+    const projectId = task ? task.projectId : workspace?.project?.projectId ?? null;
+    const project = (projectId ? store.projects.get(projectId)?.name : null) ?? (task?.projectId ? '来源项目' : session && !workspace ? '来源工作区' : '日常');
+    const title = task?.title ?? (taskId ? '来源任务' : sessionId === GLOBAL_ASSISTANT_SESSION_ID ? '全局 Multivac' : session?.title ?? '工作会话');
+    return `${title} · ${project}`;
+  };
+  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders, mcp.authorizations, describeInboxSource);
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
   });
