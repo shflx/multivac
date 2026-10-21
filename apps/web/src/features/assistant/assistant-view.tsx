@@ -807,7 +807,7 @@ function AssistantSessionView({
                                 : {})}
                             >{item.message.text}</p>
                           ) : null}
-                        {onOpenFileReference && item.message.fileReferences?.length && <div className="discussion-references">{item.message.fileReferences.filter((reference) => reference.startOffset === undefined && reference.kind !== 'image').map((reference) => <button key={reference.href} type="button" title={`${reference.root}/${reference.path}${reference.section ? ` · ${reference.section}` : ''}`} aria-label={`打开原文 ${reference.path}`} onClick={() => onOpenFileReference(reference)}><FileText /><span>{reference.path}{reference.line ? ` · 第 ${reference.line}${reference.endLine ? `-${reference.endLine}` : ''} 行` : reference.section ? ` · ${reference.section}` : ''}</span></button>)}</div>}
+                        {onOpenFileReference && item.message.fileReferences?.some((reference) => reference.startOffset === undefined && reference.kind !== 'image') && <div className="discussion-references">{item.message.fileReferences.filter((reference) => reference.startOffset === undefined && reference.kind !== 'image').map((reference) => <button key={reference.href} type="button" title={`${reference.root}/${reference.path}${reference.section ? ` · ${reference.section}` : ''}`} aria-label={`打开原文 ${reference.path}`} onClick={() => onOpenFileReference(reference)}><FileText /><span>{reference.path}{reference.line ? ` · 第 ${reference.line}${reference.endLine ? `-${reference.endLine}` : ''} 行` : reference.section ? ` · ${reference.section}` : ''}</span></button>)}</div>}
                       </div>
                     </article>
                   ))}
