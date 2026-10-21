@@ -61,6 +61,7 @@ export interface AssistantTurnCommandServiceOptions {
   eventStream: AssistantEventStream;
   assistantSessionId?: string;
   operationLock?: AssistantOperationLock;
+  onRunningChanged?: () => void;
   validateSelectionForSend?: () => Promise<void>;
   withSelectionForSend?: <T>(dispatch: () => T) => Promise<{ value: T }>;
   /**
@@ -500,6 +501,8 @@ export class AssistantTurnCommandService {
         this.activePromptCommandId = null;
         this.activePromptWindowId = null;
         this.activePromptView = null;
+        // 回执与 Pi 已收尾后再通知，读取方此时才能看到真实空闲。
+        this.options.onRunningChanged?.();
       }
     }
   }

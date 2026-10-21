@@ -39,6 +39,14 @@ function safeCommand(command: ModelAccessCommand): ModelAccessCommand {
 
 /** 账本只描述一次尝试，不比较/保存 Key 或 hash；已消费 ID 永远不能再次写入凭据。 */
 export class ModelAccessService {
+  private readonly credentialListeners = new Set<() => void>();
+  onCredentialsChanged(listener: () => void): () => void {
+    this.credentialListeners.add(listener);
+    return () => this.credentialListeners.delete(listener);
+  }
+  private notifyCredentialsChanged(): void {
+    for (const listener of this.credentialListeners) listener();
+  }
   private state: ModelAccessState | undefined;
   private tail: Promise<void> = Promise.resolve();
   private readonly running = new Map<string, RunningCheck>();
@@ -188,6 +196,7 @@ export class ModelAccessService {
   }
   async close(): Promise<void> {
     this.closed = true;
+    this.credentialListeners.clear();
     this.credentialController?.abort();
     for (const job of this.running.values()) job.controller.abort(new ModelAccessError('CHECK_CANCELLED'));
     await Promise.all([...this.running.values()].map((job) => job.task));
@@ -248,7 +257,7 @@ export class ModelAccessService {
           this.consumed.set(command.commandId, { ...begun, state: 'unconfirmed', errorCode: 'CREDENTIAL_RESULT_UNKNOWN' });
           throw new ModelAccessError('CREDENTIAL_RESULT_UNKNOWN');
         }
-      } finally { clearTimeout(timer); this.credentialController = undefined; }
+      } finally { clearTimeout(timer); this.credentialController = undefined; this.notifyCredentialsChanged(); }
     });
   }
   private async runCheck(profile: ModelProfileInput, checkId: string, job: RunningCheck): Promise<void> {
@@ -368,7 +377,9 @@ export class ModelAccessService {
       this.invalidateChecks(next);
       await this.persist(next);
     }
+    const changed = this.credentialVersion !== undefined && current !== this.credentialVersion;
     this.credentialVersion = current;
+    if (changed) this.notifyCredentialsChanged();
   }
   private async syncObservedAuthentication(availability: ModelAvailability[], revision: number): Promise<void> {
     // 只比较 Pi 的公开状态，不读取/比较/hash 环境 Key。文件未变也可能失去 ambient auth。
@@ -383,6 +394,7 @@ export class ModelAccessService {
       await this.persist(next);
     }
     this.observedAuthentication = { revision, credentialRevision: this.state!.credentialRevision, signature };
+    if (previous && previous.credentialRevision !== this.state!.credentialRevision) this.notifyCredentialsChanged();
   }
   private addCommand(state: ModelAccessState, command: ModelAccessCommand, provider: string,
     action: ModelAccessReceipt['action'], status: ModelAccessReceipt['state']): StoredAccessCommand {

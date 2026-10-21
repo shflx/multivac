@@ -32,6 +32,7 @@ import { sameSessionModelConfig } from '../modules/sessions/session-model-select
 export interface AssistantSessionRuntimeDependencies {
   stopExecution?: (sessionId: string, executionId: string) => Promise<void>;
   images?: ImageService;
+  onModelSelectionChanged?: (sessionId: string) => void;
   adapter: CoordinatorAdapter;
   bindingRepository: AssistantSessionBindingRepository;
   pageStateRepository: AssistantPageStateRepository;
@@ -136,6 +137,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       eventStream: dependencies.eventStream,
       assistantSessionId: options.sessionId,
       operationLock: lock,
+      onRunningChanged: () => dependencies.onModelSelectionChanged?.(options.sessionId),
       ...(options.resolveAgentExecution ? {
         resolveAgentExecution: options.resolveAgentExecution,
         withAgentSelectionForSend: async <T,>(execution: AssistantAgentExecution, dispatch: (prepared?: CoordinatorTurnPreparation) => T) => {
@@ -186,6 +188,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       lock,
       sessionId: options.sessionId,
       isRunning: () => this.commands.isRunning(),
+      ...(dependencies.onModelSelectionChanged ? { onChanged: dependencies.onModelSelectionChanged } : {}),
     });
     this.projector = new AssistantEventProjector({
       adapter: dependencies.adapter,

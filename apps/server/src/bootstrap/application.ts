@@ -1,3 +1,4 @@
+import { subscribeModelSelectionLifecycle } from '../application/model-selection-events.js';
 import { resolveRuntimeConfig, runtimePathsOverlap } from '../runtime-config.js';
 import { realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
@@ -318,7 +319,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ...(options.modelAccessTimeoutMs === undefined ? {} : { timeoutMs: options.modelAccessTimeoutMs }),
     ...(harness.accessClock ? { now: harness.accessClock } : {}),
   });
-  const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => modelAccessService.configurationChanged());
+  const publishModelSelection = (sessionId: string | null) => workbenchEvents.publish({ type: 'model-selection.changed', sessionId });
+  const unsubscribeModelChanges = modelSettingsService.onConfigurationChanged(() => {
+    modelAccessService.configurationChanged();
+    publishModelSelection(null);
+  });
+  const unsubscribeCredentials = modelAccessService.onCredentialsChanged(() => publishModelSelection(null));
   // 每个会话都注入目录边界扩展，文件工具越界时由授权服务生成请求并等待用户决定。
   const usage = new ModelUsageService(store.usage, sessionId => {
     const session = store.sessions.get(sessionId);
@@ -526,6 +532,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     eventStream,
     modelSettingsService,
     modelAccessService,
+    onModelSelectionChanged: publishModelSelection,
   };
   const sessionRegistry = store.sessions;
   // Multivac 读取其他会话的最近内容：只读，打开中的读内存，未打开或已归档的读 Pi session 文件，不建立运行时。
@@ -751,6 +758,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     tempDirectoryCleaner.sweepSafely();
     workbenchEvents.publish({ type: 'preferences.changed', preferences });
   });
+  const unsubscribeModelLifecycle = subscribeModelSelectionLifecycle(eventStream, workbenchEvents);
   const unsubscribeActivity = eventStream.subscribe((event) => {
     if (!['assistant.command.handed_to_pi', 'assistant.turn.started', 'assistant.turn.ended', 'assistant.tool.ended'].includes(event.type)) return;
     const record = sessionRegistry.get(event.assistantSessionId);
@@ -1071,6 +1079,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       const mcpStopped = mcp.close();
       taskExecution.beginClose();
       unsubscribeModelChanges();
+      unsubscribeCredentials();
+      unsubscribeModelLifecycle();
       unsubscribePreferenceChanges();
       unsubscribeActivity();
       tempDirectoryCleaner.stop();
