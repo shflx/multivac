@@ -9,7 +9,7 @@ process.env.TMPDIR = process.cwd();
 // 在禁止派生子进程的任务环境中，用 TypeScript 的进程内转换运行针对性测试。
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier.endsWith('.js') && specifier.startsWith('.') && context.parentURL) {
+    if (specifier.endsWith('.js') && specifier.startsWith('.') && context.parentURL && !existsSync(new URL(specifier, context.parentURL))) {
       for (const extension of ['.ts', '.tsx']) {
         const url = new URL(specifier.slice(0, -3) + extension, context.parentURL);
         if (existsSync(url)) return { url: url.href, shortCircuit: true };

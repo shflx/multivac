@@ -58,7 +58,7 @@ export function messageFileReferences(text: string, root: string, includeImages 
   const visit = (node: Node, context: Set<string>, inListItem = false) => {
     // 列表项独立持有上下文；普通段落之间不继承文件。
     if (node.type === 'listItem') { context = new Set(); inListItem = true; }
-    else if (node.type === 'paragraph' && !inListItem) context = new Set();
+    else if ((node.type === 'paragraph' || node.type === 'heading') && !inListItem) context = new Set();
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
     if (start === undefined || end === undefined) return;
@@ -67,6 +67,7 @@ export function messageFileReferences(text: string, root: string, includeImages 
       const image = node.type === 'image' || node.type === 'imageReference';
       const reference = href ? add(href, start, end, image) : undefined;
       if (reference && !image) context.add(reference.path);
+      else if (href && !image && !/^(?:[a-z][a-z\d+.-]*:\/|mailto:|multivac:|#)/i.test(href)) context.add(href);
       return; // 链接标签与图片替代文字不重复识别。
     }
     if (node.type === 'text' || node.type === 'inlineCode') {
@@ -74,9 +75,10 @@ export function messageFileReferences(text: string, root: string, includeImages 
       if (node.type === 'inlineCode') valueStart += /^`+/u.exec(text.slice(start, end))?.[0].length ?? 0;
       // Markdown 转义和代码空白归一化无法直接映射时保守退化。
       if (text.slice(valueStart, valueStart + node.value.length) !== node.value) return;
-      const pattern = /(?:^|(?<=[\s（(\[，。；：、]))((?:[\p{L}\p{N}_@+./-]+\/[\p{L}\p{N}_@+.-]+|[\p{L}\p{N}_@+-][\p{L}\p{N}_@+.-]*\.[\p{L}\p{N}_+-]+)(?::\d+(?:[-–]\d+)?)?|:\d+(?:[-–]\d+)?)(?=$|[\s）)\]，。；、!?！？,.])/gu;
+      const pattern = /(?:^|(?<=[\s（(\[，。；：、]))((?:[\p{L}\p{N}_@+./-]+\/[\p{L}\p{N}_@+.-]+|[\p{L}\p{N}_@+-][\p{L}\p{N}_@+.-]*\.[\p{L}_][\p{L}\p{N}_+-]*)(?::\d+(?:[-–]\d+)?)?|:\d+(?:[-–]\d+)?)(?=$|[\s）)\]，。；、!?！？,]|\.(?:\s|$))/gu;
       for (const match of node.value.matchAll(pattern)) {
         const literal = match[1]!;
+        if (literal.startsWith('www.')) continue;
         const offset = valueStart + match.index!;
         if (literal.startsWith(':')) {
           if (context.size === 1) add(`${[...context][0]}${literal}`, offset, offset + literal.length);

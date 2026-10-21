@@ -20,12 +20,12 @@ test('省略路径只继承局部唯一的明确前置文件，段落与列表�
 
 test('URL、时间、代码块、非法范围与越界路径不生成可操作引用', () => {
   for (const text of [
-    'https://example.com/a.ts:12–20 mailto:a.ts 12:30 :205–218',
+    'https://example.com/a.ts:12–20 www.example.com/a.ts mailto:a.ts 12:30 :205–218 1.5',
     '```ts\na.ts:12–20\n```',
-    'a.ts:0 a.ts:4-2 a.ts:20001 a.ts:2-20001 a.ts:2–0 a.ts:99999999999999999',
+    'a.ts:0 a.ts:4-2 a.ts:20001 a.ts:2-20001 a.ts:2–0 a.ts:99999999999999999 a.ts:1.5 a.ts:2-3.5',
     '../a.ts:4 /etc/a.ts:2 [越界](%2e%2e/a.ts:2) [非法](a.ts#L0) [非法](a.ts:4–2)',
   ]) assert.deepEqual(messageFileReferences(text, '/workspace'), [], text);
-  assert.deepEqual(messageFileReferences('a.ts ../b.ts :12', '/workspace').filter(r => r.line), []);
+  for (const text of ['a.ts ../b.ts :12', 'a.ts [非法](b.ts:0) :12', '# a.ts\n\n# :12']) assert.deepEqual(messageFileReferences(text, '/workspace').filter(r => r.line), []);
 });
 
 test('相同 href 保留独立区间，图片来源与章节不改为正文引用', () => {

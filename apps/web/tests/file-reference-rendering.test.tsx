@@ -37,6 +37,10 @@ test('无冻结来源与不支持浏览保留普通文字，错误区间不绑�
   assert.ok(!render('b.ts:2', [refs[0]!]).includes('<button'));
   const html = renderToStaticMarkup(<MarkdownBody text={text} identity="no-browser" fileReferences={refs} />);
   assert.ok(!html.includes('<button'));
+  const linkText = '[源码](a.ts#L2)';
+  const unavailable = renderToStaticMarkup(<MarkdownBody text={linkText} identity="no-browser-link" fileReferences={messageFileReferences(linkText, '/workspace')} />);
+  assert.ok(!unavailable.includes('<a '));
+  assert.ok(unavailable.includes('源码'));
 });
 
 test('图片、外部链接、章节锚点、代码块与复制数据源保持原行为', () => {
