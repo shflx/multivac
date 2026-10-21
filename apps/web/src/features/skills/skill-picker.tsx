@@ -3,7 +3,7 @@ import type { KeyboardEvent } from 'react';
 import { CircleAlert, Layers, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
 import { parseSkillInvocation, skillInvocation, type SkillAvailability } from '@multivac/contracts';
 import { skillApi } from './skills-store.js';
-import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
+import { useOptionalWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import './skill-picker.css';
 
 /**
@@ -16,6 +16,7 @@ export function useSkillPicker(
   draft: string,
   update: (text: string) => void,
   focusComposer: () => void = () => {},
+  enabled = true,
 ) {
   const [preferenceError, setPreferenceError] = useState('');
   const [items, setItems] = useState<SkillAvailability[]>([]),
@@ -29,18 +30,20 @@ export function useSkillPicker(
   const selected = parseSkillInvocation(draft),
     text = selected?.text ?? draft;
   const typed = !selected && /^\/[^\n]*$/u.test(text);
-  const open = !dismissed && (typed || manual);
+  const open = enabled && !dismissed && (typed || manual);
 
   const refresh = () => {
+    // 远程对话没有 Skill 目录权限，也不挂载工作台同步。
+    if (!enabled) return;
     void skillApi<SkillAvailability[]>(`/catalog?sessionId=${encodeURIComponent(sessionId)}`)
       .then(setItems)
       .catch(() => setItems([]));
   };
   useEffect(() => {
     refresh();
-  }, [sessionId]);
-  useWorkbenchEvents((e) => {
-    if (e.type === 'skill.changed' || e.type === 'workbench.connected') refresh();
+  }, [sessionId, enabled]);
+  useOptionalWorkbenchEvents((e) => {
+    if (enabled && (e.type === 'skill.changed' || e.type === 'workbench.connected')) refresh();
   });
 
   const query = (typed ? text.slice(1).replace(/^Skill\s*/iu, '') : search).trim().toLowerCase();
@@ -120,7 +123,7 @@ export function useSkillPicker(
     refresh();
   }
 
-  const trigger = (
+  const trigger = enabled ? (
     <button
       type="button"
       className="skill-invoke-button"
@@ -143,7 +146,7 @@ export function useSkillPicker(
       <Layers aria-hidden="true" />
       <span>Skill</span>
     </button>
-  );
+  ) : null;
 
   return {
     text,

@@ -356,7 +356,10 @@ function AssistantSessionView({
   // 激活并排会话时输入区展开，消息区随之变矮；下一帧恢复贴底并聚焦，
   // 同时避开本次点击的默认聚焦和消息区暂停跟随的指针事件。
   const wasCollapsedRef = useRef(false);
-  const skillPicker = useSkillPicker(session.sessionId,pageState.draft,text=>session.updateDraft(text),()=>composerRef.current?.focus());
+  const skillPicker = useSkillPicker(
+    session.sessionId, pageState.draft, text => session.updateDraft(text),
+    () => composerRef.current?.focus(), !remote,
+  );
   const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.agentId && !pageState.quote;
   useLayoutEffect(() => {
     const expanded = wasCollapsedRef.current && !composerCollapsedNow;

@@ -42,6 +42,14 @@ test('390px手机精简入口：错误token、历史、发送流式、停止、�
   await page.getByLabel('访问 token').fill('wrong'); await page.getByRole('button', { name: '登录', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('访问 token 不正确'); await expect(page.getByLabel('访问 token')).toHaveValue('');
   await login(page); await expect(page.locator('article.chat-row').first()).toBeVisible();
+  // 已登录的远程入口不挂工作台，也不初始化本机 Skill 目录或拦截普通斜杠输入。
+  await expect(page.getByRole('button', { name: '选择 Skill', exact: true })).toHaveCount(0);
+  await page.getByLabel('Multivac 草稿').fill('/');
+  await expect(page.getByLabel('Multivac 草稿')).toHaveValue('/');
+  await expect(page.locator('.skill-picker-menu')).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
+  await expect(page.getByRole('button', { name: '选择 Skill', exact: true })).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: '管理导航' })).toHaveCount(0);
   await expect(page.locator('.workspace-page')).toHaveCount(0); await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(0);
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm-streaming`, { data: { terminalHistory: 'persist' } })).ok()).toBe(true);
