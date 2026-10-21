@@ -1,7 +1,7 @@
 import { createPiSkills, type PiSkills } from './pi-skills.js';
 import type { SkillSource } from '../../modules/skills/skill-source.js';
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync, realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { COORDINATOR_THINKING_LEVELS, assistantErrorMessage } from '@multivac/contracts';
 import { ModelSettingsServiceError } from '../../modules/model-settings/model-settings.js';
@@ -173,6 +173,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly bashProcesses: BashExecutionPort | undefined;
   private readonly taskProtectedPaths: readonly string[];
   private readonly sessions = new Map<string, ActivePiSession>();
+  private readonly persistedSelections = new Map<string, { key: string; value: CoordinatorModelState | null }>();
   private readonly agentDir: string;
   private readonly sessionDir: string | undefined;
   private readonly sessionFactory: PiCoordinatorSessionFactory;
@@ -387,18 +388,41 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     } catch { return ok(false); }
   }
 
+  /** stat 同时观察 inode 与 ctime，覆盖同路径替换及保留 mtime 的改写。 */
+  private persistedSelectionVersion(path: string): string {
+    const real = realpathSync(path);
+    const value = statSync(real, { bigint: true });
+    if (!value.isFile()) throw new Error('Pi session 不是普通文件。');
+    return JSON.stringify([real, String(value.dev), String(value.ino), String(value.mtimeNs), String(value.ctimeNs), String(value.size)]);
+  }
+
   readPersistedModelSelection(identity: CoordinatorSessionRecoveryIdentity, cwd: string) {
     if (identity.harness !== this.harness) return failure<CoordinatorModelState | null>(FOREIGN_HARNESS);
+    const path = identity.runtimeSessionRef;
     try {
+      const version = this.persistedSelectionVersion(path);
+      const key = JSON.stringify([identity.harness, identity.runtimeSessionId, path, cwd, version]);
+      const cached = this.persistedSelections.get(path);
+      if (cached?.key === key) {
+        this.persistedSelections.delete(path); this.persistedSelections.set(path, cached);
+        return ok(cached.value ? { ...cached.value } : null);
+      }
+      this.persistedSelections.delete(path);
       // 显式传入 cwd，SessionManager.open 不会读取会话头中的 cwd。
-      const manager = SessionManager.open(identity.runtimeSessionRef, this.sessionDir, cwd);
+      const manager = SessionManager.open(path, this.sessionDir, cwd);
       if (manager.getSessionId() !== identity.runtimeSessionId) return failure<CoordinatorModelState | null>({ code: 'SESSION_BINDING_MISMATCH', message: 'Pi session 身份不一致。' });
       const context = buildSessionContext(manager.getBranch());
       if (!COORDINATOR_THINKING_LEVELS.includes(context.thinkingLevel as CoordinatorThinkingLevel)) {
         return failure<CoordinatorModelState | null>({ code: 'INVALID_CONFIGURATION', message: 'Pi 历史推理等级不支持。' });
       }
-      return ok<CoordinatorModelState | null>(context.model ? { ...context.model, thinkingLevel: context.thinkingLevel as CoordinatorThinkingLevel } : null);
+      if (version !== this.persistedSelectionVersion(path)) throw new Error('Pi session 在读取期间变化。');
+      const value = context.model ? { ...context.model, thinkingLevel: context.thinkingLevel as CoordinatorThinkingLevel } : null;
+      this.persistedSelections.set(path, { key, value });
+      // 活跃会话每个文件只留一个版本；离线恢复读取也有总量上限。
+      if (this.persistedSelections.size > 128) this.persistedSelections.delete(this.persistedSelections.keys().next().value!);
+      return ok<CoordinatorModelState | null>(value ? { ...value } : null);
     } catch {
+      this.persistedSelections.delete(path);
       return failure<CoordinatorModelState | null>({ code: 'SESSION_OPEN_FAILED', message: 'Pi 模型历史不可读取。' });
     }
   }
@@ -622,12 +646,14 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
 
     this.sessions.delete(assistantSessionId);
+    if (active.session.sessionFile) this.persistedSelections.delete(active.session.sessionFile);
     active.unsubscribePi();
     active.listeners.clear();
     active.session.dispose();
   }
 
   dispose(): void {
+    this.persistedSelections.clear();
     for (const assistantSessionId of [...this.sessions.keys()]) {
       this.disposeSession(assistantSessionId);
     }
