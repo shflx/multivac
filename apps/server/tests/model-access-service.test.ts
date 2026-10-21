@@ -78,6 +78,26 @@ async function terminal(service: ModelAccessService, id: string) {
 }
 const errorCode = (code: string) => (error: unknown) => error instanceof ModelAccessError && error.code === code;
 
+test('凭据通知覆盖命令和外部版本，重复只读与重放不形成通知循环，解除后停止', async () => {
+  const h = await fixture();
+  let notifications = 0;
+  const stop = h.service.onCredentialsChanged(() => { notifications++; });
+  try {
+    await h.service.getSnapshot(); await h.service.getSnapshot();
+    assert.equal(notifications, 0);
+    const configure = { ...await command(h.service, 'notify-key'), apiKey: 'fixture-only' };
+    await h.service.configure(configure); assert.equal(notifications, 1);
+    await h.service.configure(configure); assert.equal(notifications, 1);
+    await h.service.getSnapshot();
+    const afterObserved = notifications;
+    await h.service.getSnapshot(); assert.equal(notifications, afterObserved);
+    h.backend.version++;
+    await h.service.readVersion(); assert.equal(notifications, afterObserved + 1);
+    stop(); h.backend.version++;
+    await h.service.readVersion(); assert.equal(notifications, afterObserved + 1);
+  } finally { stop(); await h.close(); }
+});
+
 test('凭据文件 version 不变但 Pi 认证消失，持久化新 epoch/失效旧检查并拒绝旧 auth snapshot', async () => {
   const target = await fixture();
   target.backend.authenticated = true;

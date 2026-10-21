@@ -175,6 +175,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly sessions = new Map<string, ActivePiSession>();
   private readonly persistedSelections = new Map<string, { key: string; value: CoordinatorModelState | null }>();
   private readonly agentDir: string;
+  private readonly modelsPath: string | null;
   private readonly sessionDir: string | undefined;
   private readonly sessionFactory: PiCoordinatorSessionFactory;
   private readonly now: () => string;
@@ -192,6 +193,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     this.taskProtectedPaths = options.taskProtectedPaths ?? [];
     this.agentDir = options.agentDir ?? resolvePiInstancePaths(resolveRuntimeConfig(), getAgentDir).agentDir;
     this.sessionDir = options.sessionDir;
+    this.modelsPath = options.modelsPath === undefined ? this.agentDir + '/models.json' : options.modelsPath;
     this.sessionFactory =
       options.sessionFactory ??
       new DefaultPiCoordinatorSessionFactory({
@@ -427,6 +429,21 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
   }
 
+  private inspectionVersion(active: ActivePiSession): string | undefined {
+    try {
+      const optionalFile = (path: string) => {
+        try { return this.persistedSelectionVersion(path); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'; throw error; }
+      };
+      const model = active.session.model;
+      return JSON.stringify([this.persistedSelectionVersion(active.session.sessionFile!),
+        this.modelsPath ? optionalFile(this.modelsPath) : 'disabled', optionalFile(this.agentDir + '/models-store.json'),
+        model ? { provider: model.provider, id: model.id, api: model.api, baseUrl: model.baseUrl,
+          reasoning: model.reasoning, thinkingLevelMap: model.thinkingLevelMap, input: model.input,
+          contextWindow: model.contextWindow, maxTokens: model.maxTokens } : null]);
+    } catch { return undefined; }
+  }
+
   readModelSelection(assistantSessionId: string) {
     const active = this.sessions.get(assistantSessionId);
     if (!active) return this.sessionNotActive<import('../../modules/sessions/coordinator-adapter.js').CoordinatorSelectionSnapshot>();
@@ -436,7 +453,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       { harness: this.harness, runtimeSessionId: active.session.sessionId, runtimeSessionRef: active.session.sessionFile! },
       active.cwd,
     );
+    const inspectionVersion = this.inspectionVersion(active);
     return ok({
+      ...(inspectionVersion ? { inspectionVersion } : {}),
       runtimeSessionId: active.session.sessionId,
       runtimeSessionRef: active.session.sessionFile!,
       model: { ...active.modelConfig, ...actual },

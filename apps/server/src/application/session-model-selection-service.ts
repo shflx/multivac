@@ -39,6 +39,7 @@ function sameSession(snapshot: CoordinatorSelectionSnapshot, record: StoredSessi
 /** 只保存选择引用与无秘密命令；所有模型执行、等级归一化和 transcript 仍交给 Pi。 */
 export class SessionModelSelectionService {
   private readonly sessionId: string;
+  private displayCache: { key: string; expiresAt: number; value: SessionModelOptions } | undefined;
 
   constructor(private readonly options: Options) {
     this.sessionId = options.sessionId ?? GLOBAL_ASSISTANT_SESSION_ID;
@@ -51,12 +52,20 @@ export class SessionModelSelectionService {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const version = await this.readVersion();
+          const key = this.displayKey(version);
+          const cached = this.displayCache;
+          if (key && cached?.key === key && Date.now() < cached.expiresAt) {
+            await this.assertVersion(version);
+            if (key !== this.displayKey(await this.readVersion())) continue;
+            return this.withRunning(structuredClone(cached.value));
+          }
+          this.displayCache = undefined;
           const selection = await this.selection();
           const { snapshot: settings } = await this.options.settings.getSessionSnapshot();
           const access = await this.options.access?.getSnapshot();
           await this.assertVersion(version);
           const running = this.options.isRunning();
-          return {
+          const value: SessionModelOptions = {
             selection, running, disabledReason: running ? '会话运行中（包含消息接收、重试与压缩），暂不能切换模型或推理等级。'
               : selection.availability.reason === 'SELECTION_RECOVERY_UNAVAILABLE' ? selection.availability.message : null,
             options: settings.profiles.map((profile) => ({
@@ -65,10 +74,40 @@ export class SessionModelSelectionService {
               connection: access?.checks.find((item) => item.profileId === profile.profileId) ?? null,
             })),
           };
-        } catch (error) { if (attempt === 2) throw error; }
+          // 异步检查完成后再核对文件、内存、账本与版本，旧结果不能占用新版本缓存。
+          if (key && key === this.displayKey(await this.readVersion()) && selection.availability.reason !== 'MODEL_STATE_CHANGED') {
+            const now = Date.now();
+            const expirations = access?.checks.flatMap(check => check.expiresAt && Date.parse(check.expiresAt) > now ? [Date.parse(check.expiresAt)] : []) ?? [];
+            this.displayCache = { key, expiresAt: Math.min(now + 30_000, ...expirations), value: structuredClone(value) };
+          } else if (key) {
+            continue;
+          }
+          return this.withRunning(value);
+        } catch (error) { this.displayCache = undefined; if (attempt === 2) throw error; }
       }
       throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '模型状态持续变化，无法读取一致快照。');
     });
+  }
+
+  private selectionChanged(): void {
+    this.displayCache = undefined;
+    this.options.onChanged?.(this.sessionId);
+  }
+
+  private displayKey(version: SelectionReadVersion): string | null {
+    // 未提供真实输入版本的执行器或认证后端不启用展示缓存。
+    if (!version.access) return null;
+    const record = this.requireRecord();
+    const snapshot = this.options.adapter.readModelSelection(this.sessionId);
+    if (!snapshot.ok || !snapshot.value.inspectionVersion) return null;
+    return JSON.stringify([this.sessionId, record, version, snapshot.value]);
+  }
+
+  private withRunning(value: SessionModelOptions): SessionModelOptions {
+    const running = this.options.isRunning();
+    return { ...value, running, disabledReason: running
+      ? '会话运行中（包含消息接收、重试与压缩），暂不能切换模型或推理等级。'
+      : value.selection.availability.reason === 'SELECTION_RECOVERY_UNAVAILABLE' ? value.selection.availability.message : null };
   }
 
   async validateForSend(): Promise<void> {
@@ -227,7 +266,7 @@ export class SessionModelSelectionService {
     }
     try {
       this.options.repository.finishSelection(finished, { ...ledger, result });
-      this.options.onChanged?.(this.sessionId);
+      this.selectionChanged();
     }
     catch {
       return this.result(command.commandId, 'unknown', 'SELECTION_STORAGE_FAILED', false, {
@@ -272,13 +311,13 @@ export class SessionModelSelectionService {
     const result = await this.result(command.commandId, 'failed', 'SELECTION_INTERRUPTED', false, reconciled);
     // 仅账本对账：重启、重复 GET 和事件恢复不调用任何 Pi setter。
     this.options.repository.finishSelection(reconciled, { ...command, result });
-    this.options.onChanged?.(this.sessionId);
+    this.selectionChanged();
   }
 
   private async begin(selection: StoredSessionSelection, command: StoredSelectionCommand, previous: StoredSessionSelection): Promise<SessionModelCommandResult | null> {
     try {
       this.options.repository.beginSelection(selection, command);
-      if (JSON.stringify(selection) !== JSON.stringify(previous)) this.options.onChanged?.(this.sessionId);
+      if (JSON.stringify(selection) !== JSON.stringify(previous)) this.selectionChanged();
       return null;
     } catch {
       let unknown = true;

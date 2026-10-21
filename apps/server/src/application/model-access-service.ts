@@ -10,6 +10,7 @@ import type { ModelSettingsService } from './model-settings-service.js';
 
 interface RunningCheck { controller: AbortController; task: Promise<void>; configRevision: number; committed?: boolean }
 export interface ModelAccessReadVersion {
+  accessRevision: number;
   credentialVersion: string;
   credentialRevision: number;
   environmentPresence: string;
@@ -76,7 +77,7 @@ export class ModelAccessService {
       if (this.closed) throw new ModelAccessError('ACCESS_UNAVAILABLE');
       await this.ensureState();
       await this.syncCredentialVersion();
-      return { credentialVersion: this.credentialVersion!, credentialRevision: this.state!.credentialRevision,
+      return { accessRevision: this.state!.accessRevision, credentialVersion: this.credentialVersion!, credentialRevision: this.state!.credentialRevision,
         environmentPresence: environmentPresence() };
     });
   }

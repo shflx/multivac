@@ -148,6 +148,8 @@ export interface CoordinatorHistorySnapshot {
 }
 
 export interface CoordinatorSelectionSnapshot {
+  /** 展示校验输入的版本；缺少该能力时展示不复用检查。仅适配层内部使用。 */
+  inspectionVersion?: string;
   runtimeSessionId: string;
   runtimeSessionRef: string;
   model: CoordinatorModelConfig;
