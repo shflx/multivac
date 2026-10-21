@@ -96,3 +96,36 @@ test('多图部分失败可独立重试，撤销重做与切换笔记不串图',
   await page.evaluate(id => { sessionStorage.setItem('multivac:active-note', id); }, id); await page.reload(); await open(page);
   await expect(surface(page).locator('.note-image img')).toHaveCount(2);
 });
+
+
+test('图片读取失败显示独立占位，逐图重试后恢复正文预览', async ({ page }, info) => {
+  await open(page); const id = await create(page);
+  await surface(page).getByLabel('选择笔记图片').setInputFiles([
+    { name: 'first.png', mimeType: 'image/png', buffer: png },
+    { name: 'second.png', mimeType: 'image/png', buffer: png },
+  ]);
+  await expect(surface(page).getByRole('button', { name: /^查看图片 / })).toHaveCount(2);
+  await expect(surface(page).getByRole('button', { name: '查看图片 first.png' })).toBeEnabled();
+  await save(page);
+  let failed = true;
+  await page.route(`**/api/notes/${id}/images/*/content`, async route => {
+    if (failed) await route.fulfill({ status: 503, body: '暂不可用' });
+    else await route.continue();
+  });
+  await page.reload(); await open(page);
+  const retries = surface(page).getByRole('button', { name: '重试加载', exact: true });
+  await expect(retries).toHaveCount(2);
+  for (const name of ['first.png', 'second.png']) {
+    await expect(surface(page).getByText(`${name} · 图片加载失败`, { exact: true })).toBeVisible();
+    await expect(surface(page).getByRole('img', { name, exact: true })).toBeHidden();
+  }
+  await page.screenshot({ path: info.outputPath('note-image-load-error.png') });
+  failed = false;
+  await retries.first().click(); await expect(retries).toHaveCount(1);
+  await retries.first().click(); await expect(retries).toHaveCount(0);
+  for (const name of ['first.png', 'second.png']) await expect(surface(page).getByRole('button', { name: `查看图片 ${name}` })).toBeEnabled();
+  await surface(page).getByRole('button', { name: '查看图片 first.png' }).click();
+  await expect(page.getByRole('dialog', { name: '图片预览' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: info.outputPath('note-image-load-recovered.png') });
+});

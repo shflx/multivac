@@ -212,9 +212,12 @@
 .note-image > button { display: inline-block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
 .note-image img { display: block; max-width: 100%; height: auto; max-height: 600px; object-fit: contain; border-radius: var(--r-md); }
 .note-image > span { color: var(--muted); font-size: var(--t-xs); }
+.note-image[data-state="loading"], .note-image[data-state="error"] { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-subtle); }
+.note-image-status { min-width: 0; overflow-wrap: anywhere; }
 .note-image [hidden], .note-image-upload [hidden] { display: none !important; }
 .note-image-upload { display: inline-flex; max-width: 100%; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-subtle); color: var(--muted); font-size: var(--t-sm); }
-.note-image-upload button { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); padding: 3px 7px; cursor: pointer; }
+.note-image-upload button, .note-image > .note-image-retry { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); padding: 3px 7px; cursor: pointer; }
+.note-image > .note-image-retry:hover { background: var(--surface-subtle); }
 .note-image.ProseMirror-selectednode, .note-image-upload.ProseMirror-selectednode { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 
 /* 版本历史独立于写作和聊天区域；预览只读，恢复沿用编辑器的保存保护。 */
