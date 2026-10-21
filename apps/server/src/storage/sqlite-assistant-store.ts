@@ -11,6 +11,7 @@ import { REMINDER_MIGRATION, SqliteReminderRepository } from './sqlite-reminder-
 import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION, MANAGED_PROCESS_COUNTS_MIGRATION } from './sqlite-managed-process-repository.js';
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
+import { SqliteNoteImagesRepository, NOTE_IMAGES_MIGRATION } from './sqlite-note-images-repository.js';
 import { SqliteImageRepository } from './sqlite-image-repository.js';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
 import { AGENT_MIGRATION, SqliteAgentRepository } from './sqlite-agent-repository.js';
@@ -319,6 +320,7 @@ const MIGRATIONS = [
   SKILL_MIGRATION,
   RUNTIME_IDENTITY_MIGRATION,
   MCP_MIGRATION,
+  NOTE_IMAGES_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -377,6 +379,7 @@ export interface SqliteAssistantStoreOptions {
 export class SqliteAssistantStore {
   readonly usage: SqliteUsageRepository;
   readonly images: SqliteImageRepository;
+  readonly noteImages: SqliteNoteImagesRepository;
   readonly tasks: SqliteTaskRepository;
   readonly agents: SqliteAgentRepository;
   readonly managedProcesses: SqliteManagedProcessRepository;
@@ -453,6 +456,7 @@ export class SqliteAssistantStore {
       this.artifacts = new SqliteArtifactRepository(this.database);
       this.taskFacts = new SqliteTaskFacts(this.database, { tasks: this.tasks, runs: this.taskRuns, requests: this.humanRequests, artifacts: this.artifacts, runtime: this.taskRuntime, externalOperations: this.inbox });
       this.reading = new SqliteReadingRepository(this.database);
+      this.noteImages = new SqliteNoteImagesRepository(this.database);
       this.notes = new SqliteNotesRepository(this.database);
       this.noteAssistant = new SqliteNoteAssistantRepository(this.database);
       this.noteSuggestions = new SqliteNoteSuggestionsRepository(this.database);

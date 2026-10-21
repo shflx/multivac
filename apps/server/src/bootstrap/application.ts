@@ -29,6 +29,7 @@ import { createSkillKind } from '../application/proposals/skill-proposals.js';
 import { SkillService } from '../application/skill-service.js';
 import { SkillError, SkillPackages } from '../modules/skills/skill-package.js';
 import { homedir } from 'node:os';
+import { NoteImagesService } from '../application/note-images-service.js';
 import { ImageService } from '../application/image-service.js';
 import { TaskService } from '../application/task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
@@ -518,6 +519,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const eventRepository = store.events;
   const baseRuntimeConfig = runtimeConfig(environment);
   const selectionRepository = store.selections;
+  const noteImages = new NoteImagesService(store.noteImages, notesService);
   const images = new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); });
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
     images,
@@ -1024,6 +1026,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     webRoot: fileURLToPath(new URL('../../../web/dist/', import.meta.url)),
     reading: readingService,
     notes: notesService,
+    noteImages,
     noteAssistant,
     noteSuggestions,
     inbox,
@@ -1067,6 +1070,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       reminderScheduler.stop();
       remoteAccess.close();
       images.dispose();
+      noteImages.dispose();
       clearInterval(processObservation);
       managedProcesses.stopObservation();
       artifacts.dispose();

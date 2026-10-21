@@ -3,6 +3,7 @@ import { Check } from 'typebox/value';
 import { NOTE_SUMMARIES_SELECT, NOTE_SUMMARY_SELECT, NOTE_SUMMARY_COUNT, NOTE_VERSION_SUMMARIES_SELECT, writeNoteSummaries } from './sqlite-note-summaries.js';
 import { NoteSchema, NoteSummarySchema, UpdateNoteFieldsSchema, DeleteNoteSchema, type DeleteNote, type DeletedNote, type NoteVersionList, type Note, type NoteSummary, type CreateNote, type UpdateNoteFields } from '@multivac/contracts';
 import { NotesError, notesFingerprint, type NotesRepository } from '../modules/notes/note.js';
+import { SqliteNoteImagesRepository } from './sqlite-note-images-repository.js';
 import { runInTransaction } from './sqlite-transaction.js';
 
 /** 待处理建议因正文版本变化而失效时记录的原因。 */
@@ -101,6 +102,7 @@ export class SqliteNotesRepository implements NotesRepository {
   /** 仅供本仓库及建议应用在已有事务中写入；每个正文版本不可变。 */
   writeVersion(note: Note): void {
     if (!Check(NoteSchema, note)) throw new NotesError('笔记内容超过限制或无效。');
+    new SqliteNoteImagesRepository(this.database).retainReferences(note.id, note.body);
     this.database.prepare('INSERT INTO app_note VALUES (?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json').run(note.id, JSON.stringify(note));
     this.database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run(note.id, note.revision, JSON.stringify(note));
     writeNoteSummaries(this.database, note);
