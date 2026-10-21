@@ -37,11 +37,11 @@ export class NoteImageUploads {
             button.setAttribute('aria-label', `查看图片 ${String(node.attrs.alt || '笔记图片')}`);
             const image = document.createElement('img'); image.alt = String(node.attrs.alt || '笔记图片');
             image.referrerPolicy = 'no-referrer'; image.draggable = false;
-            const status = document.createElement('span'); status.setAttribute('role', 'status');
-            const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = '重试加载'; retry.hidden = true;
-            const load = () => { retry.hidden = true; button.disabled = true; status.textContent = '图片加载中…'; image.src = url; };
-            image.onload = () => { button.disabled = false; status.textContent = ''; };
-            image.onerror = () => { retry.hidden = false; status.textContent = '图片加载失败'; };
+            const status = document.createElement('span'); status.className = 'note-image-status'; status.setAttribute('role', 'status');
+            const retry = document.createElement('button'); retry.className = 'note-image-retry'; retry.type = 'button'; retry.textContent = '重试加载'; retry.hidden = true;
+            const load = () => { dom.dataset.state = 'loading'; retry.hidden = true; button.hidden = true; button.disabled = true; status.textContent = `${image.alt} · 图片加载中…`; image.src = url; };
+            image.onload = () => { dom.dataset.state = 'ready'; button.hidden = false; button.disabled = false; status.textContent = ''; };
+            image.onerror = () => { dom.dataset.state = 'error'; button.hidden = true; retry.hidden = false; status.textContent = `${image.alt} · 图片加载失败`; };
             retry.onclick = load;
             button.onclick = () => { button.focus({ preventScroll: true }); host.preview({ url, alt: image.alt }); };
             button.append(image); dom.append(button, status, retry); load();
