@@ -15,6 +15,8 @@ registerHooks({
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {
+    // 服务端渲染测试只核对 DOM 标记；样式交由浏览器验收。
+    if (url.endsWith('.css')) return { format: 'module', source: '', shortCircuit: true };
     if (url.startsWith('file:') && /\.tsx?$/.test(url)) {
       const source = ts.transpileModule(readFileSync(new URL(url), 'utf8'), {
         fileName: fileURLToPath(url),
