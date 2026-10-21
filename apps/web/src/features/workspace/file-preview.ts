@@ -73,10 +73,20 @@ export function findTextRanges(root: HTMLElement, query: string): Range[] {
   return ranges;
 }
 
+/** 失效范围不夹取到可用行；打开前及真正渲染时都使用实际正文复核。 */
+export function fileLineRangeError(text: string, target: { line?: number; endLine?: number; section?: string }): string | null {
+  const { line, endLine, section } = target;
+  if (line === undefined && endLine === undefined) return null;
+  if (!Number.isSafeInteger(line) || line! < 1 || line! > 20000 || (endLine !== undefined && (!Number.isSafeInteger(endLine) || endLine < line! || endLine > 20000)) || section) return '引用行号或范围无效，请核对原文位置。';
+  const count = text.split('\n').length;
+  if (line! > count || (endLine !== undefined && endLine > count)) return `引用行号已失效：文件实际共 ${count} 行，无法定位第 ${line}${endLine !== undefined ? `–${endLine}` : ''} 行。`;
+  return null;
+}
+
 export function fileLocationElement(host: HTMLElement, target: { line?: number; section?: string }): HTMLElement | null {
   if (target.section) return [...host.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6')].find((heading) => heading.textContent === target.section) ?? null;
   if (target.line && Number.isSafeInteger(target.line) && target.line > 0) {
-    return [...host.querySelectorAll<HTMLElement>('[data-line]')].filter((element) => Number(element.dataset.line) <= target.line!).sort((a, b) => Number(b.dataset.line) - Number(a.dataset.line))[0] ?? null;
+    return host.querySelector<HTMLElement>(`[data-line="${target.line}"]`);
   }
   return null;
 }

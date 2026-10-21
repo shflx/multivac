@@ -10,6 +10,7 @@ import { SessionDirectory } from './session-directory.js';
 import { FileBrowser } from './file-browser.js';
 import { useReadingScene, type UpdateReading } from './use-reading-scene.js';
 import { openReading } from './reading-scene.js';
+import { fileLineRangeError } from './file-preview.js';
 import { readSessionFile } from '../../data/session-files-api.js';
 import { assistantQuoteWithinLimit } from '@multivac/contracts';
 import type { FileSelection } from './file-selection.js';
@@ -116,8 +117,8 @@ export function ConversationPanel({
   const browserVisible = filesOpen && focused;
   const discussionHidden = browserVisible && readingView !== 'discussion' && (readingView === 'original' || !canSplit);
   useMarkSessionViewed(sessionId, visible && current && !discussionHidden, panelRef);
-  const reportReading = (focus: 'file' | 'discussion') => onReadingFocus(browserVisible && reading.position.path ? { sessionId, root: reading.root, path: reading.position.path, focus, ...(reading.position.line ? { line: reading.position.line } : {}), ...(reading.position.section ? { section: reading.position.section } : {}) } : null);
-  useEffect(() => { if (current && visible) reportReading(browserVisible && readingView !== 'discussion' ? 'file' : 'discussion'); }, [current, visible, browserVisible, readingView, reading.position.path]);
+  const reportReading = (focus: 'file' | 'discussion') => onReadingFocus(browserVisible && reading.position.path ? { sessionId, root: reading.root, path: reading.position.path, focus, ...(reading.position.line ? { line: reading.position.line } : {}), ...(reading.position.endLine ? { endLine: reading.position.endLine } : {}), ...(reading.position.section ? { section: reading.position.section } : {}) } : null);
+  useEffect(() => { if (current && visible) reportReading(browserVisible && readingView !== 'discussion' ? 'file' : 'discussion'); }, [current, visible, browserVisible, readingView, reading.position.path, reading.position.line, reading.position.endLine, reading.position.section]);
   useEffect(() => {
     fileSelection?.clear(); setFileSelection(null);
   }, [focused, reading.hidden, reading.view, reading.position.path, reading.chooser, reading.directoryOpen, reading.position.findOpen, canSplit, visible]);
@@ -140,10 +141,12 @@ export function ConversationPanel({
     const request = ++fileOpenRequest.current;
     setFileOpenError('');
     try {
+      if (!workingDirectory || reference.root !== workingDirectory.path) throw new Error('来源工作目录已变化，无法打开此文件引用。');
       const content = await readSessionFile(sessionId, reference.path, reference.root, abort.signal);
-      if (reference.line && reference.line > content.text.split('\n').length) throw new Error('引用的行号已失效，请从目录重新打开文件。');
+      const locationError = fileLineRangeError(content.text, reference);
+      if (locationError) throw new Error(locationError);
       if (abort.signal.aborted || request !== fileOpenRequest.current) return;
-      setReading((scene) => ({ ...openReading(scene, reference.path, { ...(reference.line ? { line: reference.line } : {}), ...(reference.section ? { section: reference.section } : {}) }), view: 'auto' }));
+      setReading((scene) => ({ ...openReading(scene, reference.path, { ...(reference.line !== undefined ? { line: reference.line } : {}), ...(reference.endLine !== undefined ? { endLine: reference.endLine } : {}), ...(reference.section ? { section: reference.section } : {}) }), view: 'auto' }));
       onFocusMode();
     } catch (reason) { if (!abort.signal.aborted && request === fileOpenRequest.current) setFileOpenError(reason instanceof Error ? reason.message : '无法打开原文。'); }
   };

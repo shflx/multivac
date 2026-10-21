@@ -3,7 +3,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import type { SessionFileContent } from '@multivac/contracts';
 import { readSessionFile } from '../../data/session-files-api.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
-import { fileLocationElement, findTextRanges, isolatedHtml } from './file-preview.js';
+import { fileLineRangeError, fileLocationElement, findTextRanges, isolatedHtml } from './file-preview.js';
 import type { ReadingPosition } from './reading-scene.js';
 import { captureFileSelection, type FileSelection } from './file-selection.js';
 import { FileActions } from './file-actions.js';
@@ -16,6 +16,11 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
 }) {
   const [content, setContent] = useState<SessionFileContent | null>(null);
   const [error, setError] = useState('');
+  const [locationError, setLocationError] = useState('');
+  const lineTarget = position.line !== undefined || position.endLine !== undefined;
+  const htmlPreview = content?.kind === 'html' && !lineTarget;
+  const markdownPreview = content?.kind === 'markdown' && !lineTarget;
+  const rangeError = content ? fileLineRangeError(content.text, position) : null;
   const findOpen = position.findOpen;
   const query = position.query;
   const setFindOpen = (findOpen: boolean) => onPosition({ findOpen });
@@ -32,47 +37,55 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
   const restored = useRef(false);
   useEffect(() => {
     const abort = new AbortController();
-    setContent(null); setError(''); setMatch(0); restored.current = false;
+    setContent(null); setError(''); setLocationError(''); setMatch(0); restored.current = false;
     void readSessionFile(sessionId, path, root, abort.signal).then((value) => { if (!abort.signal.aborted) setContent(value); })
       .catch((reason: unknown) => { if (!abort.signal.aborted) setError(reason instanceof Error ? reason.message : '文件读取失败。'); });
     return () => abort.abort();
   }, [sessionId, root, path]);
-  const html = useMemo(() => content?.kind === 'html' ? isolatedHtml(content.text) : '', [content]);
-  const highlighted = useMemo(() => content && content.kind !== 'html' && content.kind !== 'markdown' ? highlightFileLines(content.path, content.text) : null, [content]);
+  const html = useMemo(() => htmlPreview && content ? isolatedHtml(content.text) : '', [content, htmlPreview]);
+  const highlighted = useMemo(() => content && !htmlPreview && !markdownPreview ? highlightFileLines(content.path, content.text) : null, [content, htmlPreview, markdownPreview]);
   const textLines = useMemo(() => content?.text.split('\n') ?? [], [content]);
   const lineStyle = { '--reader-line-digits': Math.max(2, String(textLines.length).length) } as CSSProperties;
   const openFind = () => { setFindOpen(true); requestAnimationFrame(() => input.current?.focus()); };
   useLayoutEffect(() => {
     if (!visible) { restored.current = false; return; }
-    const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;
-    if (!host || !visible || restored.current) return;
-    const scroll = content?.kind === 'html' ? host.ownerDocument.scrollingElement : host;
+    const host = htmlPreview ? frame.current?.contentDocument?.body : article.current;
+    if (!host || !content) return;
+    setLocationError(rangeError ?? '');
+    if (rangeError) { restored.current = false; return; }
+    const target = fileLocationElement(host, position);
+    if ((lineTarget || position.section) && !target) {
+      setLocationError('引用位置无法在当前预览中定位，请核对原文。');
+      restored.current = false;
+      return;
+    }
+    const scroll = htmlPreview ? host.ownerDocument.scrollingElement : host;
     if (!scroll) return;
     if (position.positioned) { scroll.scrollTop = position.scrollTop; scroll.scrollLeft = position.scrollLeft; }
-    else fileLocationElement(host, position)?.scrollIntoView({ block: 'start' });
+    else target?.scrollIntoView({ block: 'start' });
     restored.current = true;
-  }, [content, frameVersion, visible]);
+  }, [content, frameVersion, visible, htmlPreview, position.line, position.endLine, position.section, position.positioned, rangeError]);
   useEffect(() => {
-    const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;
+    const host = htmlPreview ? frame.current?.contentDocument?.body : article.current;
     if (!host) return;
-    const scroll = content?.kind === 'html' ? host.ownerDocument.scrollingElement : host;
-    const target = content?.kind === 'html' ? host.ownerDocument : host;
+    const scroll = htmlPreview ? host.ownerDocument.scrollingElement : host;
+    const target = htmlPreview ? host.ownerDocument : host;
     const save = () => { if (report.current.visible && restored.current && scroll) { report.current.onSelection(null); report.current.onPosition({ scrollTop: scroll.scrollTop, scrollLeft: scroll.scrollLeft, positioned: true }); } };
     target.addEventListener('scroll', save);
     return () => target.removeEventListener('scroll', save);
-  }, [content, frameVersion]);
+  }, [content, frameVersion, htmlPreview]);
   useEffect(() => {
-    const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;
+    const host = htmlPreview ? frame.current?.contentDocument?.body : article.current;
     if (!host) return;
     const document = host.ownerDocument;
     const capture = () => {
       if (!report.current.visible) return;
-      const rect = content?.kind === 'html' ? frame.current?.getBoundingClientRect() : null;
+      const rect = htmlPreview ? frame.current?.getBoundingClientRect() : null;
       report.current.onSelection(captureFileSelection(host, { sessionId, root, path }, rect ? { left: rect.left, top: rect.top } : undefined));
     };
     const activate = () => report.current.onReadingFocus();
     const key = (event: KeyboardEvent) => {
-      if (content?.kind === 'html' && (event.ctrlKey || event.metaKey) && event.key === 'f') { event.preventDefault(); openFind(); }
+      if (htmlPreview && (event.ctrlKey || event.metaKey) && event.key === 'f') { event.preventDefault(); openFind(); }
       if (event.key === 'Escape' && host.contains(document.getSelection()?.anchorNode ?? null)) { event.preventDefault(); event.stopPropagation(); document.getSelection()?.removeAllRanges(); report.current.onSelection(null); }
     };
     document.addEventListener('selectionchange', capture);
@@ -80,10 +93,10 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
     host.addEventListener('focusin', activate);
     document.addEventListener('keydown', key);
     return () => { document.removeEventListener('selectionchange', capture); host.removeEventListener('pointerdown', activate); host.removeEventListener('focusin', activate); document.removeEventListener('keydown', key); };
-  }, [content, frameVersion, sessionId, root, path]);
+  }, [content, frameVersion, sessionId, root, path, htmlPreview]);
   const findChanged = useRef(false);
   useLayoutEffect(() => {
-    const host = content?.kind === 'html' ? frame.current?.contentDocument?.body : article.current;
+    const host = htmlPreview ? frame.current?.contentDocument?.body : article.current;
     if (!host) return;
     const ranges = findTextRanges(host, findOpen ? query : '');
     setCount(ranges.length);
@@ -95,18 +108,19 @@ export function FileReader({ sessionId, root, path, position, onPosition, visibl
     if (current && findChanged.current && visible) current.startContainer.parentElement?.scrollIntoView({ block: 'center', inline: 'nearest' });
     findChanged.current = false;
     return () => { view.CSS.highlights.delete('file-matches'); view.CSS.highlights.delete('file-current'); };
-  }, [query, match, findOpen, content, frameVersion, visible]);
+  }, [query, match, findOpen, content, frameVersion, visible, htmlPreview]);
   const closeFind = () => { setFindOpen(false); trigger.current?.focus(); };
   return <div className="file-reader" onKeyDown={(event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'f') { event.preventDefault(); event.stopPropagation(); openFind(); } }}>
     <header className="browser-toolbar"><FileActions sessionId={sessionId} root={root} path={path} kind="file" onNotice={onNotice}><strong title={`${root}/${path}`}>{path}</strong></FileActions><button ref={trigger} className="icon-button" title="查找原文" aria-label="查找原文" disabled={!content} onClick={openFind}><Search /></button></header>
     {findOpen && <div className="browser-search content-find-bar"><Search /><input ref={input} aria-label="原文内查找" value={query} onChange={(event) => { findChanged.current = true; setQuery(event.target.value); setMatch(0); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); findChanged.current = true; setMatch(match + 1); } if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFind(); } }} /><span>{query ? `${count ? match % count + 1 : 0}/${count}${count === 5000 ? '+' : ''}` : ''}</span><button className="icon-button" title="查找下一个" aria-label="查找下一个" disabled={!count} onClick={() => { findChanged.current = true; setMatch(match + 1); }}><ArrowDown /></button><button className="icon-button" title="收起原文查找" aria-label="收起原文查找" onClick={closeFind}><X /></button></div>}
-    {error ? <p className="browser-empty" role="alert">{error}</p> : !content ? <p className="browser-empty" role="status">正在读取文件…</p> : content.kind === 'html' ?
+    {locationError && <p className="browser-empty" role="alert">{locationError}</p>}
+    {error ? <p className="browser-empty" role="alert">{error}</p> : !content ? <p className="browser-empty" role="status">正在读取文件…</p> : htmlPreview ?
       <iframe ref={frame} title={`预览 ${path}`} className="discussion-html" sandbox="allow-same-origin" referrerPolicy="no-referrer" srcDoc={html} onLoad={() => setFrameVersion((value) => value + 1)} /> :
-      <article ref={article} className={`discussion-content${content.kind === 'markdown' ? '' : ' code-content'}`} tabIndex={0} aria-label={`预览 ${path}`}>
-        {content.kind === 'markdown' ? <MarkdownBody text={content.text} identity={`file-${sessionId}-${path}`} sourceLines /> : (
+      <article ref={article} className={`discussion-content${markdownPreview ? '' : ' code-content'}`} tabIndex={0} aria-label={`预览 ${path}`}>
+        {markdownPreview ? <MarkdownBody text={content.text} identity={`file-${sessionId}-${path}`} sourceLines /> : (
           <div className="discussion-code" style={lineStyle}>
             {textLines.map((line, index) => (
-              <div className="content-line" data-line={index + 1} key={index}>
+              <div className={`content-line${!rangeError && position.line !== undefined && index + 1 >= position.line && index + 1 <= (position.endLine ?? position.line) ? ' location-line' : ''}`} data-line={index + 1} key={index}>
                 <span className="content-line-number" aria-hidden="true">{index + 1}</span>
                 <code>{highlighted ? highlighted[index]?.map((part, partIndex) => (
                   <Fragment key={partIndex}>

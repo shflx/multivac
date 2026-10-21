@@ -14,9 +14,9 @@ test('真实历史文件链接刷新后保留来源，打开行号/章节并保�
   const panel = page.locator(`.conversation-panel[data-session-id="${sessionId}"]`);
   await panel.getByLabel('Multivac 草稿').fill('阅读源码'); await panel.getByLabel('发送消息').click();
   await expect(panel.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
-  await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, { data: { sessionId, messageId: 'file-reply', delta: '[实现代码](source.ts#L80) 和 [阅读现场](readme.md#阅读现场)。普通文字 source.ts 不产生来源。', completed: false } });
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, { data: { sessionId, messageId: 'file-reply', delta: '[实现代码](source.ts#L80) 和 [阅读现场](readme.md#阅读现场)。正文路径也可打开。', completed: false } });
   await expect(panel.getByRole('button', { name: '打开原文 source.ts' })).toHaveCount(0);
-  await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, { data: { sessionId, messageId: 'file-reply', delta: '[实现代码](source.ts#L80) 和 [阅读现场](readme.md#阅读现场)。普通文字 source.ts 不产生来源。', completed: true } });
+  await request.post(`${fakeApiRoot}/api/__e2e/assistant/events/body`, { data: { sessionId, messageId: 'file-reply', delta: '[实现代码](source.ts#L80) 和 [阅读现场](readme.md#阅读现场)。正文路径也可打开。', completed: true } });
   await expect(panel.getByRole('button', { name: '打开原文 source.ts' })).toBeVisible();
   await panel.getByLabel('Multivac 草稿').fill('未发送草稿');
   await panel.getByRole('button', { name: '打开原文 source.ts' }).click();
