@@ -369,3 +369,25 @@ test('选模通知在账本提交后发布，只读不重复通知，prompt 收�
     assert.equal((await h.selection.getOptions()).running, false);
   } finally { h.close(); }
 });
+
+for (const stage of ['begin', 'finish'] as const) test(`选模${stage}已提交后报错仍通知真实变更，只读对账且不重发setter`, async () => {
+  const h = await harness();
+  try {
+    const originalBegin = h.store.selections.beginSelection.bind(h.store.selections);
+    const originalFinish = h.store.selections.finishSelection.bind(h.store.selections);
+    if (stage === 'begin') h.store.selections.beginSelection = (...args) => { originalBegin(...args); throw new Error('committed begin'); };
+    else h.store.selections.finishSelection = (...args) => { originalFinish(...args); throw new Error('committed finish'); };
+    const result = await h.selection.setModel(model('committed-error', 0));
+    assert.equal(result.status, 'unknown');
+    assert.equal(h.changes.length, stage === 'begin' ? 1 : 2);
+    assert.equal(h.changes.at(-1)?.revision, 1);
+    h.store.selections.beginSelection = originalBegin; h.store.selections.finishSelection = originalFinish;
+    const reconciled = await h.selection.getCommand('committed-error');
+    assert.equal(reconciled.status, stage === 'begin' ? 'failed' : 'succeeded');
+    assert.equal(h.changes.length, 2);
+    const count = h.changes.length;
+    await h.selection.getOptions(); await h.selection.getCommand('committed-error');
+    assert.equal(h.changes.length, count);
+    assert.equal(h.adapter.calls.filter(call => call.method === 'setModel').length, stage === 'begin' ? 0 : 1);
+  } finally { h.close(); }
+});
