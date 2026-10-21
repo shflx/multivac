@@ -60,6 +60,8 @@ import { createAgentRequestHandler } from '../adapters/http/agent-routes.js';
 import type { AgentService } from '../application/agent-service.js';
 import { createReadingRequestHandler } from '../adapters/http/reading-routes.js';
 import type { ReadingService } from '../application/reading-service.js';
+import type { NoteImagesService } from '../application/note-images-service.js';
+import { createNoteImagesRequestHandler } from '../adapters/http/note-images-routes.js';
 import { createImageRequestHandler } from '../adapters/http/image-routes.js';
 import type { ImageService } from '../application/image-service.js';
 
@@ -109,6 +111,7 @@ export interface MultivacHttpServerOptions {
   noteAssistant?: NoteAssistantService;
   noteSuggestions?: NoteSuggestionsService;
   images?: ImageService;
+  noteImages?: NoteImagesService;
   managedProcesses?: ManagedProcessService;
   stopSessionProcesses?: (sessionId: string, commandId: string) => Promise<void>;
   runs?: RunsService;
@@ -158,6 +161,7 @@ export interface MultivacHttpServerOptions {
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
+  const noteImageRoutes = options.noteImages ? createNoteImagesRequestHandler(options.noteImages) : undefined;
   const notesRoutes = options.notes ? createNotesRequestHandler(options.notes) : undefined;
   const mcpRoutes = options.mcpManagement ? createMcpRequestHandler(options.mcpManagement, options.mcpResources) : undefined;
   const skillRoutes = options.skills ? createSkillRequestHandler(options.skills) : undefined;
@@ -246,6 +250,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (skillRoutes && await skillRoutes(request, response)) return;
       if (mcpRoutes && await mcpRoutes(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
+      if (noteImageRoutes && await noteImageRoutes(request, response)) return;
       if (notesRoutes && await notesRoutes(request, response)) return;
       if (noteAssistantRoutes && await noteAssistantRoutes(request, response)) return;
       if (noteSuggestionRoutes && await noteSuggestionRoutes(request, response)) return;

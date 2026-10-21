@@ -44,3 +44,4 @@ export * from './mcp-schemas.js';
 export * from './mcp-management.js';
 export * from './mcp-proposals.js';
 export * from './mcp-resources.js';
+export * from './note-images.js';

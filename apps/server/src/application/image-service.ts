@@ -1,15 +1,12 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import sharp, { type Metadata } from 'sharp';
+import { validateImage, ImageError } from './validate-image.js';
+export { ImageError } from './validate-image.js';
 import { IMAGE_LIMITS, type ImageAttachment, type AssistantMessageView, type MessageImageReference } from '@multivac/contracts';
 import type { ImageRepository } from '../modules/sessions/image-attachment.js';
 import type { SessionFilesService } from './session-files-service.js';
 import type { CoordinatorImage } from '../modules/sessions/coordinator-adapter.js';
-
-export class ImageError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
-}
 
 export class ImageService {
   private readonly projections = new Map<string, Promise<AssistantMessageView>>();
@@ -45,14 +42,7 @@ export class ImageService {
     this.checkSession(sessionId);
     await this.cleanup();
     if (!data.length || data.length > IMAGE_LIMITS.bytes) throw new ImageError(413, '单图上限为 10 MiB。');
-    let metadata: Metadata;
-    try {
-      const decoder = sharp(data, { limitInputPixels: IMAGE_LIMITS.pixels, failOn: 'warning' });
-      metadata = await decoder.metadata();
-      if (!['png', 'jpeg', 'webp', 'gif'].includes(metadata.format ?? '') || (metadata.pages ?? 1) !== 1) throw new Error();
-      if (!metadata.width || !metadata.height || metadata.width > IMAGE_LIMITS.dimension || metadata.height > IMAGE_LIMITS.dimension) throw new Error();
-      await decoder.raw().toBuffer();
-    } catch { throw new ImageError(415, '图片无效；支持静态 PNG、JPEG、WebP、GIF，最多 1600 万像素、单边 8192 像素。'); }
+    const metadata = await validateImage(data);
     if (this.disposed) throw new ImageError(503, '图片服务已关闭。');
     const id = createHash('sha256').update(sessionId).update('\0').update(data).digest('hex');
     const existing = this.repository.get(id);
