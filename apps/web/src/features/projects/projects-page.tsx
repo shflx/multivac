@@ -27,6 +27,7 @@ import { GrantList } from '../authorizations/grant-list.js';
 import { useWorkspaces, useWorkspaceSessions } from '../workspace/workspace-sessions-provider.js';
 import { workspaceSummary } from '../workspace/workspaces.js';
 import { NewProjectCard } from './new-project-card.js';
+import { ProjectResources } from './project-resources.js';
 import { MOUNT_DIRECTORY_NOTES, unmountDirectoryNotes } from './project-card-fields.js';
 import {
   DIRECTORY_CHANGE_NOTE,
@@ -222,6 +223,9 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
   const [constraints, setConstraints] = useState(project.defaultConstraints);
   const [constraintsError, setConstraintsError] = useState('');
   const [busy, setBusy] = useState(false);
+  // 概览是目录、约束与权限等设置；资料是围绕项目整理的文件。
+  const [tab, setTab] = useState<'overview' | 'resources'>('overview');
+  const [resourceCount, setResourceCount] = useState<number | null>(null);
   const renameButtonRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const mountInputRef = useRef<HTMLInputElement>(null);
@@ -428,134 +432,147 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
         </p>
       </div>
 
-      <section className="detail-section" aria-labelledby={`${titleId}-directories`}>
-        <div className="section-title">
-          <h3 id={`${titleId}-directories`}>目录</h3>
-          <SavedMark saved={saved} target="directories" />
-        </div>
-        <p className="section-hint">第一个是主目录，项目中新建的会话在主目录中工作。{DIRECTORY_CHANGE_NOTE}</p>
-        <ul ref={directoriesRef} className="project-directories" aria-label="项目目录">
-          {project.directories.map((directory, index) => {
-            const kind = PROJECT_DIRECTORY_KINDS[directory.kind];
-            const primary = index === 0;
-            return (
-              <li key={directory.path} data-directory-path={directory.path}>
-                <Folder aria-hidden="true" />
-                <span className="directory-rule">
-                  <span>
-                    <strong>{kind.label}</strong>
-                    {primary && <em className="project-directory-primary">主目录</em>}
+      <div className="segmented project-detail-tabs" role="tablist" aria-label="项目详情">
+        <button type="button" role="tab" aria-selected={tab === 'overview'} className={tab === 'overview' ? 'active' : undefined} onClick={() => setTab('overview')}>概览</button>
+        <button type="button" role="tab" aria-selected={tab === 'resources'} className={tab === 'resources' ? 'active' : undefined} onClick={() => setTab('resources')}>
+          资料{resourceCount ? <span>{resourceCount}</span> : null}
+        </button>
+      </div>
+
+      <div hidden={tab !== 'resources'}>
+        <ProjectResources project={project} active={active} onCount={setResourceCount} />
+      </div>
+
+      <div hidden={tab !== 'overview'}>
+        <section className="detail-section" aria-labelledby={`${titleId}-directories`}>
+          <div className="section-title">
+            <h3 id={`${titleId}-directories`}>目录</h3>
+            <SavedMark saved={saved} target="directories" />
+          </div>
+          <p className="section-hint">第一个是主目录，项目中新建的会话在主目录中工作。{DIRECTORY_CHANGE_NOTE}</p>
+          <ul ref={directoriesRef} className="project-directories" aria-label="项目目录">
+            {project.directories.map((directory, index) => {
+              const kind = PROJECT_DIRECTORY_KINDS[directory.kind];
+              const primary = index === 0;
+              return (
+                <li key={directory.path} data-directory-path={directory.path}>
+                  <Folder aria-hidden="true" />
+                  <span className="directory-rule">
+                    <span>
+                      <strong>{kind.label}</strong>
+                      {primary && <em className="project-directory-primary">主目录</em>}
+                    </span>
+                    <code>{directory.path}</code>
+                    <small>{kind.rule}</small>
                   </span>
-                  <code>{directory.path}</code>
-                  <small>{kind.rule}</small>
-                </span>
-                <span className="project-directory-actions">
-                  {!primary && (
+                  <span className="project-directory-actions">
+                    {!primary && (
+                      <button
+                        type="button"
+                        className="secondary-button compact"
+                        disabled={busy}
+                        onClick={() => void makePrimary(directory.path)}
+                      >
+                        设为主目录
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className="secondary-button compact"
-                      disabled={busy}
-                      onClick={() => void makePrimary(directory.path)}
+                      className="icon-button"
+                      aria-label={`卸载 ${directory.path}`}
+                      title={onlyOne ? '项目至少保留一个目录' : `卸载 ${directory.path}`}
+                      disabled={busy || onlyOne}
+                      onClick={() => void unmount(directory.path, primary)}
                     >
-                      设为主目录
+                      <X aria-hidden="true" />
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={`卸载 ${directory.path}`}
-                    title={onlyOne ? '项目至少保留一个目录' : `卸载 ${directory.path}`}
-                    disabled={busy || onlyOne}
-                    onClick={() => void unmount(directory.path, primary)}
-                  >
-                    <X aria-hidden="true" />
-                  </button>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-        {onlyOne && <p className="section-hint">项目至少保留一个目录；要换目录，先挂载新目录再卸载这个。</p>}
-        <form className="mount-directory-form" onSubmit={(event) => void mount(event)}>
-          <input
-            ref={mountInputRef}
-            aria-label="要挂载的目录"
-            aria-invalid={directoryError ? true : undefined}
-            aria-describedby={directoryError ? directoryErrorId : undefined}
-            value={mountPath}
-            placeholder="输入已有目录的路径，如 ~/code/docs"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(event) => {
-              setMountPath(event.target.value);
-              setDirectoryError('');
-            }}
-          />
-          {/* 没填路径时无从挂载；已在项目中的目录仍在输入框下方说明原因。 */}
-          <button type="submit" className="secondary-button" disabled={busy || !mountPath.trim()}>
-            <Plus aria-hidden="true" />
-            挂载
-          </button>
-        </form>
-        {directoryError && <p id={directoryErrorId} className="form-error" role="alert">{directoryError}</p>}
-      </section>
-
-      <section className="detail-section" aria-labelledby={`${titleId}-constraints`}>
-        <div className="section-title">
-          <h3 id={`${titleId}-constraints`}>默认约束</h3>
-        </div>
-        <form className="project-constraints-form" onSubmit={(event) => void saveConstraints(event)}>
-          <div className="project-constraints-field">
-            <textarea
-              ref={constraintsRef}
-              aria-label="默认约束"
-              aria-describedby={constraintsNoteId}
-              value={constraints}
-              maxLength={PROJECT_DEFAULT_CONSTRAINTS_MAX_LENGTH}
-              rows={2}
-              placeholder="例如：只修改 docs/ 下的文件；提交前先运行测试。"
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {onlyOne && <p className="section-hint">项目至少保留一个目录；要换目录，先挂载新目录再卸载这个。</p>}
+          <form className="mount-directory-form" onSubmit={(event) => void mount(event)}>
+            <input
+              ref={mountInputRef}
+              aria-label="要挂载的目录"
+              aria-invalid={directoryError ? true : undefined}
+              aria-describedby={directoryError ? directoryErrorId : undefined}
+              value={mountPath}
+              placeholder="输入已有目录的路径，如 ~/code/docs"
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
               onChange={(event) => {
-                setConstraints(event.target.value);
-                setConstraintsError('');
+                setMountPath(event.target.value);
+                setDirectoryError('');
               }}
             />
-            {/* 如实说明：默认约束只在任务执行时随执行约定带入，普通会话暂不带入。 */}
-            <small id={constraintsNoteId}>项目内任务长期遵守的约定。启动任务时随执行约定带入执行会话，普通会话暂不带入。</small>
-            {constraintsError && <p className="form-error" role="alert">{constraintsError}</p>}
-          </div>
-          <div className="project-constraints-actions">
-            <SavedMark saved={saved} target="constraints" />
-            <button type="button" className="secondary-button" disabled={busy || !constraintsChanged} onClick={revertConstraints}>
-              还原
+            {/* 没填路径时无从挂载；已在项目中的目录仍在输入框下方说明原因。 */}
+            <button type="submit" className="secondary-button" disabled={busy || !mountPath.trim()}>
+              <Plus aria-hidden="true" />
+              挂载
             </button>
-            <button type="submit" className="primary-button" disabled={busy || !constraintsChanged}>
-              保存
-            </button>
-          </div>
-        </form>
-      </section>
+          </form>
+          {directoryError && <p id={directoryErrorId} className="form-error" role="alert">{directoryError}</p>}
+        </section>
 
-      <McpScope kind="project" id={project.projectId} active={active} />
-      {/* 文件授权与 MCP 规则分别记录，服务偏好不能扩大文件权限。 */}
-      <section
-        className="detail-section"
-        aria-labelledby={`${titleId}-permissions`}
-        ref={permissionsRef}
-        tabIndex={-1}
-      >
-        <div className="section-title">
-          <h3 id={`${titleId}-permissions`}>权限</h3>
-        </div>
-        <h4>已记住的授权</h4>
-        <GrantList
-          owner={{ projectId: project.projectId }}
-          visible={active}
-          label="已记住的授权"
-          empty="本项目还没有记住的授权。在授权卡上选“本项目内始终允许”后会出现在这里，可以随时撤销。"
-          fallbackFocus={() => permissionsRef.current}
-        />
-      </section>
+        <section className="detail-section" aria-labelledby={`${titleId}-constraints`}>
+          <div className="section-title">
+            <h3 id={`${titleId}-constraints`}>默认约束</h3>
+          </div>
+          <form className="project-constraints-form" onSubmit={(event) => void saveConstraints(event)}>
+            <div className="project-constraints-field">
+              <textarea
+                ref={constraintsRef}
+                aria-label="默认约束"
+                aria-describedby={constraintsNoteId}
+                value={constraints}
+                maxLength={PROJECT_DEFAULT_CONSTRAINTS_MAX_LENGTH}
+                rows={2}
+                placeholder="例如：只修改 docs/ 下的文件；提交前先运行测试。"
+                onChange={(event) => {
+                  setConstraints(event.target.value);
+                  setConstraintsError('');
+                }}
+              />
+              {/* 如实说明：默认约束只在任务执行时随执行约定带入，普通会话暂不带入。 */}
+              <small id={constraintsNoteId}>项目内任务长期遵守的约定。启动任务时随执行约定带入执行会话，普通会话暂不带入。</small>
+              {constraintsError && <p className="form-error" role="alert">{constraintsError}</p>}
+            </div>
+            <div className="project-constraints-actions">
+              <SavedMark saved={saved} target="constraints" />
+              <button type="button" className="secondary-button" disabled={busy || !constraintsChanged} onClick={revertConstraints}>
+                还原
+              </button>
+              <button type="submit" className="primary-button" disabled={busy || !constraintsChanged}>
+                保存
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <McpScope kind="project" id={project.projectId} active={active} />
+        {/* 文件授权与 MCP 规则分别记录，服务偏好不能扩大文件权限。 */}
+        <section
+          className="detail-section"
+          aria-labelledby={`${titleId}-permissions`}
+          ref={permissionsRef}
+          tabIndex={-1}
+        >
+          <div className="section-title">
+            <h3 id={`${titleId}-permissions`}>权限</h3>
+          </div>
+          <h4>已记住的授权</h4>
+          <GrantList
+            owner={{ projectId: project.projectId }}
+            visible={active}
+            label="已记住的授权"
+            empty="本项目还没有记住的授权。在授权卡上选“本项目内始终允许”后会出现在这里，可以随时撤销。"
+            fallbackFocus={() => permissionsRef.current}
+          />
+        </section>
+      </div>
     </section>
   );
 }
