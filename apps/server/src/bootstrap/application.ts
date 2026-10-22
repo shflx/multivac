@@ -1,3 +1,6 @@
+import { createWebProvider } from './web-provider.js';
+import { WebAccessService } from '../application/web-access-service.js';
+import { WEB_TOOLS } from '../application/internal-tools/web-tools.js';
 import { subscribeModelSelectionLifecycle } from '../application/model-selection-events.js';
 import { resolveRuntimeConfig, runtimePathsOverlap } from '../runtime-config.js';
 import { realpathSync } from 'node:fs';
@@ -194,6 +197,8 @@ export interface MultivacApplicationOptions {
   toolAuthorizationTimeoutMs?: number;
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
+  const webProvider = createWebProvider(environment);
+  const webTools = webProvider ? WEB_TOOLS : [];
   const instance = resolveRuntimeConfig(environment);
   const paths = resolveMultivacDataPaths(instance.dataDir);
   // 远程配置与凭据先于数据库和运行时初始化；未指定 token 时生成并持久化默认凭据。
@@ -346,6 +351,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const internalToolServices: InternalToolServices = {
+    ...(webProvider ? { web: { search: (id, input, signal) => webAccess!.search(id, input, signal), fetch: (id, input, signal) => webAccess!.fetch(id, input, signal) } } : {}),
     notes: notesService,
     mcpManagement: { list: (offset, limit) => mcpManagement.list(offset, limit), detail: id => mcpManagement.detail(id), receipt: (sessionId, id) => {
       const proposal = proposals.list(sessionId).find(item => item.proposalId === id && item.kind === 'mcp.manage');
@@ -506,7 +512,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   proposals.reconcileOnStartup();
   const internalTools = new InternalToolService({
-    tools: exampleProposals ? [...MULTIVAC_INTERNAL_TOOLS, exampleProposeRenameSessionTool] : MULTIVAC_INTERNAL_TOOLS,
+    tools: [...MULTIVAC_INTERNAL_TOOLS, ...webTools, ...(exampleProposals ? [exampleProposeRenameSessionTool] : [])],
     services: internalToolServices,
     calls: store.internalToolCalls,
     proposals,
@@ -598,7 +604,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // session，不能误接到工作会话上。工作会话运行时在首次访问时创建，归档后释放。
   const workConfig = workRuntimeConfig(baseRuntimeConfig);
   const workSessionTaskTools: InternalToolService = new InternalToolService({
-    tools: WORK_SESSION_TASK_TOOLS,
+    tools: [...WORK_SESSION_TASK_TOOLS, ...webTools],
     services: internalToolServices,
     calls: store.internalToolCalls,
     currentTurn: (id) => {
@@ -610,7 +616,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const readingConfig = readingRuntimeConfig(workConfig);
   const noteConfig = noteRuntimeConfig(workConfig);
   const taskTools: InternalToolService = new InternalToolService({
-    tools: [...WORK_SESSION_TASK_TOOLS, ...TASK_EXECUTION_TOOLS],
+    tools: [...WORK_SESSION_TASK_TOOLS, ...TASK_EXECUTION_TOOLS, ...webTools],
     services: { ...internalToolServices,
       taskGit: { inspect: (id, input, signal) => taskGit.inspect(id, input, signal), commit: (id, input, signal) => taskGit.commit(id, input, signal) },
       managedStart: { startSession: async (sessionId, input) => {
@@ -866,7 +872,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     stopRequiredProcesses: (id) => managedProcesses.stopRequired(id),
     requiredProcessesStopped: (id) => managedProcesses.list().filter((item) => item.runId === id && item.requiredWhileRunning).every((item) => ['exited', 'failed'].includes(item.state)),
     directoryOccupied: (directory) => managedProcesses.hasDirectoryLease(directory),
-    confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id) && mcp.stopped(id),
+    confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id) && mcp.stopped(id) && (!webAccess || webAccess.stopped(id)),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     prepareDependencies: (task, directory, signal) => taskDirectories.prepareDependencies(task, directory, signal),
     describeDependencies: describeNodeDependencies,
@@ -896,6 +902,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return { runId: run.runId, directory: run.directory.path, sourceDirectory };
     },
   });
+  const webAccess = webProvider ? new WebAccessService(webProvider, {
+    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 512 * 1024,
+    remainingMillis: id => {
+      const run = store.taskRuns.bySession(id);
+      return run ? taskExecution.budget(run.rootTaskId ?? run.taskId).remainingMillis : 30000;
+    },
+  }) : undefined;
   const gitRead = new GitReadService({
     channel: taskGit.channel,
     lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 1024 * 1024,
@@ -1107,6 +1120,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       unsubscribeMcp();
       humanRequests.dispose();
       taskScheduler.stopScheduling();
+      const hadWeb = webAccess?.hasActivity ?? false;
+      const webStopped = webAccess?.close() ?? Promise.resolve();
       const gitStopped = taskGit.dispose();
       const hadMcp = mcp.hasActivity();
       const mcpStopped = mcp.close();
@@ -1126,9 +1141,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
-      if (managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp) {
+      if (managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb) {
         const processesStopped = managedProcesses.activeCount ? managedProcesses.close() : Promise.resolve();
-        return Promise.allSettled([gitStopped, processesStopped, mcpStopped]).then(results => {
+        return Promise.allSettled([gitStopped, processesStopped, mcpStopped, webStopped]).then(results => {
           finish();
           const failed = results.find(result => result.status === 'rejected');
           if (failed?.status === 'rejected') throw failed.reason;

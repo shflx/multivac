@@ -60,6 +60,8 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   get_task_execution_tree: { displayName: '查看本次子任务范围' },
   report_task_child: { displayName: '登记子任务进展' },
   submit_task_result: { displayName: '提交任务成果' },
+  web_search: { displayName: '搜索网页', keyArgument: { argument: 'query', action: '搜索' } },
+  web_fetch: { displayName: '读取网页', keyArgument: { argument: 'url', action: '读取' } },
   read_git: { displayName: '读取本地 Git 仓库', keyArgument: { argument: 'ref', action: '读取分支' } },
   read_project_resource: { displayName: '读取项目资料', keyArgument: { argument: 'resourceId', action: '读取资料' } },
   inspect_task_git: { displayName: '查看任务代码差异' },
