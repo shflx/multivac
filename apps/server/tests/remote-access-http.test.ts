@@ -90,6 +90,40 @@ test('远程HTTP：未登录拒绝、token登录、直接越界/正文替换拒�
   } finally { await f.close(); }
 });
 
+test('远程 Inbox 读取请求绑定的固定成果并经原服务保存修改意见', { skip: process.platform !== 'darwin' }, async () => {
+  const f = await fixture();
+  try {
+    assert.equal((await http(f.port, '/api/inbox', 'GET', undefined, f.remote())).status, 401);
+    const task = f.app.tasks.create({ commandId: 'inbox-artifact-task', title: '手机核对成果', goal: '核对固定正文', acceptance: true }).task;
+    await f.app.taskExecution.control(task.taskId, { commandId: 'inbox-artifact-start', revision: task.revision, action: 'start' });
+    await f.app.taskExecution.idle();
+    const run = f.app.tasks.detail(task.taskId).runs![0]!;
+    const version = await f.app.artifacts.submit(task.taskId, { commandId: 'inbox-artifact-first', revision: f.app.tasks.get(task.taskId).revision, runId: run.runId, title: '固定成果', text: '第一版固定正文' });
+    const review = f.app.humanRequests.list(task.taskId).find(item => item.kind === 'review' && item.status === 'pending')!;
+    const path = `/api/inbox/${encodeURIComponent(review.requestId)}`;
+    assert.equal((await http(f.port, `${path}/artifact`, 'GET', undefined, f.remote())).status, 401);
+    const login = await f.login(); const headers = f.remote(login.cookie);
+    const item = (await http(f.port, path, 'GET', undefined, headers)).body.item;
+    assert.equal(item.artifactVersionId, version.versionId);
+    assert.match(item.sourceLabel, /手机核对成果/u);
+    const content = await http(f.port, `${path}/artifact`, 'GET', undefined, headers);
+    assert.equal(content.status, 200); assert.equal(content.body.content, '第一版固定正文');
+    assert.equal(content.body.version.versionId, version.versionId);
+    assert.equal((await http(f.port, `${path}/artifact?versionId=other`, 'GET', undefined, headers)).status, 400);
+    assert.equal((await http(f.port, `/api/artifacts/${version.versionId}`, 'GET', undefined, headers)).status, 403);
+    const saved = await http(f.port, `${path}/state`, 'POST', { revision: item.state.revision, draft: '补充来源日期', seen: true }, headers);
+    assert.equal(saved.status, 200); assert.equal(saved.body.state.draft, '补充来源日期');
+    const decision = { commandId: 'inbox-artifact-changes', revision: item.revision, decision: 'changes', answer: '补充来源日期' };
+    assert.equal((await http(f.port, `${path}/decision`, 'POST', decision, headers)).status, 200);
+    const answered = f.app.humanRequests.list(task.taskId).find(item => item.requestId === review.requestId)!;
+    assert.equal(answered.status, 'answered'); assert.equal(answered.decision, 'changes'); assert.equal(answered.answer, '补充来源日期');
+    assert.equal(f.app.artifacts.get(version.versionId).status, 'changes');
+    assert.equal((await http(f.port, `${path}/decision`, 'POST', decision, headers)).status, 200);
+    assert.equal((await http(f.port, `${path}/artifact`, 'GET', undefined, headers)).body.content, '第一版固定正文');
+    assert.equal((await http(f.port, '/api/tasks', 'GET', undefined, headers)).status, 403);
+  } finally { await f.app.taskExecution.idle(); await f.close(); }
+});
+
 test('未配置 token 时自动生成的凭据可登录，身份与远程接口不返回 token', async () => {
   const f = await fixture('', true);
   try {
