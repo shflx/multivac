@@ -96,3 +96,29 @@ test('项目资料：长列表末行菜单在小视口内完整可见，键盘�
   await expect(popup.getByRole('menuitem', { name: '移除', exact: true })).toBeFocused();
   await page.keyboard.press('Escape'); await expect(trigger).toBeFocused();
 });
+
+
+test('项目资料：初次读取有加载提示，失败可见，重新进入后恢复空列表', async ({ page }, info) => {
+  const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+  await enter(page);
+  const gate = Promise.withResolvers<void>();
+  await page.route('**/api/projects/*/resources', async route => {
+    if (route.request().method() !== 'GET') { await route.continue(); return; }
+    await gate.promise;
+    await route.fulfill({ status: 503, json: { error: { code: 'INTERNAL_ERROR', message: '资料暂时不可用，请稍后重试。' } } });
+  });
+  try {
+    await create(page, '加载与失败资料验收');
+    await expect(resources(page).getByText('正在读取资料…', { exact: true })).toBeVisible();
+    await page.screenshot({ animations: 'disabled', path: info.outputPath('06-loading-1440.png') });
+    gate.resolve();
+    await expect(resources(page).getByRole('alert')).toContainText('资料暂时不可用');
+    await page.screenshot({ animations: 'disabled', path: info.outputPath('07-error-1440.png') });
+    await page.unroute('**/api/projects/*/resources');
+    await page.getByRole('tab', { name: '概览', exact: true }).click();
+    await page.getByRole('tab', { name: /^资料/ }).click();
+    await expect(resources(page).getByText('还没有资料', { exact: true })).toBeVisible();
+    await expect(resources(page).getByRole('alert')).toHaveCount(0);
+    expect(errors).toEqual([]);
+  } finally { gate.resolve(); }
+});

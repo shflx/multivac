@@ -440,7 +440,7 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
       </div>
 
       <div hidden={tab !== 'resources'}>
-        <ProjectResources project={project} active={active} onCount={setResourceCount} />
+        <ProjectResources project={project} active={active && tab === 'resources'} onCount={setResourceCount} />
       </div>
 
       <div hidden={tab !== 'overview'}>
