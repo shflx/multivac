@@ -20,7 +20,7 @@ async function login(page: Page) {
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
 }
 function allowedClientPath(path: string): boolean {
-  return path === '/api/access' || path.startsWith('/api/access/') || path === '/api/events' || path.startsWith('/api/assistant/') || path.startsWith('/api/sessions/global-coordinator/images');
+  return path === '/api/access' || path.startsWith('/api/access/') || path === '/api/events' || path === '/api/inbox' || path.startsWith('/api/inbox/') || path.startsWith('/api/assistant/') || path.startsWith('/api/sessions/global-coordinator/images');
 }
 
 test.beforeEach(async ({ request }) => {
@@ -51,7 +51,7 @@ test('390px手机精简入口：错误token、历史、发送流式、停止、�
   await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
   await expect(page.getByRole('button', { name: '选择 Skill', exact: true })).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: '管理导航' })).toHaveCount(0);
-  await expect(page.locator('.workspace-page')).toHaveCount(0); await expect(page.getByRole('button', { name: 'Inbox' })).toHaveCount(0);
+  await expect(page.locator('.workspace-page')).toHaveCount(0); await expect(page.getByRole('button', { name: /^Inbox，\d+ 项待处理$/ })).toBeVisible();
   expect((await request.post(`${fakeApiRoot}/api/__e2e/assistant/prompt-completion/arm-streaming`, { data: { terminalHistory: 'persist' } })).ok()).toBe(true);
   try {
     await page.getByLabel('Multivac 草稿').fill('手机远程流式停止'); await page.getByLabel('发送消息').click();
@@ -134,7 +134,7 @@ test('登录失效返回登录页，重登保留未发送草稿，未自动发�
   await expect(page.getByLabel('Multivac 草稿')).toHaveValue('失效时尚未发出的草稿'); expect(sends).toEqual([]);
 });
 
-test('精简Provider树中目录授权可拒绝，卡片不初始化工作区或Inbox', async ({ page }) => {
+test('精简Provider树中目录授权可拒绝，卡片不初始化工作区且保留远程 Inbox', async ({ page }) => {
   const paths: string[] = []; const errors: string[] = [];
   page.on('request', req => { const path = new URL(req.url()).pathname; if (path.startsWith('/api/')) paths.push(path); });
   page.on('pageerror', error => errors.push(error.message));
