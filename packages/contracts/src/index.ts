@@ -12,6 +12,7 @@ export * from './model-settings.js';
 export * from './model-access.js';
 export * from './preferences.js';
 export * from './project.js';
+export * from './project-resources.js';
 export * from './project-proposals.js';
 export * from './proposals.js';
 export * from './session-model-selection.js';

@@ -49,6 +49,8 @@ import { createEventStreamRequestHandler } from '../adapters/http/event-stream-r
 import type { HttpServerTestControls } from '../adapters/http/fake-assistant-test-routes.js';
 import type { SessionFilesService } from '../application/session-files-service.js';
 import { createSessionFilesRequestHandler } from '../adapters/http/session-files-routes.js';
+import type { ProjectResourceService } from '../application/project-resource-service.js';
+import { createProjectResourceRequestHandler } from '../adapters/http/project-resource-routes.js';
 import type { TaskService } from '../application/task-service.js';
 import type { TaskExecutionService } from '../application/task-execution-service.js';
 import type { HumanRequestService } from '../application/human-request-service.js';
@@ -139,6 +141,8 @@ export interface MultivacHttpServerOptions {
   /** 工作区与项目接口；两者同时提供时开放。 */
   workspaceSessionService?: WorkspaceSessionService;
   sessionFiles?: SessionFilesService;
+  /** 项目资料；未提供时不开放资料接口。 */
+  projectResources?: ProjectResourceService;
   projectService?: ProjectService;
   /** 授权请求的查询与决定；未提供时不开放授权接口。 */
   toolAuthorization?: ToolAuthorizationRoutesOptions;
@@ -176,6 +180,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const artifactRoutes = options.artifacts ? createArtifactHandler(options.artifacts) : undefined;
   const assistantRoutes = createAssistantRequestHandler(options);
   const sessionFilesRoutes = options.sessionFiles ? createSessionFilesRequestHandler(options.sessionFiles) : undefined;
+  const projectResourceRoutes = options.projectResources ? createProjectResourceRequestHandler(options.projectResources) : undefined;
   const imageRoutes = options.images ? createImageRequestHandler(options.images) : undefined;
   const eventStreamRoutes = createEventStreamRequestHandler({
     eventRepository: options.eventRepository,
@@ -266,6 +271,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (proposalRoutes && await proposalRoutes(request, response)) return;
       if (preferencesRoutes && await preferencesRoutes(request, response)) return;
       if (usageRoutes && await usageRoutes(request, response)) return;
+      if (projectResourceRoutes && await projectResourceRoutes(request, response, access ?? undefined)) return;
       if (workspaceSessionRoutes && await workspaceSessionRoutes(request, response)) return;
       if (sessionFilesRoutes && await sessionFilesRoutes(request, response, access ?? undefined)) return;
       if (imageRoutes && await imageRoutes(request, response)) return;

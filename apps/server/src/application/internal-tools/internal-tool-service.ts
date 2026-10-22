@@ -60,6 +60,8 @@ export interface InternalToolServices {
   taskRequests?: Pick<HumanRequestService, 'askSession'>;
   taskArtifacts?: Pick<ArtifactService, 'registerSession' | 'executionTree' | 'reportChild'>;
   gitRead?: Pick<import('../git-read-service.js').GitReadService, 'read'>;
+  /** 当前会话所属项目的资料：按会话找到项目后只读读取正文。 */
+  projectResources?: { readForSession(sessionId: string, resourceId: string): ReturnType<import('../project-resource-service.js').ProjectResourceService['read']> };
   taskGit?: Pick<import('../task-git-service.js').TaskGitService, 'inspect' | 'commit'>;
   /**
    * 项目：查询，以及不扩大权限的管理动作（只改名、只改默认约束的收窄方法）。

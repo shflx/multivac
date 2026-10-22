@@ -11,6 +11,8 @@ export interface TaskConventions {
   agentName: string;
   instructions: string;
   projectConstraints: string;
+  /** 项目资料的索引与常驻全文，见 ProjectResourceService.context；没有资料时为空字符串。 */
+  projectResources?: string;
   agentsFile: { content: string; truncated: boolean } | null;
 }
 
@@ -36,13 +38,14 @@ export function readWorkingDirectoryAgentsFile(directory: string): TaskConventio
 }
 
 /**
- * 任务执行会话的执行约定：智能体指令、项目默认约束、工作目录 AGENTS.md 依次并列，互不覆盖。
- * 空的部分省略；三部分都为空时返回空字符串。
+ * 任务执行会话的执行约定：智能体指令、项目默认约束、项目资料、工作目录 AGENTS.md 依次并列，互不覆盖。
+ * 空的部分省略；全部为空时返回空字符串。
  */
 export function renderTaskConventions(input: TaskConventions): string {
   const sections = [
     input.instructions.trim() && `### 执行智能体「${input.agentName}」的指令\n${input.instructions.trim()}`,
     input.projectConstraints.trim() && `### 项目默认约束\n${input.projectConstraints.trim()}`,
+    input.projectResources?.trim(),
     input.agentsFile && `### 工作目录的 AGENTS.md\n${input.agentsFile.content}${input.agentsFile.truncated ? `\n\n（文件超过 ${TASK_AGENTS_FILE_MAX_BYTES / 1024} KB，以上为开头部分；需要时可直接读取原文件。）` : ''}`,
   ].filter(Boolean);
   if (!sections.length) return '';
