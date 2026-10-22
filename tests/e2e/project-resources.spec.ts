@@ -59,7 +59,7 @@ test('项目资料：新建、改标题简介、常驻、上传、目录引用�
   const path = join(directory, '引用.md'); writeFileSync(path, '# 引用\n\n目录内资料');
   await add(page, '从项目目录选择');
   const selection = page.getByRole('dialog', { name: '从项目目录选择', exact: true });
-  await selection.getByLabel('文件路径').fill('引用.md');
+  await selection.getByRole('button', { name: '引用.md' }).click();
   await selection.getByRole('button', { name: '添加', exact: true }).click(); await expect(selection).toBeHidden();
   await page.screenshot({ animations: 'disabled', path: info.outputPath('02-populated-1440.png') });
   await page.setViewportSize({ width: 1280, height: 720 });

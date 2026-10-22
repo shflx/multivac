@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   File as FileIcon,
   FileCode,
@@ -33,6 +33,7 @@ import {
   removeProjectResource,
   updateProjectResource,
 } from '../../data/project-resources-api.js';
+import { ProjectDirectoryPicker } from './project-directory-picker.js';
 import '../workspace/file-actions.css';
 import './project-resources.css';
 
@@ -231,18 +232,13 @@ export function ProjectResources({ project, active, onCount }: { project: Projec
         />
       )}
       {dialog?.kind === 'directory' && (
-        <InputDialog
-          title="从项目目录选择"
-          description="引用项目目录中的已有文件，不复制；文件在目录中修改后这里看到的就是最新内容。"
-          label="文件路径"
-          placeholder="如 docs/design.md，或绝对路径"
-          hint={<>相对路径从主目录算起：<code>{project.directories[0]!.path}</code></>}
-          confirmLabel="添加"
+        <ProjectDirectoryPicker
+          project={project}
+          resources={resources}
           onCancel={() => setDialog(null)}
-          onSubmit={async (path) => {
-            const created = await createProjectResource(projectId, { kind: 'directory', path });
+          onAdded={async (created) => {
             setDialog(null);
-            report(`已添加「${projectResourceTitle(created)}」。`);
+            report(created.length === 1 ? `已添加「${projectResourceTitle(created[0]!)}」。` : `已添加 ${created.length} 个文件。`);
             await load();
           }}
         />
@@ -343,12 +339,11 @@ function ResourceRow({ resource, onOpen, onReveal, onEdit, onTogglePinned, onRem
   );
 }
 
-function InputDialog({ title, description, label, placeholder, hint, confirmLabel, onSubmit, onCancel }: {
+function InputDialog({ title, description, label, placeholder, confirmLabel, onSubmit, onCancel }: {
   title: string;
   description: string;
   label: string;
   placeholder: string;
-  hint?: ReactNode;
   confirmLabel: string;
   onSubmit: (value: string) => Promise<void>;
   onCancel: () => void;
@@ -369,7 +364,6 @@ function InputDialog({ title, description, label, placeholder, hint, confirmLabe
           <dt>{label}</dt>
           <dd>
             <input autoFocus aria-label={label} value={value} placeholder={placeholder} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(event) => setValue(event.target.value)} />
-            {hint && <small className="resources-dialog-hint">{hint}</small>}
           </dd>
         </div>
       </dl>
