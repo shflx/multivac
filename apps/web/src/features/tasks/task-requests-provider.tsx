@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useSyncExternalStore, t
 import { Type } from 'typebox';
 import { InboxItemSchema, InboxListSchema, InboxStateSchema, type InboxItem, type InboxList, type InboxDecision, HumanRequestSchema, HumanRequestListSchema, type HumanRequestList, type HumanRequest, type DecideHumanRequest, type McpEffect } from '@multivac/contracts';
 import { fetchJson } from '../../data/assistant-api.js';
+import { newCommandId } from '../../data/command-id.js';
 import { useWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 
 const ResponseSchema = Type.Object({ request: HumanRequestSchema }, { additionalProperties: false });
@@ -25,7 +26,7 @@ export class TaskRequestsStore {
     const fingerprint = JSON.stringify(input);
     const previous = this.commands.get(id);
     if (previous?.fingerprint === fingerprint) return previous.commandId;
-    const commandId = crypto.randomUUID();
+    const commandId = newCommandId();
     this.commands.set(id, { fingerprint, commandId });
     return commandId;
   }
