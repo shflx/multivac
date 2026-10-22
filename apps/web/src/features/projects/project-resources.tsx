@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   File as FileIcon,
   FileCode,
@@ -275,9 +275,17 @@ function ResourceRow({ resource, onOpen, onReveal, onEdit, onTogglePinned, onRem
   // 自定义了标题时第二行给出文件名，便于找到实际文件。
   const detail = resource.summary || (resource.title ? resource.fileName : resource.source === 'directory' ? resource.path : '');
 
+  useLayoutEffect(() => {
+    if (!menu || !menuRef.current) return;
+    // 按实际菜单尺寸收进视口，长列表末行仍能点击所有操作。
+    const rect = menuRef.current.getBoundingClientRect();
+    menuRef.current.style.left = `${Math.max(8, Math.min(menu.left, window.innerWidth - rect.width - 8))}px`;
+    menuRef.current.style.top = `${Math.max(8, Math.min(menu.top, window.innerHeight - rect.height - 8))}px`;
+    menuRef.current.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus({ preventScroll: true });
+  }, [menu]);
+
   useEffect(() => {
     if (!menu) return;
-    menuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus({ preventScroll: true });
     const close = (event: PointerEvent) => {
       if (!menuRef.current?.contains(event.target as Node) && !trigger.current?.contains(event.target as Node)) setMenu(null);
     };
@@ -305,11 +313,12 @@ function ResourceRow({ resource, onOpen, onReveal, onEdit, onTogglePinned, onRem
       {resource.pinned && <span className="resource-tag pinned"><Pin aria-hidden="true" />常驻</span>}
       {missing && <span className="resource-tag missing">文件缺失</span>}
       <span className="resource-time">{formatModified(resource.file.modifiedAt)}</span>
-      <button ref={trigger} type="button" className="icon-button resource-more" aria-label={`「${title}」的操作`} aria-haspopup="menu" aria-expanded={Boolean(menu)} onClick={openMenu}>
+      <button ref={trigger} type="button" className="icon-button resource-more" aria-label={`「${title}」的操作`} title="资料操作" aria-haspopup="menu" aria-expanded={Boolean(menu)} onClick={openMenu}>
         <MoreHorizontal aria-hidden="true" />
       </button>
       {menu && createPortal(
         <div ref={menuRef} className="file-action-menu" role="menu" aria-label={`「${title}」的操作`} style={{ left: menu.left, top: menu.top }} onKeyDown={(event) => {
+          event.stopPropagation();
           if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); setMenu(null); trigger.current?.focus(); }
           if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
             event.preventDefault();
