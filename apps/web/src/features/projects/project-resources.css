@@ -69,8 +69,40 @@ p.resources-empty { display: flex; align-items: center; justify-content: center;
 .file-action-menu button:disabled { opacity: 0.45; cursor: default; }
 .file-action-menu button:disabled:hover { background: transparent; }
 
-.resources-dialog-hint { color: var(--faint); font-size: var(--t-xs); line-height: 1.6; }
-.resources-dialog-hint code { word-break: break-all; }
 .resources-path { font-size: var(--t-xs); overflow-wrap: anywhere; }
 .confirm-card-fields textarea { width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font: inherit; font-size: var(--t-sm); line-height: 1.6; resize: vertical; }
 .confirm-card-fields textarea:focus { border-color: var(--accent-focus); outline: 0; box-shadow: var(--focus-halo); }
+
+/* 从项目目录选择：目录切换与搜索、位置导航、可滚动的条目列表。 */
+.directory-picker { display: grid; gap: 8px; margin-top: 14px; font-size: var(--t-sm); }
+.directory-picker-bar { display: flex; gap: 8px; min-width: 0; }
+.directory-picker-bar select { flex: 0 1 140px; min-width: 0; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font: inherit; }
+.directory-picker-search { display: flex; flex: 1; align-items: center; gap: 6px; min-width: 0; height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); }
+.directory-picker-search:focus-within { border-color: var(--accent-focus); box-shadow: var(--focus-halo); }
+.directory-picker-search svg { flex-shrink: 0; width: 14px; height: 14px; color: var(--muted); }
+.directory-picker-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; }
+
+.directory-picker-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; min-width: 0; color: var(--muted); font-size: var(--t-xs); }
+.directory-picker-crumbs span { display: inline-flex; align-items: center; gap: 2px; min-width: 0; }
+.directory-picker-crumbs svg { flex-shrink: 0; width: 12px; height: 12px; color: var(--faint); }
+.directory-picker-crumbs button { max-width: 180px; padding: 2px 4px; overflow: hidden; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.directory-picker-crumbs button:hover { background: var(--surface-subtle); color: var(--ink); }
+.directory-picker-crumbs button[aria-current] { color: var(--ink); font-weight: 550; }
+
+.directory-picker-list { height: min(300px, 40vh); overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+.directory-picker-list ul { margin: 0; padding: 4px; list-style: none; }
+.directory-picker-list li button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.directory-picker-list li button:hover:not(:disabled), .directory-picker-list li button:focus-visible { background: var(--surface-subtle); outline: none; }
+.directory-picker-list li button[aria-pressed="true"] { background: var(--accent-soft); }
+.directory-picker-list li button:disabled { color: var(--muted); cursor: default; }
+.directory-picker-list li button > svg { flex-shrink: 0; width: 15px; height: 15px; color: var(--muted); }
+.directory-picker-list li button > svg.directory-picker-check { color: var(--accent); }
+.directory-picker-list li button > svg.directory-picker-enter { width: 13px; height: 13px; margin-left: auto; color: var(--faint); }
+.directory-picker-list li button > span { display: grid; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.directory-picker-list li button small { overflow: hidden; color: var(--muted); font-size: var(--t-xs); text-overflow: ellipsis; }
+.directory-picker-list li button em { flex-shrink: 0; margin-left: auto; color: var(--faint); font-size: var(--t-xs); font-style: normal; }
+.directory-picker-empty { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0; padding: 20px 12px; color: var(--muted); font-size: var(--t-xs); text-align: center; }
+.directory-picker-empty svg { width: 14px; height: 14px; }
+
+.directory-picker-selected { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); font-size: var(--t-xs); }
+.directory-picker-selected button { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; cursor: pointer; }

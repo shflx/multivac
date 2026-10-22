@@ -1,8 +1,10 @@
 import { Type } from 'typebox';
 import {
+  ProjectDirectoryListingSchema,
   ProjectResourceListResponseSchema,
   ProjectResourceResponseSchema,
   type CreateProjectResource,
+  type ProjectDirectoryListing,
   type ProjectResource,
   type ProjectResourceListResponse,
   type UpdateProjectResource,
@@ -33,6 +35,12 @@ export async function updateProjectResource(projectId: string, resourceId: strin
 
 export async function removeProjectResource(projectId: string, resourceId: string): Promise<void> {
   await fetchJson(base(projectId, resourceId), { method: 'DELETE' }, Type.Object({ removed: Type.Literal(true) }));
+}
+
+/** 浏览项目目录：列出 root 下 path 中的条目；带 query 时在整个目录中按文件名搜索。 */
+export function browseProjectDirectory(projectId: string, root: string, path: string, query: string, signal?: AbortSignal): Promise<ProjectDirectoryListing> {
+  const params = new URLSearchParams({ root, path, query });
+  return fetchJson(`/api/projects/${encodeURIComponent(projectId)}/directory-files?${params}`, signal ? { signal } : undefined, ProjectDirectoryListingSchema);
 }
 
 /** 用系统默认程序打开，或在 Finder 中显示；只在本机由用户点击触发。 */

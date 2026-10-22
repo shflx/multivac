@@ -17,6 +17,11 @@ export const PROJECT_RESOURCE_LIMITS = {
   pinnedChars: 24_000,
   /** read_project_resource 单次返回的字符上限。 */
   readChars: 40_000,
+  /** 浏览项目目录：单个目录列出的条目上限、搜索扫描的条目与结果上限、搜索深度。 */
+  browseEntries: 1_000,
+  searchEntries: 5_000,
+  searchResults: 100,
+  searchDepth: 12,
 } as const;
 
 /** 添加本机文件的请求体上限：base64 约为原文件的 4/3，另留 JSON 字段余量。 */
@@ -116,6 +121,29 @@ export const UpdateProjectResourceSchema = Type.Object(
   { additionalProperties: false, minProperties: 1 },
 );
 export type UpdateProjectResource = Type.Static<typeof UpdateProjectResourceSchema>;
+
+/** 浏览项目目录时的一个条目；path 是相对所选项目目录、以 / 分隔的路径。 */
+export const ProjectDirectoryEntrySchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1 }),
+    path: Type.String({ minLength: 1 }),
+    kind: Type.Union([Type.Literal('directory'), Type.Literal('file')]),
+  },
+  { additionalProperties: false },
+);
+export type ProjectDirectoryEntry = Type.Static<typeof ProjectDirectoryEntrySchema>;
+
+/** 浏览项目目录的结果：root 为所选项目目录，path 为当前子目录（根为空字符串）；limited 表示达到浏览上限。 */
+export const ProjectDirectoryListingSchema = Type.Object(
+  {
+    root: Type.String({ minLength: 1 }),
+    path: Type.String(),
+    entries: Type.Array(ProjectDirectoryEntrySchema),
+    limited: Type.Boolean(),
+  },
+  { additionalProperties: false },
+);
+export type ProjectDirectoryListing = Type.Static<typeof ProjectDirectoryListingSchema>;
 
 export const ProjectResourceResponseSchema = Type.Object({ resource: ProjectResourceSchema }, { additionalProperties: false });
 export type ProjectResourceResponse = Type.Static<typeof ProjectResourceResponseSchema>;

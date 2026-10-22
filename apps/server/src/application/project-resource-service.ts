@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname, isAbsolute, join, resolve } from 'node:path';
+import { lstat, opendir, realpath } from 'node:fs/promises';
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   isProjectResourceText,
   PROJECT_RESOURCE_LIMITS,
@@ -8,6 +9,8 @@ import {
   projectResourceTitle,
   type CreateProjectResource,
   type Project,
+  type ProjectDirectoryEntry,
+  type ProjectDirectoryListing,
   type ProjectResource,
   type ProjectResourceListResponse,
   type UpdateProjectResource,
@@ -29,6 +32,9 @@ const invalid = (message: string) => new ProjectResourceError(400, message);
 
 /** 交给系统默认程序时会直接执行或安装的类型：不代为打开，只能在文件管理器中显示后由用户自行处理。 */
 const LAUNCHING_EXTENSIONS = new Set(['app', 'command', 'tool', 'terminal', 'workflow', 'action', 'scpt', 'scptd', 'applescript', 'pkg', 'mpkg', 'jar', 'webloc', 'inetloc', 'fileloc']);
+
+/** 搜索项目目录时不进入的目录：版本库、依赖与构建产物体量大，几乎不会是资料；逐级浏览时仍可进入。 */
+const SEARCH_SKIPPED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'build', 'target', 'vendor']);
 
 /** 资料索引最多列出的条数：常驻优先，其余按最近更新；更多资料不进入上下文。 */
 const CONTEXT_INDEX_MAX = 50;
@@ -94,6 +100,61 @@ export class ProjectResourceService {
     }
     const path = this.writeManagedFile(projectId, fileName, content);
     return this.insert(projectId, 'managed', path);
+  }
+
+  /**
+   * 浏览项目目录，供“从项目目录选择”挑选文件：列出 path 下的条目，或在整个项目目录中按文件名搜索。
+   * 只读、有界；不跟随符号链接，避免目录环路与越出项目目录。
+   */
+  async browse(projectId: string, root: string, path = '', query = ''): Promise<ProjectDirectoryListing> {
+    const project = this.options.projects.getProject(projectId);
+    if (!project.directories.some((directory) => directory.path === root)) throw invalid('所选目录不属于这个项目。');
+    if (query.length > 200) throw invalid('搜索词过长。');
+    if (path.length > 4096 || isAbsolute(path) || path.includes('\0') || path.includes('\\') || path.split('/').some((segment) => segment === '.' || segment === '..')) {
+      throw invalid('路径必须位于所选项目目录内。');
+    }
+    let base: string;
+    try {
+      const canonicalRoot = await realpath(root);
+      base = resolve(canonicalRoot, path);
+      let current = canonicalRoot;
+      for (const segment of relative(canonicalRoot, base).split(sep).filter(Boolean)) {
+        current = join(current, segment);
+        if (!(await lstat(current)).isDirectory()) throw new Error('not a directory');
+      }
+    } catch {
+      throw new ProjectResourceError(404, '目录不存在或无法访问。');
+    }
+
+    const needle = query.trim().toLocaleLowerCase();
+    const limits = PROJECT_RESOURCE_LIMITS;
+    const entries: ProjectDirectoryEntry[] = [];
+    const pending = [{ absolute: base, path, depth: 0 }];
+    let scanned = 0;
+    let limited = false;
+    outer: while (pending.length) {
+      const directory = pending.shift()!;
+      let stream;
+      try { stream = await opendir(directory.absolute); }
+      catch { continue; /* 无权限的子目录跳过，不影响其余结果。 */ }
+      for await (const entry of stream) {
+        if (++scanned > (needle ? limits.searchEntries : limits.browseEntries)) { limited = true; break outer; }
+        if (!entry.isDirectory() && !entry.isFile()) continue;
+        const entryPath = directory.path ? `${directory.path}/${entry.name}` : entry.name;
+        const kind = entry.isDirectory() ? 'directory' : 'file';
+        if (!needle) { entries.push({ name: entry.name, path: entryPath, kind }); continue; }
+        if (kind === 'directory') {
+          if (SEARCH_SKIPPED_DIRECTORIES.has(entry.name)) continue;
+          if (directory.depth < limits.searchDepth) pending.push({ absolute: join(directory.absolute, entry.name), path: entryPath, depth: directory.depth + 1 });
+          else limited = true;
+        } else if (entry.name.toLocaleLowerCase().includes(needle)) {
+          entries.push({ name: entry.name, path: entryPath, kind });
+          if (entries.length >= limits.searchResults) { limited = true; break outer; }
+        }
+      }
+    }
+    entries.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'directory' ? -1 : 1) || a.path.localeCompare(b.path, 'zh-CN'));
+    return { root, path, entries, limited };
   }
 
   update(projectId: string, resourceId: string, input: UpdateProjectResource): ProjectResource {
