@@ -123,6 +123,7 @@ import { nativeTaskIsolation, nodeProcessSupervisors } from '../runtime/executor
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
 import { resolveMultivacWorkPaths } from '../modules/sessions/work-paths.js';
 import { DirectoryTrash, systemTrash } from '../storage/trash.js';
+import { ProjectResourceError, ProjectResourceService } from '../application/project-resource-service.js';
 import {
   resolveToolAuthorizationTimeoutMs,
   resolveTrashDirectory,
@@ -201,6 +202,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const workPaths = resolveMultivacWorkPaths(instance.workRoot, paths.dataDir, instance.mode === 'development');
   // 到期的临时目录移到废纸篓：默认系统废纸篓，测试与 E2E 经 MULTIVAC_TRASH_DIR 指向临时目录。
   const trashDirectory = resolveTrashDirectory(environment.MULTIVAC_TRASH_DIR);
+  const trash = trashDirectory
+    ? new DirectoryTrash(trashDirectory)
+    : systemTrash({ platform: process.platform, homeDir: homedir(), xdgDataHome: environment.XDG_DATA_HOME });
   const store = new SqliteAssistantStore(paths.databasePath);
   const eventStream = new AssistantEventStream();
   const preferencesService = new PreferencesService(store.preferences);
@@ -378,6 +382,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       cancel: (sessionId, input) => reminders.cancel(sessionId, input), reconcile: (sessionId, commandId) => reminders.reconcile(sessionId, commandId),
     },
     externalPublish: { propose: (sessionId, commandId, input) => gitPublish.propose(sessionId, commandId, input) },
+    projectResources: { readForSession: (sessionId, resourceId) => {
+      const projectId = sessionProjectId(sessionId);
+      if (!projectId) throw new ProjectResourceError(400, '当前会话不属于项目，没有项目资料。');
+      return projectResources.read(projectId, resourceId);
+    } },
     taskRequestManagement: {
       page: (query) => humanRequests.page(query), get: (id) => humanRequests.get(id),
       respond: (id, input, origin) => { taskScheduler.assertOwner(); return humanRequests.respond(id, input, origin); },
@@ -644,6 +653,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       conventions: renderTaskConventions({
         agentName: agent.name, instructions: agent.instructions,
         projectConstraints: projectId ? projectService.getProject(projectId).defaultConstraints : '',
+        projectResources: projectId ? projectResources.context(projectId) : '',
         agentsFile: run.directory ? readWorkingDirectoryAgentsFile(run.directory.path) : null,
       }),
     });
@@ -683,6 +693,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           agentId, agents, settings: modelSettingsService, base: workConfig,
           conventions: {
             projectConstraints: projectId ? projectService.getProject(projectId).defaultConstraints : '',
+            projectResources: projectId ? projectResources.context(projectId) : '',
             agentsFile: readWorkingDirectoryAgentsFile(workingDirectoryOf(record.sessionId)().path),
           },
         });
@@ -716,6 +727,15 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     dataDir: paths.dataDir,
     events: workbenchEvents,
   });
+  // 项目资料：新建与复制进来的文件放在工作文件根目录的 project-resources/ 下，移除时移到废纸篓。
+  const projectResources = new ProjectResourceService({ resources: store.projectResources, projects: projectService, workPaths, trash });
+  /** 会话所属的项目：任务执行会话取执行或任务记录上的项目，工作会话取所在工作区的项目。 */
+  const sessionProjectId = (sessionId: string): string | null => {
+    const run = store.taskRuns.bySession(sessionId);
+    if (run) return run.projectId ?? tasks.get(run.taskId).projectId ?? null;
+    const record = sessionRegistry.get(sessionId);
+    return record ? store.workspaces.get(record.workspaceId)?.project?.projectId ?? null : null;
+  };
   const workspaceSessionService = new WorkspaceSessionService({
     assertExternalToolsStopped: id => { if (!mcp.stopped(id)) throw new WorkspaceSessionServiceError('COMMAND_STATE_MISMATCH', '请先在 MCP 管理页断开本会话的服务连接，再归档或归入项目。'); },
     validateFileQuote: (quote) => sessionFiles.validateQuote(quote),
@@ -749,9 +769,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     registry: sessionRegistry,
     removal: tempDirectoryRemoval,
     paths: workPaths,
-    trash: trashDirectory
-      ? new DirectoryTrash(trashDirectory)
-      : systemTrash({ platform: process.platform, homeDir: homedir(), xdgDataHome: environment.XDG_DATA_HOME }),
+    trash,
     retentionDays: () => preferencesService.tempRetentionDays(),
   });
   tempDirectoryCleaner.start();
@@ -1044,6 +1062,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     projectService,
     resolveSession,
     sessionFiles,
+    projectResources,
     workbenchEvents,
     mcpManagement,
     mcpResources,

@@ -2,6 +2,7 @@ import { MCP_MANAGEMENT_TOOLS } from './mcp-management-tools.js';
 import { MCP_EXECUTION_TOOLS } from './mcp-tools.js';
 import { NOTE_TOOLS } from './note-tools.js';
 import { readGitTool } from './git-read-tools.js';
+import { readProjectResourceTool } from './project-resource-tools.js';
 import { proposeCreateAgentTool } from './agent-tools.js';
 import { INBOX_TOOLS } from './inbox-tools.js';
 import { REMINDER_TOOLS } from './reminder-tools.js';
@@ -80,9 +81,9 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   proposeCreateAgentTool,
 ];
 
-/** 工作会话可只读查询当前 Git 仓库、查询任务、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */
+/** 工作会话可只读查询当前 Git 仓库与项目资料、查询任务、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */
 export const WORK_SESSION_TASK_TOOLS: readonly InternalToolDefinition[] = [
   ...MCP_EXECUTION_TOOLS,
-  readGitTool,
+  readGitTool, readProjectResourceTool,
   listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool, confirmHumanTaskTool, proposeGitPublishTool, ...WORK_PROCESS_TOOLS,
 ];
