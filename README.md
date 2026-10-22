@@ -88,3 +88,5 @@ scripts/             工程脚本
 ### Skill
 
 设置 · 能力支持显式导入标准 Skill、版本更新、停用与移除；输入区 `/` 可选择固定版本。Multivac 可生成待确认的 Skill 草案。资料按需读取，模板复制与 macOS 单文件 Node.js 脚本使用受控执行路径。范围、迁移、限额与验证边界见 [Skill 支持](docs/skills.md)。
+
+网页搜索与读取的启用方式、服务商抽象和边界见 [网页能力](docs/web-access.md)。
