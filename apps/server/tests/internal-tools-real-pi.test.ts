@@ -170,7 +170,7 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
     await runtimes.acquire(sessions.resolve(work.sessionId)).initialize();
     const inWork = await prompt(work.sessionId, '工作会话里也试试',
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
-    assert.deepEqual(inWork.requests[0]!.tools.sort(), ['bash', 'call_mcp_tool', 'complete_task', 'confirm_human_task', 'edit', 'get_task', 'list_managed_processes', 'list_mcp_tools', 'list_task_groups', 'list_tasks', 'propose_git_publish', 'read', 'read_git', 'read_managed_process_log', 'stop_managed_process', 'stop_session_processes', 'update_task', 'write']);
+    assert.deepEqual(inWork.requests[0]!.tools.sort(), ['bash', 'call_mcp_tool', 'complete_task', 'confirm_human_task', 'edit', 'get_task', 'list_managed_processes', 'list_mcp_tools', 'list_task_groups', 'list_tasks', 'propose_git_publish', 'read', 'read_git', 'read_managed_process_log', 'read_project_resource', 'stop_managed_process', 'stop_session_processes', 'update_task', 'write']);
     assert.doesNotMatch(inWork.requests[0]!.systemPrompt, /执行用户安排的任务前|先用 list_tasks 定位真实任务/u);
     assert.match(inWork.requests[0]!.systemPrompt, /版本冲突后重新查询并核对，不盲目覆盖/u);
     assert.doesNotMatch(inWork.requests[0]!.systemPrompt, /你是全局 Multivac|工作会话中没有|list_workspaces/u);
