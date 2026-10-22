@@ -356,7 +356,7 @@ test('设置 · 项目按原型排版：“新建项目…”在页头，列表 
   await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${basename(docs)}`);
 
   // 目录、默认约束与权限：小节标题 11px；挂载输入框的占位文字按原型。权限只放已记住的授权（没有时一句说明）。
-  await expect(detail(page).locator('.section-title h3')).toHaveText(['目录', '默认约束', '权限']);
+  await expect(detail(page).locator('.section-title h3')).toHaveText(['目录', '默认约束', 'MCP 服务与工具', '权限']);
   await expect(detail(page).getByRole('region', { name: '权限' }).getByRole('heading', { level: 4 })).toHaveText(['已记住的授权']);
   await expect(detail(page).getByRole('region', { name: '权限' }))
     .toContainText('本项目还没有记住的授权。在授权卡上选“本项目内始终允许”后会出现在这里，可以随时撤销。');
