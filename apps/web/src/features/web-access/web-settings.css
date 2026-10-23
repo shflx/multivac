@@ -1,0 +1,5 @@
+.web-settings-panel { max-width: 900px; padding-top: 0; }
+.web-settings-panel .settings-row-control input { width: min(320px, 100%); min-width: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font-size: var(--t-sm); }
+.web-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 20px; }
+.web-settings-notice, .web-settings-panel > .settings-card > .form-error { margin: 12px 20px; }
+.web-settings-state { padding: 20px; display: flex; align-items: center; gap: 12px; }

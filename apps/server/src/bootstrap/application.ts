@@ -1,4 +1,6 @@
-import { createWebProvider } from './web-provider.js';
+import { WebSettingsService } from '../application/web-settings-service.js';
+import { createWebSettingsStore } from '../runtime/executors/pi-web-settings.js';
+import { createNamedWebProvider, createWebProvider } from './web-provider.js';
 import { WebAccessService } from '../application/web-access-service.js';
 import { WEB_TOOLS } from '../application/internal-tools/web-tools.js';
 import { subscribeModelSelectionLifecycle } from '../application/model-selection-events.js';
@@ -197,8 +199,8 @@ export interface MultivacApplicationOptions {
   toolAuthorizationTimeoutMs?: number;
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
-  const webProvider = createWebProvider(environment);
-  const webTools = webProvider ? WEB_TOOLS : [];
+  const environmentWebProvider = createWebProvider(environment);
+  const webTools = WEB_TOOLS;
   const instance = resolveRuntimeConfig(environment);
   const paths = resolveMultivacDataPaths(instance.dataDir);
   // 远程配置与凭据先于数据库和运行时初始化；未指定 token 时生成并持久化默认凭据。
@@ -350,8 +352,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const adapter = options.coordinatorAdapter ?? harness.adapter;
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
+  const webSettingsStore = createWebSettingsStore(join(paths.dataDir, 'web', 'auth.json'));
+  const webSettings = new WebSettingsService(webSettingsStore, environmentWebProvider, createNamedWebProvider,
+    () => workbenchEvents.publish({ type: 'web-settings.changed' }));
   const internalToolServices: InternalToolServices = {
-    ...(webProvider ? { web: { search: (id, input, signal) => webAccess!.search(id, input, signal), fetch: (id, input, signal) => webAccess!.fetch(id, input, signal) } } : {}),
+    web: { search: (id, input, signal) => webAccess.search(id, input, signal), fetch: (id, input, signal) => webAccess.fetch(id, input, signal) },
     notes: notesService,
     mcpManagement: { list: (offset, limit) => mcpManagement.list(offset, limit), detail: id => mcpManagement.detail(id), receipt: (sessionId, id) => {
       const proposal = proposals.list(sessionId).find(item => item.proposalId === id && item.kind === 'mcp.manage');
@@ -812,7 +817,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));
     return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection };
   };
-  const ready = modelSettingsService.initialize()
+  const ready = Promise.all([modelSettingsService.initialize(), webSettingsStore])
     .then(() => service.initialize())
     .then(() => commandService.reconcileOnStartup())
     .catch((error: unknown) => {
@@ -902,13 +907,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return { runId: run.runId, directory: run.directory.path, sourceDirectory };
     },
   });
-  const webAccess = webProvider ? new WebAccessService(webProvider, {
+  const webAccess = new WebAccessService(() => webSettings.resolve(), {
     lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 512 * 1024,
     remainingMillis: id => {
       const run = store.taskRuns.bySession(id);
       return run ? taskExecution.budget(run.rootTaskId ?? run.taskId).remainingMillis : 30000;
     },
-  }) : undefined;
+  });
   const gitRead = new GitReadService({
     channel: taskGit.channel,
     lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 1024 * 1024,
@@ -1062,6 +1067,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     : undefined;
   const server = createMultivacHttpServer({
     skills,
+    webSettings,
     usage: usageStatistics,
     remoteAccess,
     webRoot: fileURLToPath(new URL('../../../web/dist/', import.meta.url)),
