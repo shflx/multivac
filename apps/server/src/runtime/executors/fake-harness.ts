@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+import { createWebSettingsStore } from './pi-web-settings.js';
 import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import type { StoredModelSettingsState } from '../../modules/model-settings/model-settings.js';
 import { FakeCoordinatorAdapter } from './fake-coordinator-adapter.js';
@@ -108,6 +110,7 @@ export const createFakeHarness: HarnessFactory<FakeHarnessRuntime> = (context) =
     modelAccess: accessBackend,
     createMcpCredentialVault: () => createMcpCredentialVault(context.paths.mcpCredentialPath, context.instance.instanceId),
     createMcpWires: mcpWireFactory,
+    createWebSettingsStore: () => createWebSettingsStore(join(context.paths.dataDir, 'web', 'auth.json')),
     recordsUsage: false,
     initialModelSettings: fakeModelSettingsState(),
     accessClock: () => Date.now() + accessBackend.clockOffset,
