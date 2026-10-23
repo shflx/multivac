@@ -1,3 +1,5 @@
+import { createWebSettingsRequestHandler } from '../adapters/http/web-settings-routes.js';
+import type { WebSettingsService } from '../application/web-settings-service.js';
 import { createNoteSuggestionsRequestHandler } from '../adapters/http/note-suggestions-routes.js';
 import type { NoteSuggestionsService } from '../application/note-suggestions-service.js';
 import { createNoteAssistantRequestHandler } from '../adapters/http/note-assistant-routes.js';
@@ -102,6 +104,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 }
 
 export interface MultivacHttpServerOptions {
+  webSettings?: WebSettingsService;
   remoteAccess?: RemoteAccess;
   webRoot?: string;
   skills?: SkillService;
@@ -163,6 +166,7 @@ export interface MultivacHttpServerOptions {
 
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
+  const webSettingsRoutes = options.webSettings ? createWebSettingsRequestHandler(options.webSettings) : undefined;
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
   const noteImageRoutes = options.noteImages ? createNoteImagesRequestHandler(options.noteImages) : undefined;
@@ -269,6 +273,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (modelSettingsRoutes && await modelSettingsRoutes(request, response)) return;
       if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;
       if (proposalRoutes && await proposalRoutes(request, response)) return;
+      if (webSettingsRoutes && await webSettingsRoutes(request, response)) return;
       if (preferencesRoutes && await preferencesRoutes(request, response)) return;
       if (usageRoutes && await usageRoutes(request, response)) return;
       if (projectResourceRoutes && await projectResourceRoutes(request, response, access ?? undefined)) return;

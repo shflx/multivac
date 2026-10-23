@@ -32,7 +32,7 @@ export function publicWebUrl(value: string): string {
 export class WebAccessService {
   private readonly pending = new Map<string, { sessionId: string; controller: AbortController; done: Promise<void> }>();
   private closed = false;
-  constructor(private readonly provider: WebProvider, private readonly host: WebAccessHost) {}
+  constructor(private readonly provider: WebProvider | (() => Promise<WebProvider>), private readonly host: WebAccessHost) {}
   get hasActivity(): boolean { return this.pending.size > 0; }
   stopped(sessionId: string): boolean { return ![...this.pending.values()].some(item => item.sessionId === sessionId); }
   async close(): Promise<void> {
@@ -44,8 +44,10 @@ export class WebAccessService {
     const query = input.query.trim(), count = input.count ?? 5;
     if (!query || query.length > 1024 || !Number.isInteger(count) || count < 1 || count > 10) throw new WebAccessError('搜索词不能为空，最多 1024 字；结果数量须为 1 至 10。');
     return this.run(sessionId, signal, async context => {
-      const results = await this.provider.search({ query, count }, context);
-      return { provider: this.provider.id, query, results: results.slice(0, count).map(item => {
+      const provider = typeof this.provider === 'function' ? await this.provider() : this.provider;
+      context.signal.throwIfAborted();
+      const results = await provider.search({ query, count }, context);
+      return { provider: provider.id, query, results: results.slice(0, count).map(item => {
         const title = shorten(item.title, 300), summary = shorten(item.summary, 2000);
         return { title, url: publicWebUrl(item.url), summary, publishedAt: item.publishedAt,
           truncated: title.length < item.title.length || summary.length < item.summary.length };
@@ -55,9 +57,11 @@ export class WebAccessService {
   fetch(sessionId: string, input: { url: string }, signal: AbortSignal): Promise<string> {
     const url = publicWebUrl(input.url);
     return this.run(sessionId, signal, async context => {
-      const page = await this.provider.fetch(url, context);
+      const provider = typeof this.provider === 'function' ? await this.provider() : this.provider;
+      context.signal.throwIfAborted();
+      const page = await provider.fetch(url, context);
       const content = shorten(page.content, MAX_CONTENT_CHARS), title = shorten(page.title, 300);
-      return { provider: this.provider.id, url, title, content, truncated: content.length < page.content.length || title.length < page.title.length };
+      return { provider: provider.id, url, title, content, truncated: content.length < page.content.length || title.length < page.title.length };
     });
   }
   private async run(sessionId: string, signal: AbortSignal, action: (context: WebRequestContext) => Promise<unknown>): Promise<string> {
