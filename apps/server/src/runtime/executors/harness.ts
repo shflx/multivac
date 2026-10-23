@@ -1,3 +1,4 @@
+import type { WebSettingsStore } from '../../application/web-settings-service.js';
 import type { CoordinatorHarnessId } from '@multivac/contracts';
 import type { McpAccountService } from '../../application/mcp-account-service.js';
 import type { McpExecutionHost } from '../../application/mcp-execution-service.js';
@@ -24,6 +25,8 @@ export interface HarnessRuntime {
   readonly adapter: CoordinatorAdapter;
   readonly modelSettingsCatalog: ModelSettingsCatalogFactory;
   readonly modelAccess: ModelAccessBackend;
+  /** 网页私有配置沿用执行器的凭据存储，装配层只依赖工厂端口。 */
+  readonly createWebSettingsStore: () => Promise<WebSettingsStore>;
   /** MCP 的私有凭据与受控传输由执行器工厂提供，应用装配不引用具体实现。 */
   readonly createMcpCredentialVault: () => Promise<McpCredentialVault>;
   readonly createMcpWires: (host: McpExecutionHost, accounts: Pick<McpAccountService, 'credentials' | 'assertCurrent'>,

@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+import { createWebSettingsStore } from './pi-web-settings.js';
 import type { HarnessFactory } from './harness.js';
 import { PiCoordinatorAdapter } from './pi-coordinator-adapter.js';
 import { resolvePiInstancePaths } from './pi-instance-paths.js';
@@ -30,6 +32,7 @@ export const createPiHarness: HarnessFactory = (context) => {
     modelAccess: new PiModelAccessBackend({ authPath: piPaths.authPath, temporaryRoot: paths.modelCandidateDir }),
     createMcpCredentialVault: () => createMcpCredentialVault(context.paths.mcpCredentialPath, context.instance.instanceId),
     createMcpWires: mcpWireFactory,
+    createWebSettingsStore: () => createWebSettingsStore(join(context.paths.dataDir, 'web', 'auth.json')),
     recordsUsage: true,
   };
 };

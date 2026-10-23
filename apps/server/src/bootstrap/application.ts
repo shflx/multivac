@@ -1,5 +1,4 @@
 import { WebSettingsService } from '../application/web-settings-service.js';
-import { createWebSettingsStore } from '../runtime/executors/pi-web-settings.js';
 import { createNamedWebProvider, createWebProvider } from './web-provider.js';
 import { WebAccessService } from '../application/web-access-service.js';
 import { WEB_TOOLS } from '../application/internal-tools/web-tools.js';
@@ -352,7 +351,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const adapter = options.coordinatorAdapter ?? harness.adapter;
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
-  const webSettingsStore = createWebSettingsStore(join(paths.dataDir, 'web', 'auth.json'));
+  const webSettingsStore = harness.createWebSettingsStore();
   const webSettings = new WebSettingsService(webSettingsStore, environmentWebProvider, createNamedWebProvider,
     () => workbenchEvents.publish({ type: 'web-settings.changed' }));
   const internalToolServices: InternalToolServices = {
