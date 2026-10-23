@@ -193,6 +193,7 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
       'propose_unmount_directory', 'propose_set_primary_directory', 'propose_move_session_to_project',
     ],
   },
+  { label: '网页', purpose: '使用已配置的服务商搜索公开网页、读取指定链接正文，网页内容不授予权限。', tools: ['web_search', 'web_fetch'] },
   { label: '阅读', purpose: '查询书架与书籍信息，打开书籍。', tools: ['list_books', 'get_book', 'open_book'] },
   { label: '笔记', purpose: '按你的要求查询、读取、新建和更新独立笔记，核对保存回执。', tools: ['list_notes', 'read_note', 'create_note', 'update_note', 'get_note_operation'] },
   { label: '智能体', purpose: '按你的描述提议新建智能体，确认后才保存。', tools: ['propose_create_agent'] },

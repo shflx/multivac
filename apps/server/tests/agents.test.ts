@@ -1,3 +1,4 @@
+import { WEB_TOOLS } from '../src/application/internal-tools/web-tools.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
@@ -120,7 +121,7 @@ test('HTTP：列出、新建、修改与删除智能体，错误码与状态码�
     assert.equal(list.status, 200);
     assert.deepEqual(list.body.agents.map((agent: { agentId: string }) => agent.agentId), [COORDINATOR_AGENT_ID, DEFAULT_AGENT_ID]);
     // 协调者工具清单取自实际注册的内部工具，而不是前端写死的列表
-    assert.deepEqual(list.body.coordinatorTools, MULTIVAC_INTERNAL_TOOLS.map((tool) => tool.name));
+    assert.deepEqual(list.body.coordinatorTools, [...MULTIVAC_INTERNAL_TOOLS, ...WEB_TOOLS].map((tool) => tool.name));
     const created = await call('POST', '/api/agents', { commandId: 'http-create', name: '周报', modelProfileId: 'fixture-openai', instructions: '按模板写周报。' });
     assert.equal(created.status, 200);
     const agentId = created.body.agent.agentId as string;
@@ -142,7 +143,7 @@ test('HTTP：列出、新建、修改与删除智能体，错误码与状态码�
 });
 
 test('协调者工具分组覆盖全部内部工具：每个工具恰好属于一个分组，分组里没有不存在的工具', () => {
-  const registered = MULTIVAC_INTERNAL_TOOLS.map((tool) => tool.name);
+  const registered = [...MULTIVAC_INTERNAL_TOOLS, ...WEB_TOOLS].map((tool) => tool.name);
   const grouped = COORDINATOR_TOOL_GROUPS.flatMap((group) => group.tools);
   // 新增内部工具时必须同步归入一个分组，否则详情页会落入“其他”
   assert.deepEqual([...grouped].sort(), [...registered].sort());
