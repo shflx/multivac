@@ -1309,6 +1309,8 @@ svg {
 
 .run-trace-thought {
   margin: 0;
+  /* 过程说明中的长路径须能换行，避免撑宽同列的说明与工具行。 */
+  overflow-wrap: anywhere;
   color: var(--ink);
   font-size: var(--t-sm);
   line-height: 1.75;
