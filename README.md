@@ -43,6 +43,8 @@ npm install
 npm run dev
 ```
 
+安装会自动应用固定 Pi SDK 的 Responses 收尾补丁。若使用 `--ignore-scripts` 或复制依赖，先运行 `node scripts/patch-pi-responses.mjs`，再运行 `node scripts/patch-pi-responses.mjs --check`；版本与源码不符时会拒绝处理。详见 [Responses 收尾与依赖补丁](docs/design/execution-diagnostics.md#responses-收尾与依赖补丁)。
+
 打开 <http://127.0.0.1:5173>，在「管理 → 模型」中配置模型服务与认证。开发 API 默认使用端口 `4318`，Vite 的 `/api` 代理连接到该开发实例。
 
 单独运行构建后的 API 服务：

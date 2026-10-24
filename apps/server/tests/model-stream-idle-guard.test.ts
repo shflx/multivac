@@ -78,4 +78,32 @@ test('下游取消时取消原始正文', async () => {
   await reader.read();
   await reader.cancel('stop');
   assert.equal(source.cancelled(), 'stop');
+  assert.equal(source.body.locked, false);
+});
+
+test('正常 EOF 和读失败都释放原始 reader，读错误保持原对象', async () => {
+  const normal = upstream(['完整响应']);
+  assert.equal(await readAll(await idleGuardedFetch(fetchOf(normal.body), 20)('http://model.test')), '完整响应');
+  assert.equal(normal.body.locked, false);
+  const failure = new Error('controlled read failure');
+  const failed = new ReadableStream<Uint8Array>({ pull(controller) { controller.error(failure); } });
+  const guarded = await idleGuardedFetch(fetchOf(failed), 20)('http://model.test');
+  await assert.rejects(guarded.body!.getReader().read(), error => error === failure);
+  assert.equal(failed.locked, false);
+});
+
+test('读取在途时取消，等待源流取消完成再释放 reader，不产生空闲超时', async () => {
+  let release!: () => void;
+  const stopped = new Promise<void>(resolve => { release = resolve; });
+  const source = new ReadableStream<Uint8Array>({ cancel: () => stopped }, { highWaterMark: 0 });
+  const response = await idleGuardedFetch(fetchOf(source), 20)('http://model.test');
+  const reader = response.body!.getReader();
+  const pending = reader.read();
+  await Promise.resolve();
+  let cancelled = false;
+  const cancelling = reader.cancel('user stop').then(() => { cancelled = true; });
+  assert.equal((await pending).done, true);
+  assert.equal(cancelled, false); assert.equal(source.locked, true);
+  release(); await cancelling;
+  assert.equal(cancelled, true); assert.equal(source.locked, false);
 });

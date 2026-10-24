@@ -13,6 +13,7 @@ interface RequestState {
   requestId: string; source: DiagnosticSource; provider: string | undefined; modelId: string | undefined; api: string | undefined;
   startedAt: number; startedMono: number; lastEventAt: number | null; firstEventAt: number | null;
   lastBodyReadAt: number | null; firstBodyReadAt: number | null; firstOutputAt: number | null; lastOutputAt: number | null;
+  protocolTerminalAt: number | null; protocolTerminalType: string | null; sdkTerminalAt: number | null;
   lastStage: string; bodyBytes: number; bodyChunks: number;
   textChars: number; thinkingChars: number; toolArgumentChars: number; events: number; fetches: number;
 }
@@ -139,6 +140,7 @@ export class ExecutionDiagnostics {
       wallElapsedMs: this.clock.wall() - state.startedAt, monoElapsedMs: this.clock.monotonic() - state.startedMono,
       firstEventAt: state.firstEventAt, lastEventAt: state.lastEventAt, firstBodyReadAt: state.firstBodyReadAt, lastBodyReadAt: state.lastBodyReadAt,
       firstOutputAt: state.firstOutputAt, lastOutputAt: state.lastOutputAt, lastStage: state.lastStage,
+      protocolTerminalAt: state.protocolTerminalAt, protocolTerminalType: state.protocolTerminalType, sdkTerminalAt: state.sdkTerminalAt,
       bodyBytes: state.bodyBytes, bodyChunks: state.bodyChunks, textChars: state.textChars, thinkingChars: state.thinkingChars,
       toolArgumentChars: state.toolArgumentChars, modelEvents: state.events, fetches: state.fetches };
   }
@@ -148,7 +150,8 @@ export class ExecutionDiagnostics {
     const active = () => this.enabled && this.generation === generation;
     const state: RequestState = { requestId: randomUUID(), source: this.resolve(sessionId), provider: model.provider, modelId: model.id, api: model.api,
       startedAt: this.clock.wall(), startedMono: this.clock.monotonic(), firstEventAt: null, lastEventAt: null,
-      firstBodyReadAt: null, lastBodyReadAt: null, firstOutputAt: null, lastOutputAt: null, lastStage: 'preparing', bodyBytes: 0, bodyChunks: 0, textChars: 0, thinkingChars: 0, toolArgumentChars: 0, events: 0, fetches: 0 };
+      firstBodyReadAt: null, lastBodyReadAt: null, firstOutputAt: null, lastOutputAt: null,
+      protocolTerminalAt: null, protocolTerminalType: null, sdkTerminalAt: null, lastStage: 'preparing', bodyBytes: 0, bodyChunks: 0, textChars: 0, thinkingChars: 0, toolArgumentChars: 0, events: 0, fetches: 0 };
     this.requests.set(state.requestId, state); this.record('model.request.started', { ...this.requestFields(state), httpObserved });
     let finished = false;
     const record = (event: string, fields: Record<string, unknown> = {}) => { if (active()) this.record(event, { ...this.requestFields(state), ...fields }); };
@@ -158,9 +161,18 @@ export class ExecutionDiagnostics {
       fetchStarted: (host: string) => { if (!active()) return 0; state.lastStage = 'awaiting-headers'; state.fetches += 1; record('model.http.started', { host, attempt: state.fetches }); return state.fetches; },
       headers: (attempt: number, status: number, ids: Record<string, string>) => { if (!active()) return; state.lastStage = 'response-headers'; record('model.http.headers', { attempt, httpStatus: status, responseIds: ids }); },
       body: (bytes: number) => { if (!active()) return; state.lastStage = 'reading-body'; state.bodyBytes += bytes; state.bodyChunks += 1; state.lastBodyReadAt = this.clock.wall(); if (state.firstBodyReadAt === null) { state.firstBodyReadAt = state.lastBodyReadAt; record('model.http.first_body'); } },
+      protocolTerminal: (type: string) => {
+        if (!active() || state.protocolTerminalAt !== null || !['response.completed', 'response.incomplete', 'response.failed', 'response.cancelled', 'error'].includes(type)) return;
+        state.protocolTerminalAt = this.clock.wall(); state.protocolTerminalType = type; state.lastStage = 'protocol-terminal';
+        record('model.protocol.terminal');
+      },
       event: (event: { type: string; delta?: string }) => {
         if (!active()) return;
         state.events += 1; state.lastEventAt = this.clock.wall();
+        if ((event.type === 'done' || event.type === 'error') && state.sdkTerminalAt === null) {
+          state.sdkTerminalAt = state.lastEventAt; state.lastStage = 'sdk-terminal';
+          record('model.sdk.terminal', { eventType: event.type });
+        }
         if (event.type === 'text_delta') state.textChars += event.delta?.length ?? 0;
         if (event.type === 'thinking_delta') state.thinkingChars += event.delta?.length ?? 0;
         if (event.type === 'toolcall_delta') state.toolArgumentChars += event.delta?.length ?? 0;

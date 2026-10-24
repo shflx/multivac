@@ -4,7 +4,7 @@
 
 关闭时记录一次关闭标记，然后停止采集、周期采样和事件循环监视、关闭日志文件并清理活动观测；保留已有文件，不影响任务或模型执行。新请求直接走原 SDK 调用，关闭期间不创建日志文件。开启时重新采样，完整模型阶段从新请求开始记录；不会补采已开始的请求，不接收旧观测的迟到事件，不把关闭时长误判为服务时间间隙。旧进程与已结束的历史请求无法补采这些信息。
 
-本次只增加观测，不修改模型超时、自动重试、任务预算、暂停、恢复或 Inbox 策略。日志不是业务状态或停止证明，不驱动调度。
+诊断本身不修改模型超时、自动重试、任务预算、暂停、恢复或 Inbox 策略。日志不是业务状态或停止证明，不驱动调度。Responses 协议收尾修复独立于诊断开关，见下文。
 
 ## 关联与范围
 
@@ -22,6 +22,10 @@
 | `model.http.headers` | HTTP 状态及白名单响应 ID，用于对照上游请求；不是完整响应头 |
 | `model.http.first_body` | SDK 首次读到正文块的时间 |
 | `model.first_event` / `model.first_output` | 首个 SDK 事件，以及首段文本、思考或工具参数输出的时间与类别 |
+| `model.protocol.terminal` | Responses 解析器已处理有效终止事件；只记录终止类别及 `protocolTerminalAt`，不保存响应正文 |
+| `model.http.body_ended` | 下游读取到正文 EOF；与协议完成、SDK 终结分开 |
+| `model.http.body_cancel_requested` / `body_cancelled` / `body_cancel_failed` | 取消读取已请求、取消 Promise 已返回或取消失败；请求不冒充释放完成 |
+| `model.sdk.terminal` | 消费到 SDK done/error 事件，记录 `sdkTerminalAt`；不消费流而只调用 result 的路径以 `model.request.ended` 核对 |
 | `model.request.progress` | 每 15 秒记录活动请求的最后阶段、首末读取/事件/输出时间、读到的字节与块数、事件数、文本/思考/工具参数字符数 |
 | `model.request.ended` | 原终态、墙钟/单调时长、用量和累计计数，失败时仅记录错误分类、有限错误码和状态 |
 | `execution.*` | agent/turn 生命周期、工具开始/结束、SDK 重试及上下文压缩阶段 |
@@ -34,6 +38,27 @@ HTTP 观测只注入已核对 SDK 支持 fetch 的 `openai-responses`、`openai-
 
 正文计数发生在 SDK 实际读取 Response body/reader/异步迭代器时。不额外预读、缓存或主动拉取数据，不记录正文，不改变背压、信号、原取消原因、原异常或 callback 的返回值。它是消费观测，不是网络抓包；内核或 SDK 缓冲区内尚未消费的数据不可见，JSON/text/clone 便捷读取不纳入该流式正文计数。
 
+## Responses 收尾与依赖补丁
+
+当前固定 `@earendil-works/pi-coding-agent` / `pi-ai` 0.85.1，OpenAI 客户端为 6.40.0。原 Responses 解析器在 completed/incomplete 后继续等待 HTTP EOF，可能阻塞 SDK done 和下一步工具执行。`scripts/patch-pi-responses.mjs` 对 `openai-responses` 在首个有效终止事件后退出迭代；共用解析器的 Azure/Codex 保留原迭代及状态映射行为；OpenAI 客户端负责取消流，空闲保护层等待取消返回并释放 reader。终态后的事件不再处理，不重发请求或工具。
+
+completed 保留原成功/工具调用语义；incomplete 保留 length 或具体失败原因；failed 先保存终态用量再传播错误；cancelled 保存用量与 rawStopReason 并明确报告服务端取消。用户 AbortSignal 仍报告 aborted。终止事件的类型和 response.status 必须一致；无终态的 EOF 明确失败。终结不等同于成果固定或任务验收。
+
+补丁仅修改上述固定版本的三个 JS 文件，逐文件校验完整原始 SHA-256；重复执行可核对已修改内容，未知版本、上下文或哈希拒绝处理。安装根包的 postinstall 自动应用；服务端 dev/build/check/test/start 的前置脚本只核对，不静默带着未修复的 SDK 运行。升级 SDK 时须重新审查补丁与受控测试，不能跳过校验。
+
+禁用安装脚本、复制预装依赖或直接执行构建产物时，需要在部署目录明确执行：
+
+```bash
+node scripts/patch-pi-responses.mjs
+node scripts/patch-pi-responses.mjs --check
+```
+
+脚本只处理本项目解析到的依赖，不联网、不启动子进程，不新增或升级依赖。部署必须包含脚本和对应依赖；直接调用 `node dist/main.js` 不会执行 npm 前置检查。验收可使用 `artifacts/probe-responses-terminal.mjs` 的内存流，无需模型服务。
+
+模型正文空闲保护仍为三分钟，仅在下游等待数据时计时。任务层五分钟提示疑似无进展，三十分钟无执行活动才保存阶段并请求暂停；在途工具、原生工具和待处理人工请求豁免。暂停须等待原命令、工具和依赖资源停止，不能确认则进入 recovery 并保留租约；恢复只核对原记录，不自动重发。持续有效输出会刷新活动时间。协议终止后若取消 Promise 挂起，也通过原执行的同一停止门禁处理，不以终止事件单独确认停止。
+
+针对性测试见 `pi-responses-terminal.test.ts`、`task-responses-finalization.test.ts` 和现有 `task-request-timeout.test.ts` / `task-finalization.test.ts`。它们区分协议、流、SDK、执行返回、资源停止、成果候选、固定成果及审核；受控复现不能替代旧故障的网络证据。
+
 ## 进程心跳
 
 `service.heartbeat` 每 15 秒记录墙钟与单调时间增量、两者差值、预期调度间隔偏差、CPU 增量、事件循环平均/p99/最大延迟和活动请求/执行数量。`execution.heartbeat` 标记已接入的活动 agent。
@@ -43,7 +68,7 @@ HTTP 观测只注入已核对 SDK 支持 fetch 的 `openai-responses`、`openai-
 ## 排查方法
 
 1. 保留 `execution.jsonl` 和 `execution.jsonl.1`，按任务/会话/运行及 `bootId` 找到对应 `model.request.started`。
-2. 若服务心跳正常，查看请求最后停在准备、等待响应头、读取正文还是生成输出；对照首末时间和计数，不只看公开事件是否安静。
+2. 若服务心跳正常，查看请求最后停在准备、等待响应头、读取正文、生成输出还是协议终结；对照首末时间和计数，不只看公开事件是否安静。协议终止已记录、取消尚未返回时，核对原流清理，不能推断 SDK 或执行循环已结束。
 3. 若正文块增加但 SDK 输出没有增加，继续对照流解析或协议事件；若工具参数持续增加，查看参数生成阶段。计数只建立现象，不直接判定责任方。
 4. 若多个请求与服务心跳同时出现时间间隙，按 UTC 窗口对照系统睡眠/唤醒、进程状态或服务日志；日志本身不会读取系统记录。
 5. 使用 `model.http.headers.responseIds` 与上游日志对照。SDK 内部 HTTP 尝试与 agent 重试是两层不同事件，不能混为同一次重试。

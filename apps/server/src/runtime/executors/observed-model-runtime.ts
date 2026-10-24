@@ -29,6 +29,11 @@ export function observedFetch(original: typeof fetch, observation: ModelRequestO
         return chunk;
       } catch (error) { observation.record('model.http.body_failed', { attempt, ...diagnosticError(error) }); throw error; }
     };
+    const observeCancel = async (cancel: () => Promise<unknown>) => {
+      observation.record('model.http.body_cancel_requested', { attempt });
+      try { const result = await cancel(); observation.record('model.http.body_cancelled', { attempt }); return result; }
+      catch (error) { observation.record('model.http.body_cancel_failed', { attempt, ...diagnosticError(error) }); throw error; }
+    };
     // 只代理 SDK 实际使用的 reader/iterator，不创建第二条流、不提前读取或改变背压。
     let observedBody: typeof response.body = null;
     return new Proxy(response, { get(target, property) {
@@ -37,7 +42,7 @@ export function observedFetch(original: typeof fetch, observation: ModelRequestO
           const reader = body.getReader(...args);
           return new Proxy(reader, { get(current, member) {
             if (member === 'read') return (...params: unknown[]) => observeRead(() => Reflect.apply(current.read, current, params));
-            if (member === 'cancel') return (reason: unknown) => { observation.record('model.http.body_cancelled', { attempt }); return current.cancel(reason); };
+            if (member === 'cancel') return (reason: unknown) => observeCancel(() => current.cancel(reason));
             const value = Reflect.get(current, member, current) as unknown;
             return typeof value === 'function' ? value.bind(current) : value;
           } });
@@ -45,7 +50,7 @@ export function observedFetch(original: typeof fetch, observation: ModelRequestO
         if (key === Symbol.asyncIterator || key === 'values') return (...args: Parameters<ReadableStream<Uint8Array>['values']>) => {
           const iterator = body.values(...args);
           return { next: () => observeRead(() => iterator.next()),
-            return: async (reason?: unknown) => { observation.record('model.http.body_cancelled', { attempt }); return Reflect.apply(iterator.return!, iterator, [reason]); },
+            return: (reason?: unknown) => observeCancel(() => Reflect.apply(iterator.return!, iterator, [reason])),
             [Symbol.asyncIterator]() { return this; } };
         };
         const value = Reflect.get(body, key, body) as unknown;
@@ -81,6 +86,7 @@ export function observedModelRuntime(current: () => ModelRuntime, sessionId: str
         const payload = options.onPayload as ((...args: unknown[]) => unknown) | undefined;
         const guardedFetch = options.fetch as typeof fetch | undefined;
         const observedOptions = { ...options,
+          ...(model.api === 'openai-responses' ? { onProtocolEvent: (event: { type: string }) => observation.protocolTerminal(event.type) } : {}),
           onPayload: async (...args: unknown[]) => { const result = await payload?.(...args); observation.payloadReady(); return result; },
           // 观测包在空闲超时之外，超时中断会作为 body_failed 记录。
           ...(httpObserved && guardedFetch ? { fetch: observedFetch(guardedFetch, observation) } : {}),
