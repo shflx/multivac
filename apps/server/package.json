@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/patch-pi-responses.mjs --check",
+    "prebuild": "node ../../scripts/patch-pi-responses.mjs --check",
+    "precheck": "node ../../scripts/patch-pi-responses.mjs --check",
+    "pretest": "node ../../scripts/patch-pi-responses.mjs --check",
+    "prestart": "node ../../scripts/patch-pi-responses.mjs --check",
     "dev": "tsx src/main.ts --mode=development",
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",

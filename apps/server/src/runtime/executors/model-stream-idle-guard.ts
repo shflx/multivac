@@ -43,6 +43,12 @@ export function idleGuardedFetch(original: typeof fetch, idleMs = MODEL_STREAM_I
  */
 function guardBody(source: ResponseBody, idleMs: number): ResponseBody {
   let reader: ReadableStreamDefaultReader<BodyChunk> | undefined;
+  let cancelled = false;
+  const cancel = async (reason: unknown) => {
+    cancelled = true;
+    try { await (reader ? reader.cancel(reason) : source.cancel(reason)); }
+    finally { reader?.releaseLock(); }
+  };
 
   return new ReadableStream<BodyChunk>({
     async pull(controller) {
@@ -55,18 +61,18 @@ function guardBody(source: ResponseBody, idleMs: number): ResponseBody {
 
       try {
         const chunk = await Promise.race([reader.read(), idle]);
-        if (chunk.done) controller.close();
+        if (cancelled) return;
+        if (chunk.done) { reader.releaseLock(); controller.close(); }
         else controller.enqueue(chunk.value);
       } catch (error) {
-        // 超时或读取失败都取消原始读取，释放挂起的连接。
-        reader.cancel(error).catch(() => {});
+        if (cancelled) return;
+        // 保留原始读取错误；取消完成后释放 reader，不将取消请求冒充资源已释放。
+        try { await cancel(error); } catch { /* 取消异常不覆盖原始读取错误。 */ }
         controller.error(error);
       } finally {
         clearTimeout(timer);
       }
     },
-    cancel(reason) {
-      return reader ? reader.cancel(reason) : source.cancel(reason);
-    },
+    cancel,
   }, { highWaterMark: 0 });
 }
