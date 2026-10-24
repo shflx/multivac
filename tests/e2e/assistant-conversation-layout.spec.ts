@@ -180,6 +180,32 @@ test('轨迹内容与可视区尺寸变化时继续贴底，上翻后保留阅�
   await expect(trace).not.toHaveAttribute('open', '');
   await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect.poll(() => distanceToBottom(scroll)).toBeLessThanOrEqual(2);
+
+  // 同一轮轨迹在窄侧栏展开时，长路径不能撑宽说明与工具行。
+  for (const panel of ['workspace', 'management'] as const) {
+    await openPanel(page, panel);
+    const sidebar = page.getByRole('complementary', { name: 'Multivac 侧栏' });
+    if (!await sidebar.isVisible()) await page.keyboard.press('ControlOrMeta+J');
+    await expect(sidebar.getByLabel('Multivac 草稿')).toBeEditable();
+    const sidebarTrace = sidebar.locator('.run-trace').filter({ has: page.locator('[data-tool-call-id="tool-multi-read"]') });
+    if (await sidebarTrace.getAttribute('open') === null) await sidebarTrace.locator('summary').click();
+    await sidebarTrace.locator('.run-trace-note').first().evaluate(element => {
+      element.textContent = '我会读取 `/Users/shuffle/codes/project/multivac/docs/design/terminals-spike.md`，据此创建技术验证任务。';
+    });
+    for (const dock of ['push', 'overlay']) {
+      if (dock === 'overlay') await sidebar.getByLabel('改为浮在页面上').click();
+      await expect.poll(() => sidebarTrace.evaluate(root => {
+        const area = root.getBoundingClientRect();
+        return [...root.querySelectorAll('.run-trace-content, .run-trace-thought, .run-trace-tool')].flatMap(node => {
+          const rect = node.getBoundingClientRect();
+          return rect.left < area.left - 1 || rect.right > area.right + 1
+            ? [{ className: node.className, width: rect.width, available: area.width }] : [];
+        });
+      })).toEqual([]);
+      expect(await sidebar.locator('.message-scroll').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+    }
+    await sidebar.locator('.multivac-sidebar-tool').first().click();
+  }
 });
 
 test('停止后恢复历史时，过程说明留在轨迹里而不成为最终回复', async ({ page, request }) => {
