@@ -7,16 +7,18 @@ import { runSummary } from './run-presentation.js';
 export function runIndicatorView(runs: RunsState, processes: ProcessesState) {
   const confirmed = !!runs.data && !!processes.overview;
   const error = runs.error || processes.error;
-  const checking = runs.loading || processes.loading || !confirmed;
+  const refreshing = runs.loading || processes.loading;
+  // 已有成功快照时，普通刷新不改变已确认状态；错误持续到成功核对。
+  const checking = !confirmed || (!!error && refreshing);
   const counts = { running: 0, queued: 0, anomalies: 0, waiting: 0, ...runs.data?.counts, processesRunning: processes.overview?.total ?? 0 };
   const state = runIndicatorState(counts);
   const label = error ? (runs.data || processes.overview ? '状态待核对' : '状态不可用')
-    : checking ? (confirmed ? '状态核对中' : '读取中')
+    : checking ? '读取中'
     : { idle: '空闲', ok: '运行中', attention: '需要留意' }[state];
-  const summary = confirmed ? `${runSummary(counts)}${checking || error ? '（上次确认结果）' : ''}` : error ? '暂时无法核对最新运行状态' : '正在读取运行事实';
+  const summary = confirmed ? `${runSummary(counts)}${error ? '（上次确认结果）' : ''}` : error ? '暂时无法核对最新运行状态' : '正在读取运行事实';
   return {
-    counts, state, label, summary, error, checking, confirmed,
+    counts, state, label, summary, error, checking, refreshing, confirmed,
     activeProcesses: processes.overview?.processes.filter(isActiveManagedProcess) ?? [],
-    empty: confirmed && !checking && !error && !counts.running && !counts.processesRunning && !counts.processesRecovery,
+    empty: confirmed && !error && !counts.running && !counts.processesRunning && !counts.processesRecovery,
   };
 }
