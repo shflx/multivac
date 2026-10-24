@@ -60,8 +60,8 @@ export function RunIndicatorContent({ runs, processes, onClose, onViewRuns, onOp
   ];
   return <>
     <header><strong>{label}</strong>{(state !== 'idle' || checking || statusError) && <span>{summary}</span>}</header>
-    {((!data && !error) || runs.loading) && <p role="status">{data ? '正在核对任务运行状态，暂时保留上次确认结果。' : '正在读取任务运行状态…'}</p>}
-    {((!processes.overview && !processes.error) || processes.loading) && <p role="status">{processes.overview ? '正在核对进程状态，暂时保留上次确认结果。' : '正在读取进程明细…'}</p>}
+    {((!data && !error) || (runs.loading && error)) && <p role="status">{data ? '正在核对任务运行状态，暂时保留上次确认结果。' : '正在读取任务运行状态…'}</p>}
+    {((!processes.overview && !processes.error) || (processes.loading && processes.error)) && <p role="status">{processes.overview ? '正在核对进程状态，暂时保留上次确认结果。' : '正在读取进程明细…'}</p>}
     {error && <p role="alert">{error}{data && ' 当前任务信息为上次确认结果。'}<button onClick={() => void store.refresh()}>重试任务状态</button></p>}
     {processes.error && <p role="alert">{processes.error}{processes.overview && ' 当前进程信息为上次确认结果。'}<button onClick={() => void processes.store.refresh()}>重试进程状态</button></p>}
     {groups.filter((group) => group.items.length).map((group) => <section key={group.title} aria-label={group.title}><h3>{group.title}</h3>
@@ -79,7 +79,7 @@ export function RunIndicatorContent({ runs, processes, onClose, onViewRuns, onOp
         <span className="run-state-badge running"><LoaderCircle className="spin" aria-hidden="true" />{item.state === 'starting' ? '启动中' : item.state === 'stopping' ? '停止中' : '运行中'}</span>
         <span className="run-popover-text"><strong title={item.name}>{item.name}</strong><small>{[item.mode === 'foreground' ? '前台执行' : '', item.taskTitle ?? item.sessionTitle ?? '工作会话', item.port ? `端口 ${item.port}` : ''].filter(Boolean).join(' · ')}</small></span><ArrowRight aria-hidden="true" />
       </button>)}
-      {!counts.processesRunning && <p className="run-popover-empty">{processes.loading || processes.error ? '上次确认时没有活跃进程。' : '没有活跃进程。'}</p>}
+      {!counts.processesRunning && <p className="run-popover-empty">{processes.error ? '上次确认时没有活跃进程。' : '没有活跃进程。'}</p>}
       {counts.processesRunning > 5 && <p className="run-popover-empty">显示前 5 个活跃进程，共 {counts.processesRunning} 个；完整列表可在运行页查看。</p>}
     </section>}
     {!!counts.processesRecovery && <p role="status">{counts.processesRecovery} 个进程正在恢复核对，停止状态尚未确认。</p>}

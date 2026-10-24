@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { ProcessList, ProcessListItem, RunsSnapshot } from '@multivac/contracts';
+import type { ProcessList, ProcessListItem, RunSnapshot, RunsSnapshot } from '@multivac/contracts';
 import { RunsStore } from '../src/features/runs/runs-store.js';
 import { ProcessesStore } from '../src/features/runs/processes-store.js';
 import { runIndicatorView } from '../src/features/runs/run-indicator-state.js';
@@ -17,6 +17,11 @@ const process = (mode: 'foreground' | 'background' = 'foreground'): ProcessListI
   sessionAvailable: true, sessionTitle: '开发会话',
 });
 const list = (...processes: ProcessListItem[]): ProcessList => ({ processes, total: processes.length, nextOffset: null });
+const taskRun: RunSnapshot = {
+  taskId: 'task', runId: 'run', sessionId: 'session', title: '正在执行的任务', revision: 1,
+  state: 'running', anomaly: false, reason: '正在执行工具', nextStep: '', startedAt: null, endedAt: null,
+  elapsedMs: null, lastTool: null, lastToolAt: null, canPause: true, taskAvailable: true, sessionAvailable: true,
+};
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;
@@ -136,7 +141,8 @@ test('挂起超时及取消错误可恢复；保留列表时明确标记旧结�
   });
   await processes.refresh();
   const hung = processes.refresh();
-  assert.match(html(runs, processes), /正在核对进程状态/);
+  assert.doesNotMatch(html(runs, processes), /正在核对进程状态|上次确认结果/);
+  assert.equal(view(runs, processes).label, '运行中');
   t.mock.timers.tick(STATUS_QUERY_TIMEOUT_MS); await hung;
   assert.match(html(runs, processes), /超时/);
   assert.match(html(runs, processes), /foreground 命令/);
@@ -216,8 +222,11 @@ function businessView(runs: RunsStore, processes: ProcessesStore) {
 }
 
 test('已有成功快照时，两轮同数据刷新保持运行、空闲及恢复核对状态', async () => {
-  for (const mode of ['active', 'idle', 'recovery'] as const) {
-    const confirmedRuns = { ...snapshot(), counts: { ...snapshot().counts, processesRecovery: mode === 'recovery' ? 1 : 0 } };
+  for (const mode of ['active', 'task', 'idle', 'recovery'] as const) {
+    const confirmedRuns = {
+      ...snapshot(), highlights: mode === 'task' ? [taskRun] : [], total: mode === 'task' ? 1 : 0,
+      counts: { ...snapshot().counts, running: mode === 'task' ? 1 : 0, processesRecovery: mode === 'recovery' ? 1 : 0 },
+    };
     const confirmedProcesses = mode === 'active' ? list(process()) : list();
     let nextRuns: Promise<RunsSnapshot> = Promise.resolve(confirmedRuns);
     let nextProcesses: Promise<ProcessList> = Promise.resolve(confirmedProcesses);
@@ -225,6 +234,7 @@ test('已有成功快照时，两轮同数据刷新保持运行、空闲及恢�
     const processes = new ProcessesStore(() => nextProcesses);
     await Promise.all([runs.refresh(), processes.refresh()]);
     const before = businessView(runs, processes);
+    const beforeMarkup = html(runs, processes);
     for (let round = 0; round < 2; round++) {
       const pendingRuns = deferred<RunsSnapshot>(), pendingProcesses = deferred<ProcessList>();
       nextRuns = pendingRuns.promise; nextProcesses = pendingProcesses.promise;
@@ -232,10 +242,13 @@ test('已有成功快照时，两轮同数据刷新保持运行、空闲及恢�
       assert.equal(view(runs, processes).refreshing, true);
       assert.equal(view(runs, processes).checking, false);
       assert.deepEqual(businessView(runs, processes), before);
+      assert.equal(html(runs, processes), beforeMarkup);
       pendingRuns.resolve(confirmedRuns); await readingRuns;
       assert.deepEqual(businessView(runs, processes), before);
+      assert.equal(html(runs, processes), beforeMarkup);
       pendingProcesses.resolve(confirmedProcesses); await readingProcesses;
       assert.deepEqual(businessView(runs, processes), before);
+      assert.equal(html(runs, processes), beforeMarkup);
       assert.equal(view(runs, processes).refreshing, false);
     }
   }

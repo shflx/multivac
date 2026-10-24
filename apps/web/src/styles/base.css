@@ -6834,7 +6834,9 @@ svg {
 .run-state-badge.attention > svg { color: var(--warn); }
 .run-state-badge.running > svg { color: var(--success); }
 .run-popover-empty { margin: 0; padding: 16px 14px; color: var(--muted); font-size: var(--t-sm); }
-.run-popover > p[role="alert"] { padding: 0 14px; color: var(--danger); font-size: var(--t-sm); }
+.run-popover > p[role="status"], .run-popover > p[role="alert"] { margin: 0; padding: 8px 14px; color: var(--muted); font-size: var(--t-sm); overflow-wrap: anywhere; }
+.run-popover > p[role="alert"] { color: var(--danger); }
+.run-popover > p[role="alert"] button { margin-inline-start: 8px; }
 .run-popover > footer { display: flex; justify-content: flex-end; padding: 10px 14px; margin-top: 0; border-top: 1px solid var(--line); }
 .run-popover > footer .inline-link { font-size: var(--t-sm); }
 
