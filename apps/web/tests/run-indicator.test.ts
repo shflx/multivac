@@ -208,3 +208,94 @@ test("分页读取失败时不发布部分首页结果，保留旧快照并终�
   assert.match(html(runs, processes), /分页读取失败/);
   assert.match(html(runs, processes), /foreground 命令/);
 });
+
+// 只比较业务显示字段；请求在途与已确认状态分别派生。
+function businessView(runs: RunsStore, processes: ProcessesStore) {
+  const { label, state, summary, counts, empty, activeProcesses } = view(runs, processes);
+  return { label, state, summary, counts, empty, activeProcesses };
+}
+
+test('已有成功快照时，两轮同数据刷新保持运行、空闲及恢复核对状态', async () => {
+  for (const mode of ['active', 'idle', 'recovery'] as const) {
+    const confirmedRuns = { ...snapshot(), counts: { ...snapshot().counts, processesRecovery: mode === 'recovery' ? 1 : 0 } };
+    const confirmedProcesses = mode === 'active' ? list(process()) : list();
+    let nextRuns: Promise<RunsSnapshot> = Promise.resolve(confirmedRuns);
+    let nextProcesses: Promise<ProcessList> = Promise.resolve(confirmedProcesses);
+    const runs = new RunsStore(() => nextRuns);
+    const processes = new ProcessesStore(() => nextProcesses);
+    await Promise.all([runs.refresh(), processes.refresh()]);
+    const before = businessView(runs, processes);
+    for (let round = 0; round < 2; round++) {
+      const pendingRuns = deferred<RunsSnapshot>(), pendingProcesses = deferred<ProcessList>();
+      nextRuns = pendingRuns.promise; nextProcesses = pendingProcesses.promise;
+      const readingRuns = runs.refresh(), readingProcesses = processes.refresh();
+      assert.equal(view(runs, processes).refreshing, true);
+      assert.equal(view(runs, processes).checking, false);
+      assert.deepEqual(businessView(runs, processes), before);
+      pendingRuns.resolve(confirmedRuns); await readingRuns;
+      assert.deepEqual(businessView(runs, processes), before);
+      pendingProcesses.resolve(confirmedProcesses); await readingProcesses;
+      assert.deepEqual(businessView(runs, processes), before);
+      assert.equal(view(runs, processes).refreshing, false);
+    }
+  }
+});
+
+test('任一路失败后，另一来源成功和重试在途都不清除错误', async () => {
+  for (const source of ['runs', 'processes'] as const) {
+    let fail = false;
+    const retryRuns = deferred<RunsSnapshot>(), retryProcesses = deferred<ProcessList>();
+    let retrying = false;
+    const runs = new RunsStore(async () => {
+      if (source === 'runs' && fail) { if (retrying) return retryRuns.promise; throw Error('任务读取失败'); }
+      return snapshot();
+    });
+    const processes = new ProcessesStore(async () => {
+      if (source === 'processes' && fail) { if (retrying) return retryProcesses.promise; throw Error('进程读取失败'); }
+      return list(process());
+    });
+    await Promise.all([runs.refresh(), processes.refresh()]);
+    fail = true; await Promise.all([runs.refresh(), processes.refresh()]);
+    assert.equal(view(runs, processes).label, '状态待核对');
+    assert.match(view(runs, processes).summary, /上次确认结果/);
+    retrying = true;
+    const reading = Promise.all([runs.refresh(), processes.refresh()]);
+    assert.equal(view(runs, processes).label, '状态待核对');
+    assert.equal(view(runs, processes).checking, true);
+    assert.equal(view(runs, processes).counts.processesRunning, 1);
+    assert.equal(view(runs, processes).empty, false);
+    retryRuns.resolve(snapshot(2)); retryProcesses.resolve(list()); await reading;
+    assert.equal(view(runs, processes).error, '');
+    assert.equal(view(runs, processes).label, source === 'processes' ? '空闲' : '运行中');
+  }
+});
+
+test('尚无两路快照时，未发起或部分在途都显示读取中', async () => {
+  const runs = new RunsStore(async () => snapshot());
+  const processes = new ProcessesStore(async () => list());
+  assert.equal(view(runs, processes).label, '读取中');
+  assert.equal(view(runs, processes).empty, false);
+  await runs.refresh();
+  assert.equal(view(runs, processes).label, '读取中');
+  assert.equal(view(runs, processes).empty, false);
+  await processes.refresh();
+  assert.equal(view(runs, processes).label, '空闲');
+});
+
+test('新运行事实即时更新，任务迟到成功与失败均不能回退新状态', async () => {
+  for (const lateFailure of [false, true]) {
+    const old = deferred<RunsSnapshot>(), fresh = deferred<RunsSnapshot>();
+    let reads = 0;
+    const runs = new RunsStore(() => ++reads === 1 ? old.promise : fresh.promise);
+    const processes = new ProcessesStore(async () => list()); await processes.refresh();
+    const first = runs.refresh(), reconnect = runs.refresh();
+    fresh.resolve({ ...snapshot(3), counts: { ...snapshot().counts, running: 2, queued: 1, waiting: 1 } });
+    await reconnect; await first;
+    assert.equal(view(runs, processes).label, '运行中');
+    assert.equal(view(runs, processes).counts.running, 2);
+    if (lateFailure) old.reject(Error('迟到任务错误')); else old.resolve(snapshot(1));
+    await Promise.resolve();
+    assert.equal(view(runs, processes).counts.running, 2);
+    assert.equal(view(runs, processes).error, '');
+  }
+});
