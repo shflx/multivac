@@ -204,7 +204,8 @@ for (const mode of ['active', 'task', 'idle', 'recovery'] as const) {
     await control(page, 'set', '/api/runs', runSnapshot);
     const popover = await open(page);
     await expect(popover).toHaveAttribute('aria-busy', 'false');
-    await page.clock.pauseAt(await page.evaluate(() => Date.now()));
+    // 两次浏览器调用之间时钟仍在前进，使用稍后的时刻避免暂停目标落在过去。
+    await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now()) + 1000));
     const baseline = await geometry(page);
     const samples: { stage: string; measurement: Awaited<ReturnType<typeof geometry>> }[] = [];
     async function stable(stage: string) {
