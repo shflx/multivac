@@ -21,6 +21,7 @@ import { createMcpRequestHandler } from '../adapters/http/mcp-routes.js';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { GLOBAL_ASSISTANT_SESSION_ID, WINDOW_ID_HEADER } from '@multivac/contracts';
 import { RemoteAccess, accessError } from '../adapters/http/remote-access.js';
+import { LocalEntryPolicy } from '../adapters/http/local-entry-policy.js';
 import { markRemoteRequest, remoteRouteAllowed } from '../adapters/http/remote-policy.js';
 import { createWebAssetsHandler } from '../adapters/http/web-assets.js';
 import type { AssistantSessionService } from '../application/assistant-session-service.js';
@@ -80,15 +81,7 @@ function hostAllowed(host: string | undefined): boolean {
   }
 }
 
-function originAllowed(origin: string | undefined): boolean {
-  if (!origin) return true;
-  try {
-    const url = new URL(origin);
-    return url.protocol === 'http:' && LOCAL_HOSTNAMES.has(url.hostname);
-  } catch {
-    return false;
-  }
-}
+const fallbackLocalPolicy = new LocalEntryPolicy();
 
 function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT_ALLOWED'): void {
   response.writeHead(403, {
@@ -222,7 +215,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       return;
     }
     const origin = request.headers.origin;
-    if (!remote && !originAllowed(origin)) {
+    if (!remote && !options.remoteAccess && !fallbackLocalPolicy.allows(request)) {
       reject(response, 'ORIGIN_NOT_ALLOWED');
       return;
     }
