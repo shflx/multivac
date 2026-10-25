@@ -1016,23 +1016,25 @@ function AssistantSessionView({
                   {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} mentionTarget={agentMentionTarget} focusComposer={() => composerRef.current?.focus()} />}
                   {remote && !modelState.available && <span role="status">当前模型不可用，请在本机配置。</span>}
                 </div>
-                {/* MCP 是本会话的状态而非可选择的输入，与左侧的添加、Skill 等操作分开，靠近发送按钮。 */}
-                {!remote && (isCoordinator || allowAgentSelection) && <McpSessionTools key={session.sessionId} sessionId={session.sessionId} disabled={status !== 'ready'} />}
-                <button
-                  type="button"
-                  className="composer-send-button"
-                  aria-label="发送消息"
-                  title={!modelState.loaded ? '正在读取会话模型'
-                    : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
-                    : !modelState.available && !pageState.agentId && !session.currentExecutor ? '当前会话模型不可用，请查看模型选择状态'
-                    : runActive && !streamingBehavior && !canRetryUnknown
-                    ? '请先选择运行中发送方式'
-                    : canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '发送消息'}
-                  disabled={!canSubmit}
-                  onClick={() => void submitDraft()}
-                >
-                  {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
-                </button>
+                {/* MCP 与发送作为整体换行，避免夹在左侧操作的多行之间。 */}
+                <div className="composer-submit-actions">
+                  {!remote && (isCoordinator || allowAgentSelection) && <McpSessionTools key={session.sessionId} sessionId={session.sessionId} disabled={status !== 'ready'} />}
+                  <button
+                    type="button"
+                    className="composer-send-button"
+                    aria-label="发送消息"
+                    title={!modelState.loaded ? '正在读取会话模型'
+                      : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
+                      : !modelState.available && !pageState.agentId && !session.currentExecutor ? '当前会话模型不可用，请查看模型选择状态'
+                      : runActive && !streamingBehavior && !canRetryUnknown
+                      ? '请先选择运行中发送方式'
+                      : canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '发送消息'}
+                    disabled={!canSubmit}
+                    onClick={() => void submitDraft()}
+                  >
+                    {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
+                  </button>
+                </div>
               </div>
             </div>
           )}

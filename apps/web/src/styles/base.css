@@ -1779,6 +1779,7 @@ svg {
 
 /* 输入区卡片固定在会话底部，与消息列同宽。 */
 .assistant-composer {
+  container: assistant-composer / inline-size;
   width: min(744px, calc(100% - 16px));
   padding: 10px 12px 9px;
   margin: 0 auto 18px;
@@ -2201,15 +2202,56 @@ svg {
   height: 14px;
 }
 
+/* 按两组的实际宽度换行；左组始终保持一行，右组整体落在下一行右侧。 */
 .composer-bar {
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
 }
 
 .composer-meta {
   min-width: 0;
+  max-width: 100%;
   flex: 1 1 auto;
+  flex-wrap: nowrap;
   gap: 10px;
+}
+
+.composer-meta > button,
+.composer-meta > .composer-add,
+.composer-meta > .work-session-agent-picker {
+  flex-shrink: 0;
+}
+
+.composer-meta > .model-selector {
+  max-width: 240px;
+}
+
+.composer-meta > .model-selector.compact {
+  max-width: 150px;
+}
+
+/* 触发器也必须遵守模型入口分配到的宽度，不能越过相邻按钮。 */
+.composer-meta .model-selector-trigger,
+.composer-meta .model-selector.compact .model-selector-trigger {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.composer-submit-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+@container assistant-composer (max-width: 480px) {
+  .composer-meta .model-selector-trigger small { display: none; }
+}
+
+@container assistant-composer (max-width: 360px) {
+  .composer-meta { gap: 4px; }
 }
 
 .sr-only {
@@ -3774,10 +3816,6 @@ svg {
 
   .composer-bar span {
     font-size: var(--t-xs);
-  }
-
-  .composer-meta {
-    gap: 4px;
   }
 
   .streaming-behavior {
