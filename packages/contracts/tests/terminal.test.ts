@@ -3,7 +3,7 @@ import test from 'node:test';
 import { Check } from 'typebox/value';
 import {
   CreateTerminalSchema, TerminalClientMessageSchema, TerminalServerMessageSchema, TerminalSizeSchema,
-  TerminalCommandPresetsSchema, ProjectTerminalSchema, terminalExitedSuccessfully,
+  TerminalCommandPresetsSchema, ProjectTerminalSchema, terminalExitedSuccessfully, ListTerminalsSchema, GetTerminalSchema,
 } from '../src/index.js';
 
 test('终端：尺寸、预设及创建参数严格校验', () => {
@@ -13,6 +13,13 @@ test('终端：尺寸、预设及创建参数严格校验', () => {
   assert.ok(Check(CreateTerminalSchema, request));
   for (const patch of [{ directory: '../outside' }, { preset: { kind: 'blank', argv: [] } }, { preset: { kind: 'custom', executable: ' ', argv: [] } }, { preset: { kind: 'codex', argv: ['\0'] } }, { title: ' ' }, { taskId: 'task' }]) assert.equal(Check(CreateTerminalSchema, { ...request, ...patch }), false);
   assert.equal(Check(TerminalCommandPresetsSchema, [{ presetId: 'p', title: '自定义', command: request.preset }]), true);
+});
+
+test('终端：列表与详情采用POST正文，拒绝未知筛选与实例正文', () => {
+  assert.ok(Check(ListTerminalsSchema, { projectId: 'project', includeClosed: true }));
+  assert.equal(Check(ListTerminalsSchema, { projectId: 'project', output: true }), false);
+  assert.ok(Check(GetTerminalSchema, {}));
+  assert.equal(Check(GetTerminalSchema, { pid: 123 }), false);
 });
 
 test('终端：连接消息与快照字段严格绑定实例，不允许未知参数', () => {

@@ -20,14 +20,18 @@
 
 | 路径与方法 | 参数 | 返回与语义 |
 | --- | --- | --- |
-| GET /api/terminals?projectId=…&includeClosed=… | 项目 ID；includeClosed 默认 false | `{ terminals }`，按 lastActivityAt 降序、terminalId 稳定排序；重连必须重读 |
-| GET /api/terminals/:id | 稳定终端 ID | `{ terminal }` |
+| POST /api/terminals/list | ListTerminalsSchema；includeClosed 默认 false | `{ terminals }`，按 lastActivityAt 降序、terminalId 稳定排序；重连必须重读 |
+| POST /api/terminals/:id/get | GetTerminalSchema（空对象） | `{ terminal }` |
 | POST /api/terminals | CreateTerminalSchema | `{ terminal }`；默认项目第一个目录，只能选择当前登记目录；实际存在性在启动时复核 |
 | PATCH /api/terminals/:id | RenameTerminalSchema | `{ terminal }`；更新标题 |
 | POST /api/terminals/:id/end | EndTerminalSchema | `{ terminal }`；实例匹配且未关闭；终态不可再次结束；信号发出后仍是 stopping，无法证实退出为 stop-unconfirmed |
 | POST /api/terminals/:id/close | CloseTerminalSchema | `{ terminal }`；运行中必须 confirmRunning=true，经结束及停止核对后才能写 closedAt；失败保留未关闭状态 |
 | POST /api/terminals/:id/reopen | ReopenTerminalSchema | `{ terminal }`；旧实例已结束，再校验项目、原目录，创建新实例；不是恢复 CLI 会话 |
 | POST /api/terminals/:id/read | ReadTerminalSchema | `{ terminal }`；实例匹配且未关闭，清除未读和通知 |
+
+浏览器同源 GET 可能不发送 Origin，且脚本不能自行设置该请求头。因此终端列表、详情也使用 application/json 的 POST，通过浏览器自动携带 Origin；仍拒绝所有缺 Origin 的终端请求。
+
+本机入口同时核对实际回环对端、本机登录身份及完整 Host/Origin。生产登记当前 API 端口，开发另登记保留浏览器 Host 的 5173 代理入口；不放行其他 localhost 端口、远程登录身份、转发头伪装、手机标识或非 macOS arm64 服务端。普通会话导航仍允许无 Origin，终端守卫始终要求 Origin。HTTP 守卫已接入路由分发前；upgrade 的共同守卫已提供，实际 ws 接入后必须在 handleUpgrade 和终端读取之前调用。
 
 目录登记只定义启动 cwd，不提供文件访问隔离。输入尺寸必须为 10–240 列、4–100 行。HTTP 正文最大 32 KiB；自定义预设偏好请求也使用 32 KiB 上限，重复预设 ID 拒绝。
 

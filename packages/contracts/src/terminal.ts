@@ -78,6 +78,11 @@ export const CreateTerminalSchema = Type.Object({
   preset: TerminalPresetSchema, title: Type.Optional(Title), size: TerminalSizeSchema,
 }, { additionalProperties: false });
 export type CreateTerminal = Type.Static<typeof CreateTerminalSchema>;
+/** 浏览器同源 GET 可能不携带 Origin；终端读取也用带 JSON 正文的 POST，仍严格拒绝缺 Origin。 */
+export const ListTerminalsSchema = Type.Object({
+  projectId: ProjectIdSchema, includeClosed: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+export const GetTerminalSchema = Type.Object({}, { additionalProperties: false });
 export const RenameTerminalSchema = Type.Object({ title: Title }, { additionalProperties: false });
 export const EndTerminalSchema = Type.Object({ instanceId: Id }, { additionalProperties: false });
 export const CloseTerminalSchema = Type.Object({ instanceId: Id, confirmRunning: Type.Boolean() }, { additionalProperties: false });
