@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { TerminalCommandPresetsSchema } from './terminal.js';
 
 /**
  * 偏好：对所有项目与默认工作区生效的全局规则，保存在服务端。
@@ -10,7 +11,7 @@ import { Type } from 'typebox';
  */
 export const TEMP_RETENTION_DAY_OPTIONS = [7, 30, 90] as const;
 export const DEFAULT_TEMP_RETENTION_DAYS = 30;
-export const PREFERENCES_BODY_LIMIT_BYTES = 1024;
+export const PREFERENCES_BODY_LIMIT_BYTES = 32 * 1024;
 
 /**
  * 任务树共享的执行时长：默认 6 小时，可在偏好里按档位调整。
@@ -43,6 +44,8 @@ export const PreferencesSchema = Type.Object(
     executionDiagnosticsEnabled: Type.Optional(Type.Boolean()),
     /** 顶栏每日一句；旧记录缺失时默认关闭。 */
     showDailyQuote: Type.Optional(Type.Boolean()),
+    /** 仅保存自定义命令预设，不保存终端输入或输出。 */
+    terminalCommandPresets: Type.Optional(TerminalCommandPresetsSchema),
   },
   { additionalProperties: false },
 );
@@ -58,6 +61,7 @@ export const UpdatePreferencesSchema = Type.Object(
     taskBudgetMillis: Type.Optional(TaskBudgetMillisSchema),
     executionDiagnosticsEnabled: Type.Optional(Type.Boolean()),
     showDailyQuote: Type.Optional(Type.Boolean()),
+    terminalCommandPresets: Type.Optional(TerminalCommandPresetsSchema),
   },
   { additionalProperties: false, minProperties: 1 },
 );

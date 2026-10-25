@@ -4,6 +4,8 @@ import {
   DEFAULT_TASK_BUDGET,
   RECENT_DAY_OPTIONS,
   TaskBudgetMillisSchema,
+  TerminalCommandPresetsSchema,
+  type TerminalCommandPresets,
   TempRetentionDaysSchema,
   type Preferences,
   type TaskBudget,
@@ -24,6 +26,7 @@ const TEMP_RETENTION_KEY = 'tempRetentionDays';
 const TASK_BUDGET_MILLIS_KEY = 'taskBudgetMillis';
 const EXECUTION_DIAGNOSTICS_KEY = 'executionDiagnosticsEnabled';
 const DAILY_QUOTE_KEY = 'showDailyQuote';
+const TERMINAL_PRESETS_KEY = 'terminalCommandPresets';
 
 /**
  * 偏好：对所有项目与默认工作区生效的全局规则，保存在服务端，改完即生效。
@@ -37,7 +40,8 @@ export class PreferencesService {
   get(): Preferences {
     const days = this.repository.get('recentDays');
     return { tempRetentionDays: this.tempRetentionDays(), recentDays: RECENT_DAY_OPTIONS.find((value) => value === days) ?? DEFAULT_RECENT_DAYS,
-      taskBudgetMillis: this.taskBudgetMillis(), executionDiagnosticsEnabled: this.executionDiagnosticsEnabled(), showDailyQuote: this.showDailyQuote() };
+      taskBudgetMillis: this.taskBudgetMillis(), executionDiagnosticsEnabled: this.executionDiagnosticsEnabled(), showDailyQuote: this.showDailyQuote(),
+      terminalCommandPresets: this.terminalCommandPresets() };
   }
 
   tempRetentionDays(): TempRetentionDays {
@@ -53,6 +57,11 @@ export class PreferencesService {
   showDailyQuote(): boolean {
     const stored = this.repository.get(DAILY_QUOTE_KEY);
     return typeof stored === 'boolean' ? stored : DEFAULT_PREFERENCES.showDailyQuote!;
+  }
+
+  terminalCommandPresets(): TerminalCommandPresets {
+    const stored = this.repository.get(TERMINAL_PRESETS_KEY);
+    return Check(TerminalCommandPresetsSchema, stored) ? stored : [];
   }
 
   /** 新建任务与用户主动继续时使用的任务树共享执行时长上限。 */
@@ -71,11 +80,17 @@ export class PreferencesService {
 
   /** 只改给出的字段；保存后通知订阅者（如按新的保留时长补做一次到期检查）。 */
   update(patch: UpdatePreferences): Preferences {
+    if (patch.terminalCommandPresets !== undefined) {
+      if (!Check(TerminalCommandPresetsSchema, patch.terminalCommandPresets)) throw new Error('自定义终端命令预设无效。');
+      const ids = patch.terminalCommandPresets.map(preset => preset.presetId);
+      if (new Set(ids).size !== ids.length) throw new Error('自定义终端命令预设的 ID 不能重复。');
+    }
     if (patch.tempRetentionDays !== undefined) this.repository.set(TEMP_RETENTION_KEY, patch.tempRetentionDays);
     if (patch.recentDays !== undefined) this.repository.set('recentDays', patch.recentDays);
     if (patch.taskBudgetMillis !== undefined) this.repository.set(TASK_BUDGET_MILLIS_KEY, patch.taskBudgetMillis);
     if (patch.executionDiagnosticsEnabled !== undefined) this.repository.set(EXECUTION_DIAGNOSTICS_KEY, patch.executionDiagnosticsEnabled);
     if (patch.showDailyQuote !== undefined) this.repository.set(DAILY_QUOTE_KEY, patch.showDailyQuote);
+    if (patch.terminalCommandPresets !== undefined) this.repository.set(TERMINAL_PRESETS_KEY, patch.terminalCommandPresets);
     const preferences = this.get();
     for (const listener of this.listeners) listener(preferences);
     return preferences;
