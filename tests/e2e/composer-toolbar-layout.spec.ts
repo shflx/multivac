@@ -180,6 +180,7 @@ test.describe('输入工具栏按容器宽度分组', () => {
       await mockMcp(page, state);
       await useLongModelName(page);
       await page.goto('/');
+      await expect(page.getByLabel('Multivac 草稿')).toBeEditable();
       await openPanel(page, 'workspace');
       for (const title of ['工具栏甲', '工具栏乙']) {
         await openCreationDialog(page);
