@@ -62,8 +62,8 @@ export function RunIndicatorContent({ runs, processes, onClose, onViewRuns, onOp
     <header><strong>{label}</strong>{(state !== 'idle' || checking || statusError) && <span>{summary}</span>}</header>
     {((!data && !error) || (runs.loading && error)) && <p role="status">{data ? '正在核对任务运行状态，暂时保留上次确认结果。' : '正在读取任务运行状态…'}</p>}
     {((!processes.overview && !processes.error) || (processes.loading && processes.error)) && <p role="status">{processes.overview ? '正在核对进程状态，暂时保留上次确认结果。' : '正在读取进程明细…'}</p>}
-    {error && <p role="alert">{error}{data && ' 当前任务信息为上次确认结果。'}<button onClick={() => void store.refresh()}>重试任务状态</button></p>}
-    {processes.error && <p role="alert">{processes.error}{processes.overview && ' 当前进程信息为上次确认结果。'}<button onClick={() => void processes.store.refresh()}>重试进程状态</button></p>}
+    {error && <p role="alert">{error}{data && ' 当前任务信息为上次确认结果。'}<button type="button" className="inline-link" onClick={() => void store.refresh()}>重试任务状态</button></p>}
+    {processes.error && <p role="alert">{processes.error}{processes.overview && ' 当前进程信息为上次确认结果。'}<button type="button" className="inline-link" onClick={() => void processes.store.refresh()}>重试进程状态</button></p>}
     {groups.filter((group) => group.items.length).map((group) => <section key={group.title} aria-label={group.title}><h3>{group.title}</h3>
       {group.items.slice(0, 5).map((item) => <button className="run-popover-row" key={item.taskId} onClick={() => {
         onClose(); if (item.sessionAvailable && item.sessionId) onOpenSession(item.sessionId); else onOpenTask(item.taskId);
