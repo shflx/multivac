@@ -39,6 +39,7 @@ import { SqliteInternalToolCallRepository } from './sqlite-internal-tool-call-re
 import { SqliteTempDirectoryCleanupRepository } from './sqlite-temp-directory-cleanup-repository.js';
 import { SqlitePreferenceRepository } from './sqlite-preference-repository.js';
 import { SqliteSessionRegistryRepository } from './sqlite-session-registry-repository.js';
+import { SqliteTerminalRepository, TERMINAL_MIGRATION } from './sqlite-terminal-repository.js';
 import { SqliteWorkspaceRepository } from './sqlite-workspace-repository.js';
 import { SqliteWorkspaceSceneRepository } from './sqlite-workspace-scene-repository.js';
 import { SqliteAssistantBindingRepository, SqliteAssistantPageStateRepository } from './sqlite-assistant-session-repository.js';
@@ -323,6 +324,7 @@ const MIGRATIONS = [
   MCP_MIGRATION,
   NOTE_IMAGES_MIGRATION,
   PROJECT_RESOURCE_MIGRATION,
+  TERMINAL_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -408,6 +410,8 @@ export class SqliteAssistantStore {
   readonly readingCollection: SqliteReadingCollectionRepository;
   /** Multivac 会话注册表。 */
   readonly sessions: SqliteSessionRegistryRepository;
+  /** 独立项目终端元数据；不保存运行期画面或 PID。 */
+  readonly terminals: SqliteTerminalRepository;
   /** 工作区；项目信息经项目仓储补全。 */
   readonly workspaces: SqliteWorkspaceRepository;
   readonly workspaceScenes: SqliteWorkspaceSceneRepository;
@@ -434,6 +438,7 @@ export class SqliteAssistantStore {
       this.projects = new SqliteProjectRepository(this.database, (workspaceId) => this.workspaces.get(workspaceId));
       this.selections = new SqliteSessionSelectionRepository(this.database, () => this.now());
       this.sessions = new SqliteSessionRegistryRepository(this.database);
+      this.terminals = new SqliteTerminalRepository(this.database);
       this.workspaces = new SqliteWorkspaceRepository(this.database, (projectId) => this.projects.get(projectId));
       this.workspaceScenes = new SqliteWorkspaceSceneRepository(this.database, () => this.now());
       this.bindings = new SqliteAssistantBindingRepository(this.database);
