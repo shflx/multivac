@@ -267,3 +267,58 @@ test.describe('输入工具栏按容器宽度分组', () => {
     });
   }
 });
+
+
+test('真实侧栏模型菜单保持在视口内，选模与发送沿用共享草稿', async ({ page, request }, testInfo) => {
+  await resetE2eState(request);
+  await mockMcp(page, 'ready');
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/');
+  const home = page.locator('.assistant-composer').first();
+  await expect(home.getByLabel('Multivac 草稿')).toBeEditable();
+  await home.getByLabel('Multivac 草稿').fill('首页未发送草稿');
+  await openPanel(page, 'workspace');
+  await page.keyboard.press('ControlOrMeta+J');
+  const sidebar = page.locator('.multivac-sidebar');
+  await expect(sidebar).toBeVisible();
+  const composer = sidebar.locator('.assistant-composer');
+  await expect(composer.getByLabel('Multivac 草稿')).toHaveValue('首页未发送草稿');
+  const trigger = composer.getByRole('button', { name: '当前会话模型', exact: true });
+  await trigger.click();
+  const menu = composer.locator('.model-selector-menu');
+  await expect(menu).toBeVisible();
+  for (const viewport of [{ width: 1280, height: 720 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    // 等待侧栏入场动画和窗口调整后的布局稳定，再检查用户实际看到的菜单边界。
+    await expect.poll(async () => {
+      const box = (await menu.boundingBox())!;
+      return box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1;
+    }).toBe(true);
+    await testInfo.attach(`sidebar-model-${viewport.width}.png`, { body: await page.screenshot(), contentType: 'image/png' });
+  }
+  await menu.locator('.model-option button').nth(1).click();
+  await expect(menu.locator('.model-option button').nth(1)).toHaveClass(/selected/);
+  // 全局会话的 Pi 选模独立持久化；通过界面恢复默认项，避免影响后续浏览器项目。
+  await menu.locator('.model-option button').first().click();
+  await expect(menu.locator('.model-option button').first()).toHaveClass(/selected/);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.keyboard.press('ControlOrMeta+G');
+  const switcher = page.getByRole('dialog', { name: '面板跳转' });
+  await expect(switcher).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(switcher).toHaveCount(0);
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(trigger).toBeFocused();
+  await composer.getByLabel('Multivac 草稿').fill('侧栏输入发送回归');
+  await composer.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(sidebar.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(composer.getByLabel('Multivac 草稿')).toHaveValue('');
+  await testInfo.attach('sidebar-sent.png', { body: await page.screenshot(), contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});
