@@ -22,6 +22,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { GLOBAL_ASSISTANT_SESSION_ID, WINDOW_ID_HEADER } from '@multivac/contracts';
 import { RemoteAccess, accessError } from '../adapters/http/remote-access.js';
 import { LocalEntryPolicy } from '../adapters/http/local-entry-policy.js';
+import { guardTerminalHttp, isTerminalPath } from '../adapters/http/terminal-entry.js';
 import { markRemoteRequest, remoteRouteAllowed } from '../adapters/http/remote-policy.js';
 import { createWebAssetsHandler } from '../adapters/http/web-assets.js';
 import type { AssistantSessionService } from '../application/assistant-session-service.js';
@@ -203,7 +204,12 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     ? createModelSettingsRequestHandler(options.modelSettingsService)
     : undefined;
   const webAssets = options.webRoot ? createWebAssetsHandler(options.webRoot) : undefined;
+  const terminalAccess = options.remoteAccess ?? new RemoteAccess({ enabled: false, token: '', origin: '', host: '127.0.0.1' });
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+    let path: string;
+    try { path = new URL(request.url ?? '/', 'http://localhost').pathname; }
+    catch { accessError(response, 400, 'INVALID_REQUEST', '请求地址无效。'); return; }
+    if (isTerminalPath(path) && !guardTerminalHttp(request, response, terminalAccess)) return;
     const access = options.remoteAccess?.identify(request);
     if (options.remoteAccess && !access) {
       accessError(response, 403, 'ACCESS_DENIED', '此访问地址、来源或外部访问配置不允许请求。');
