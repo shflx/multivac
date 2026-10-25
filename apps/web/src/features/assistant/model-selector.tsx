@@ -33,7 +33,9 @@ export function ModelSelector({ active, running, onManage, compact = false, port
     if (!open) return;
     const outside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node) && !popup.current?.contains(event.target as Node)) setOpen(false); };
     const escape = (event: KeyboardEvent) => {
-      if (!portal || event.key !== 'Escape') return;
+      if (event.key !== 'Escape') return;
+      // 提交时禁用选项可能让焦点退回 body 或会话容器；仍允许 Esc 关闭菜单，不拦截其他浮层内的按键。
+      if (!portal && !(event.target instanceof Node && event.target.contains(root.current))) return;
       event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus({ preventScroll: true });
     };
     document.addEventListener('pointerdown', outside); document.addEventListener('keydown', escape, true);

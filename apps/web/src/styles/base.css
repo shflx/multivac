@@ -2482,6 +2482,11 @@ svg {
   animation: panel-in 180ms ease-out;
 }
 
+/* 侧栏贴着视口右边缘，模型菜单以输入卡片为界，避免从触发器向右越出窗口。 */
+.multivac-sidebar .assistant-composer { position: relative; }
+.multivac-sidebar .model-selector { position: static; }
+.multivac-sidebar .model-selector-menu { left: 12px; width: calc(100% - 24px); }
+
 /* 收起即不显示：会话呈现保持挂载，阅读位置与焦点记忆不丢。 */
 .multivac-sidebar[hidden] {
   display: none;
