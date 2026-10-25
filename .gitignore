@@ -45,3 +45,4 @@ docs/design/*
 !docs/design/work-session-agent.md
 output/
 .multica/
+poc/
