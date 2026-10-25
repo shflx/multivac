@@ -1,7 +1,7 @@
 /* 弹层相对整张输入卡片向上展开，避免从底栏弹起时覆盖草稿与引用。 */
 .assistant-composer:has(.work-session-agent-picker) { position: relative; }
-.composer-meta:has(> .work-session-agent-picker) { position: static; flex-wrap: wrap; }
-.work-session-agent-picker { display: flex; flex: 0 1 auto; align-items: center; min-width: 0; max-width: 100%; }
+.composer-meta:has(> .work-session-agent-picker) { position: static; }
+.work-session-agent-picker { display: flex; flex: 0 0 auto; align-items: center; min-width: 0; max-width: 100%; }
 .agent-invoke-button { display: inline-flex; align-items: center; gap: 5px; height: 28px; min-width: 0; max-width: min(220px, 100%); padding: 0 7px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: var(--t-xs); white-space: nowrap; cursor: pointer; }
 .agent-invoke-button:hover, .agent-invoke-button[aria-expanded='true'] { background: var(--surface-subtle); color: var(--accent); }
 .work-session-agent-picker .agent-invoke-button > span { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
