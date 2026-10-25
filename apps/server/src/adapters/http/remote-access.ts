@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { LocalEntryPolicy } from './local-entry-policy.js';
 
 export const REMOTE_COOKIE = 'multivac_remote';
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -65,18 +66,6 @@ function cookieCredential(request: IncomingMessage, cookieName: string): string 
 function hasRemoteCookie(request: IncomingMessage, cookieName: string): boolean {
   return (request.headers.cookie ?? '').split(';').some(entry => entry.trim().startsWith(`${cookieName}=`));
 }
-function localRequest(request: IncomingMessage, cookieName: string): boolean {
-  const address = request.socket.remoteAddress;
-  if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(address ?? '') || hasRemoteCookie(request, cookieName)) return false;
-  try {
-    if (!LOCAL_HOSTS.has(new URL(`http://${request.headers.host ?? ''}`).hostname)) return false;
-    if (request.headers.origin) {
-      const origin = new URL(request.headers.origin);
-      if (origin.protocol !== 'http:' || !LOCAL_HOSTS.has(origin.hostname)) return false;
-    }
-    return true;
-  } catch { return false; }
-}
 export function accessError(response: ServerResponse, status: number, code: string, message: string): void {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   response.end(JSON.stringify({ error: { code, message } }));
@@ -93,7 +82,8 @@ export class RemoteAccess {
   private readonly attempts = new Map<string, Attempt>();
   private globalAttempts: Attempt = { start: 0, count: 0 };
   constructor(config: RemoteAccessConfig, private readonly now: () => number = Date.now,
-    private readonly cookieName: string = REMOTE_COOKIE) {
+    private readonly cookieName: string = REMOTE_COOKIE,
+    private readonly localPolicy: LocalEntryPolicy = new LocalEntryPolicy()) {
     if (!/^multivac_remote(?:_[a-f0-9]{24})?$/u.test(cookieName)) throw new Error('实例登录 Cookie 名无效。');
     this.config = validateRemoteConfig(config);
   }
@@ -139,8 +129,12 @@ export class RemoteAccess {
     // Origin 的默认端口由 URL 规范化，Host 同样按当前协议规范化后比较。
     return url.host.toLowerCase() === new URL(`${url.protocol}//${host}`).host.toLowerCase();
   }
+  /** 终端等本机敏感入口要求 Origin；普通导航保留无 Origin 兼容。 */
+  allowsLocalEntry(request: IncomingMessage, requireOrigin = false): boolean {
+    return !hasRemoteCookie(request, this.cookieName) && this.localPolicy.allows(request, requireOrigin);
+  }
   identify(request: IncomingMessage): RequestAccess | null {
-    if (localRequest(request, this.cookieName)) return { kind: 'local', authenticated: true, loginKey: null };
+    if (this.allowsLocalEntry(request)) return { kind: 'local', authenticated: true, loginKey: null };
     if (!this.sameOrigin(request)) return null;
     const credential = cookieCredential(request, this.cookieName);
     const loginKey = credential ? key(credential) : null;

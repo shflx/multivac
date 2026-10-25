@@ -137,6 +137,7 @@ import { FileModelSettingsStore } from '../storage/file-model-settings-store.js'
 import { FileModelSelectionRecoveryRepository } from '../storage/file-model-selection-recovery-store.js';
 import { SqliteAssistantStore } from '../storage/sqlite-assistant-store.js';
 import { createMultivacHttpServer } from './server.js';
+import { LocalEntryPolicy, localEntries } from '../adapters/http/local-entry-policy.js';
 import { SessionFilesService } from '../application/session-files-service.js';
 import { MessageFileSources } from '../application/message-file-sources.js';
 import type { ModelSettingsCatalogFactory } from '../modules/model-settings/model-settings.js';
@@ -204,7 +205,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const instance = resolveRuntimeConfig(environment);
   const paths = resolveMultivacDataPaths(instance.dataDir);
   // 远程配置与凭据先于数据库和运行时初始化；未指定 token 时生成并持久化默认凭据。
-  const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment, () => loadOrCreateRemoteToken(paths.dataDir)), Date.now, instance.cookieName);
+  const remoteAccess = new RemoteAccess(remoteConfigFromEnvironment(environment, () => loadOrCreateRemoteToken(paths.dataDir)), Date.now, instance.cookieName,
+    new LocalEntryPolicy(localEntries(instance.mode, instance.port)));
   // 工作文件根目录与内部数据目录分根；两者相互包含时在这里明确报错，服务不启动。
   const workPaths = resolveMultivacWorkPaths(instance.workRoot, paths.dataDir, instance.mode === 'development');
   // 到期的临时目录移到废纸篓：默认系统废纸篓，测试与 E2E 经 MULTIVAC_TRASH_DIR 指向临时目录。
