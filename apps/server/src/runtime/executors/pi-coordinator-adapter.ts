@@ -170,7 +170,11 @@ const FOREIGN_HARNESS = { code: 'SESSION_BINDING_MISMATCH', message: '会话属�
 
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
   readonly harness = PI_HARNESS;
-  readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true, skills: true } as const;
+  readonly capabilities = {
+    turnExecution: true, imageInput: true, steering: true, toolStopProof: true, skills: true,
+    // 原生接口存在不代表应用能力已可用：查询端口未接入，压缩写盘失败需要先完成一致性核对。
+    contextSnapshot: false, nativeCompaction: false,
+  } as const;
   private taskMode: ((sessionId: string) => 'workspace' | 'native-isolated' | null) | undefined;
   private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
   private readonly bashProcesses: BashExecutionPort | undefined;
