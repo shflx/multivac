@@ -101,7 +101,7 @@ test('从工作区切换菜单新建托管项目：确认卡写明目录、类�
   await expect(card).toHaveAttribute('aria-modal', 'true');
   await expect(card.getByRole('heading', { name: '新建项目' })).toBeVisible();
   await expect(card).toContainText('确认后自动带一个同名工作区');
-  await expect(card).toContainText('这个目录内的修改将自动执行。');
+  await expect(card).toContainText('普通项目工作会话可直接读取、编辑和写入这个目录，无需重复授权。');
   await expect(card.getByLabel('项目名称')).toBeFocused();
   // 名称为空时不能确认；不填目录时是托管目录。
   await expect(card.getByRole('button', { name: '创建项目' })).toBeDisabled();
@@ -179,7 +179,7 @@ test('在设置 · 项目新建挂载项目：非法目录在卡上说明原因�
   await expect(error).toHaveCount(0);
   await expect(card.locator('.directory-rule strong')).toHaveText('挂载目录');
   await expect(card.locator('.directory-rule code')).toHaveText(code);
-  await expect(card.locator('.directory-rule small').last()).toHaveText('你已有的目录，目录内的修改自动执行，目录外的修改需要确认。');
+  await expect(card.locator('.directory-rule small').last()).toHaveText('你已有的目录，普通项目工作会话可直接读取、编辑和写入；项目范围外无其他授权的访问仍需确认。');
 
   // 确认时服务端再校验一次：目录在核对之后被移走，原因留在卡上，可以改正后重试。
   rmSync(code, { recursive: true });
@@ -226,7 +226,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   await switcherMenu(page).getByRole('button', { name: /^技术研究/ }).click();
   await openSwitcherFooter(page, '项目设置');
   await expect(detail(page).getByRole('heading', { name: '技术研究' })).toBeVisible();
-  await expect(detail(page)).toContainText('修改目录只影响之后新建的会话；已有会话继续使用创建时的工作目录。');
+  await expect(detail(page)).toContainText('普通项目工作会话可直接读取、编辑和写入当前已确认的主目录及附加目录；挂载、卸载和会话归属变化对后续文件调用生效。主目录用于新建会话的默认工作目录；调整主目录不会迁移已有会话的工作目录。');
 
   // 改名：Esc 放弃，Enter 保存；同名工作区随之改名。
   await detail(page).getByRole('button', { name: '改名' }).click();
@@ -250,7 +250,7 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   await mountInput.fill('/');
   await detail(page).getByRole('button', { name: '挂载' }).click();
   const mountCard = page.getByRole('dialog', { name: '挂载目录' });
-  await expect(mountCard).toContainText('这个目录内的修改将自动执行');
+  await expect(mountCard).toContainText('普通项目工作会话可直接读取、编辑和写入这个目录，无需重复授权');
   await mountCard.getByRole('button', { name: '挂载' }).click();
   await expect(mountCard.locator('.confirm-card-error')).toHaveText('不能挂载根目录：它包含整台电脑的文件，请选择具体的项目目录。');
   await mountCard.getByRole('button', { name: '取消' }).click();
@@ -277,7 +277,8 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   const unmountCard = page.getByRole('dialog', { name: '卸载目录' });
   await expect(unmountCard).toContainText(managed);
   await expect(unmountCard).toContainText('目录本身和其中的文件不会被删除');
-  await expect(unmountCard).toContainText('已有会话继续使用创建时的工作目录。');
+  await expect(unmountCard).toContainText('卸载仅移除项目挂载这一权限来源');
+  await expect(unmountCard).toContainText('已有会话工作目录和有效的独立授权仍按原规则生效');
   await unmountCard.getByRole('button', { name: '卸载' }).click();
   await expect(unmountCard).toHaveCount(0);
   await expect(items).toHaveCount(1);
@@ -352,8 +353,8 @@ test('设置 · 项目按原型排版：“新建项目…”在页头，列表 
   const [heading, link] = await Promise.all([detail(page).getByRole('heading', { name: 'Multivac 开发' }).boundingBox(), rename.boundingBox()]);
   expect(link!.x).toBeGreaterThan(heading!.x + heading!.width);
   expect(Math.abs(link!.y + link!.height / 2 - (heading!.y + heading!.height / 2))).toBeLessThan(4);
-  await expect(detail(page).locator('.project-title-note')).toHaveText('同名工作区随项目改名，项目中的会话在项目目录里工作。');
-  await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${basename(docs)}`);
+  await expect(detail(page).locator('.project-title-note')).toHaveText('同名工作区随项目改名，普通项目工作会话可访问当前已确认的全部项目目录。');
+  await expect(detail(page).locator('.project-working-directory')).toHaveText(`新会话默认工作目录：挂载目录 ${basename(docs)}`);
 
   // 目录、默认约束与权限：小节标题 11px；挂载输入框的占位文字按原型。权限只放已记住的授权（没有时一句说明）。
   await expect(detail(page).locator('.section-title h3')).toHaveText(['目录', '默认约束', 'MCP 服务与工具', '权限']);
@@ -516,7 +517,7 @@ test('设置 · 项目：默认约束“还原”到上次保存的值；空路�
   await expect(directoriesMark).toHaveCount(0, { timeout: 4_000 });
   await directories(page).getByRole('listitem').nth(1).getByRole('button', { name: '设为主目录' }).click();
   await expect(directoriesMark).toHaveText('已保存');
-  await expect(detail(page).locator('.project-working-directory')).toHaveText(`工作目录：挂载目录 ${basename(docs)}`);
+  await expect(detail(page).locator('.project-working-directory')).toHaveText(`新会话默认工作目录：挂载目录 ${basename(docs)}`);
 });
 
 test('设置 · 项目按自身可用宽度排版：侧栏打开把页面挤窄时不横向溢出', async ({ page, request }) => {

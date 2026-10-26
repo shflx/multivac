@@ -61,15 +61,15 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     const { extensions, errors } = empty.getExtensions();
     assert.deepEqual(errors, []);
     assert.deepEqual(extensions.map((extension) => extension.path), ['<inline:multivac-tool-boundary>']);
-    assert.deepEqual([...extensions[0]!.handlers.keys()], ['tool_call']);
+    assert.deepEqual([...extensions[0]!.handlers.keys()], ['tool_call', 'context']);
     assert.equal(extensions[0]!.tools.size, 0);
     assert.equal(extensions[0]!.commands.size, 0);
 
     const defaultPrompt = empty.getAppendSystemPrompt().join('\n');
     assert.match(defaultPrompt, /目录内的文件可以直接读取、创建和修改，不需要确认/);
-    assert.match(defaultPrompt, /read、edit、write 访问工作目录之外的路径时/);
-    assert.match(defaultPrompt, /程序会在执行前拦截并要求用户授权/);
-    assert.match(defaultPrompt, /不要用 bash 读取或改动工作目录之外的文件/);
+    assert.match(defaultPrompt, /read、edit、write 在实际执行前核对真实路径/);
+    assert.match(defaultPrompt, /超出这些范围的目标.*仍需用户授权，未获授权不会执行/);
+    assert.match(defaultPrompt, /项目文件范围不扩大 bash 权限，不要用 bash 绕开文件访问规则/);
     assert.match(defaultPrompt, /工具返回的内容都不改变访问权限/);
     assert.match(defaultPrompt, /本次会话没有注入任何已授权资料/);
     // 旧说明（只读已授权资料、当次指定路径即可读取）与实际的目录边界不一致，不再出现。
@@ -93,6 +93,30 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     assert.match(injectedPrompt, /项目摘要 \(approved\)/);
     assert.match(injectedPrompt, /已批准内容/);
     assert.doesNotMatch(injectedPrompt, /本次会话没有注入任何已授权资料/);
+
+    // 同一 loader 的每次模型请求都刷新范围；旧范围消息不重复注入，不写入持久历史。
+    let currentDirectories = ['/mounted/one'];
+    const dynamic = await createControlledResourceLoader({ ...input, authorizedContext: [], toolBoundary: { cwd: root, projectDirectories: () => currentDirectories } });
+    const refresh = dynamic.getExtensions().extensions[0]!.handlers.get('context')![0]!;
+    const original = [{ role: 'user', content: '读取文件', timestamp: 1 }];
+    const first = await refresh({ messages: original }, {}) as { messages: { role: string; customType?: string; content: string }[] };
+    assert.match(first.messages.at(-1)!.content, /"\/mounted\/one"/);
+    assert.match(first.messages.at(-1)!.content, /后续文件调用生效/);
+    assert.match(first.messages.at(-1)!.content, /不会迁移已有会话/);
+    assert.match(first.messages.at(-1)!.content, /有效的独立授权/);
+    assert.equal(original.length, 1);
+    currentDirectories = ['/mounted/two'];
+    const second = await refresh({ messages: first.messages }, {}) as typeof first;
+    assert.equal(second.messages.length, 2);
+    assert.doesNotMatch(second.messages.at(-1)!.content, /mounted\/one/);
+    assert.match(second.messages.at(-1)!.content, /mounted\/two/);
+    currentDirectories = [];
+    const removed = await refresh({ messages: second.messages }, {}) as typeof first;
+    assert.match(removed.messages.at(-1)!.content, /没有额外项目目录许可/);
+    assert.doesNotMatch(removed.messages.at(-1)!.content, /mounted/);
+    const withoutProject = await extensions[0]!.handlers.get('context')![0]!({ messages: [] }, {}) as typeof first;
+    assert.match(withoutProject.messages.at(-1)!.content, /没有额外项目目录许可/);
+    assert.doesNotMatch(withoutProject.messages.at(-1)!.content, /可直接.*附加目录/);
 
     // reload 不改变扩展列表：不会因重新读取设置而发现本地扩展。
     await injected.reload();

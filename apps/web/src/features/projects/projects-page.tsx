@@ -62,7 +62,7 @@ interface ProjectsPageProps {
  *
  * 项目来自应用内共享的工作区列表（项目工作区带着项目），修改后以接口返回的工作区写回，
  * 工作区切换菜单、新建会话对话框与归档页随即看到新的名称与目录。
- * 修改目录只影响之后新建的会话，已有会话的工作目录以会话记录为准。
+ * 当前目录影响普通项目会话后续文件调用；主目录调整只改变新会话的默认 cwd。
  */
 export function ProjectsPage({ active, request = null, onSelectionChange }: ProjectsPageProps) {
   const { workspaces, ensureLoaded } = useWorkspaces();
@@ -323,7 +323,7 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
     const path = mountPath.trim();
     const mounted = await confirm({
       title: '挂载目录',
-      description: `挂载到项目「${project.name}」，这个目录内的修改将自动执行。`,
+      description: `挂载到项目「${project.name}」，普通项目工作会话可直接读取、编辑和写入这个目录，无需重复授权。`,
       details: [<>{PROJECT_DIRECTORY_KINDS.mounted.label} <code>{path}</code></>, ...MOUNT_DIRECTORY_NOTES],
       icon: FolderPlus,
       confirmLabel: '挂载',
@@ -341,7 +341,7 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
     setDirectoryError('');
     const unmounted = await confirm({
       title: '卸载目录',
-      description: `从项目「${project.name}」中卸载，之后新建的会话不再使用这个目录。`,
+      description: `从项目「${project.name}」中卸载，后续文件调用不再凭这条项目挂载记录放行。`,
       details: [<code key="path">{path}</code>, ...unmountDirectoryNotes(primary)],
       icon: FolderMinus,
       confirmLabel: '卸载',
@@ -425,10 +425,10 @@ function ProjectDetail({ project, active }: { project: Project; active: boolean 
         )}
         {renameError && <p id={renameErrorId} className="form-error" role="alert">{renameError}</p>}
         {/* 原页头说明中“项目中的会话在项目目录里工作”放在这里，与工作目录一起交代。 */}
-        <p className="project-title-note">同名工作区随项目改名，项目中的会话在项目目录里工作。</p>
+        <p className="project-title-note">同名工作区随项目改名，普通项目工作会话可访问当前已确认的全部项目目录。</p>
         <p className="project-working-directory">
           {/* 完整路径只在下方目录卡片中给出，这里用目录名指明主目录。 */}
-          工作目录：{PROJECT_DIRECTORY_KINDS[primaryDirectory.kind].label} <code title={primaryDirectory.path}>{directoryName(primaryDirectory.path)}</code>
+          新会话默认工作目录：{PROJECT_DIRECTORY_KINDS[primaryDirectory.kind].label} <code title={primaryDirectory.path}>{directoryName(primaryDirectory.path)}</code>
         </p>
       </div>
 

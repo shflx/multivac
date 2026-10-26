@@ -70,7 +70,7 @@ export interface CreateCoordinatorSessionInput {
   config: CoordinatorRuntimeConfig;
   /**
    * 会话工作目录（类型 + 绝对路径），取自 Multivac 会话记录；工具、设置与会话运行时都以它的路径为 cwd，
-   * 文件工具的目录边界也以它为准。每次创建或恢复都由调用方传入，适配器不保存共享 cwd，
+   * 相对文件路径也以它为准；普通项目文件范围另按当前服务端记录判定。每次创建或恢复都由调用方传入，适配器不保存共享 cwd，
    * 也不使用服务进程的启动目录。
    */
   workingDirectory: WorkingDirectory;
@@ -107,7 +107,7 @@ export interface ContinueCoordinatorSessionInput {
 export type CoordinatorPathToolName = 'read' | 'edit' | 'write';
 
 /**
- * 文件工具访问会话工作目录之外的路径时发出的授权请求。工作目录内的访问不产生请求；
+ * 文件工具超出 cwd 和当前项目文件范围时发出的授权请求，有效独立授权仍由授权服务判定；
  * bash 以工作目录为 cwd 执行，不做命令分级，也不产生请求。
  */
 export interface CoordinatorToolAuthorizationRequest {

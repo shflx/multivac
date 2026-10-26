@@ -1,5 +1,8 @@
 import {
   CREATE_PROJECT_PROPOSAL_KIND,
+  PROJECT_FILE_SCOPE_NOTE,
+  PROJECT_CWD_CHANGE_NOTE,
+  PROJECT_UNMOUNT_NOTE,
   CreateProjectProposalPayloadSchema,
   INTERNAL_TOOL_RECEIPT_DETAIL_MAX_LENGTH,
   INTERNAL_TOOL_RECEIPT_HEADLINE_MAX_LENGTH,
@@ -68,7 +71,7 @@ const PROJECT_DIRECTORY_LABELS: Readonly<Record<ProjectDirectoryKind, string>> =
 };
 
 /** 修改目录的影响（与设置 · 项目同一句）。 */
-const DIRECTORY_CHANGE_NOTE = '修改目录只影响之后新建的会话；已有会话继续使用创建时的工作目录。';
+const DIRECTORY_CHANGE_NOTE = `${PROJECT_FILE_SCOPE_NOTE}${PROJECT_CWD_CHANGE_NOTE}`;
 
 const RUNNING_REASON = '会话正在运行（或在等待授权），请先停止这一轮，再归入项目。';
 
@@ -222,7 +225,7 @@ export function createProjectKind(dependencies: ProjectProposalDependencies): Pr
         refs: [projectRef(project), workspaceRef(project)],
         receipt: {
           headline: receiptHeadline(`已创建项目「${project.name}」`),
-          detail: receiptDetail(`同名工作区已就绪；目录：${directoryText(primary)}，目录内的修改将自动执行`),
+          detail: receiptDetail(`同名工作区已就绪；目录：${directoryText(primary)}，普通项目工作会话可直接读取、编辑和写入`),
           actions: [
             { kind: 'open-workspace', workspaceId: project.projectId },
             { kind: 'open-project', projectId: project.projectId },
@@ -284,7 +287,7 @@ export function mountDirectoryKind(dependencies: ProjectProposalDependencies): P
         refs: [projectRef(project)],
         receipt: {
           headline: receiptHeadline(`已把目录挂载到「${project.name}」`),
-          detail: receiptDetail(`${mounted.path}；目录内的修改将自动执行。${DIRECTORY_CHANGE_NOTE}`),
+          detail: receiptDetail(`${mounted.path}；${DIRECTORY_CHANGE_NOTE}`),
           actions: [{ kind: 'open-project', projectId: project.projectId }],
         },
       };
@@ -350,7 +353,8 @@ export function unmountDirectoryKind(dependencies: ProjectProposalDependencies):
           detail: receiptDetail([
             `${preview.directory.path}；目录本身和其中的文件没有删除，之后可以重新挂载`,
             ...(preview.primary ? [`主目录改为 ${project.directories[0]!.path}`] : []),
-            '已有会话继续使用创建时的工作目录',
+            PROJECT_UNMOUNT_NOTE,
+            PROJECT_CWD_CHANGE_NOTE,
           ].join('；')),
           actions: [{ kind: 'open-project', projectId: project.projectId }],
         },
