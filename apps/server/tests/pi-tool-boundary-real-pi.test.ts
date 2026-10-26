@@ -175,7 +175,7 @@ test('真实 Pi：越界的 read / edit / write（含 .. 与符号链接绕出�
     assert.equal(requests[0]!.signal, requests[1]!.signal);
     assert.deepEqual(requests.map(({ request, signal }) => ({
       ...request, aborted: signal.aborted, toolCallId: /^call-\d+-\d$/u.test(request.toolCallId),
-    })), [
+    })).sort((a, b) => a.toolName.localeCompare(b.toolName)), [
       {
         assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, toolName: 'read', toolCallId: true,
         requestedPath: join(outside, 'secret.txt'), targetPath: join(outside, 'secret.txt'),

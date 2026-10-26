@@ -31,9 +31,10 @@ test('创建与恢复共用 factory 的 bash 覆盖保留工具集合，阅读�
   try {
     await factory.create({ cwd, agentDir, sessionDir: join(root, 'sessions'), config, assistantSessionId: 'work-session', bashProcesses });
     assert.deepEqual(captured[0]!.tools, ['read', 'bash', 'edit', 'write']);
-    assert.deepEqual(captured[0]!.customTools?.map(tool => tool.name), ['bash']);
-    const parameters = captured[0]!.customTools![0]!.parameters as ReturnType<typeof Type.Object>;
-    assert.ok(parameters.properties.mode); assert.match(captured[0]!.customTools![0]!.description, /background/);
+    assert.deepEqual(captured[0]!.customTools?.map(tool => tool.name), ['read', 'edit', 'write', 'bash']);
+    const bash = captured[0]!.customTools!.find(tool => tool.name === 'bash')!;
+    const parameters = bash.parameters as ReturnType<typeof Type.Object>;
+    assert.ok(parameters.properties.mode); assert.match(bash.description, /background/);
     await factory.create({ cwd, agentDir, sessionDir: join(root, 'reading'), config: { ...config, readingOnly: true }, assistantSessionId: 'reading-session', bashProcesses });
     assert.deepEqual(captured[1]!.tools, []); assert.equal(captured[1]!.customTools, undefined);
   } finally { await rm(root, { recursive: true, force: true }); }

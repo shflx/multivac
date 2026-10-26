@@ -153,7 +153,7 @@ test('“把目录作为项目”：对话中的卡与“新建项目…”内�
   await proposed.getByRole('button', { name: '创建项目' }).click();
   await expect(proposed).toHaveAttribute('data-status', 'executed');
   await expect(proposed).toHaveAccessibleName('已创建项目「notes」');
-  await expect(proposed).toContainText(`同名工作区已就绪；目录：挂载目录 ${directory}，目录内的修改将自动执行`);
+  await expect(proposed).toContainText(`同名工作区已就绪；目录：挂载目录 ${directory}，普通项目工作会话可直接读取、编辑和写入`);
   const [project] = await listProjects(request);
   expect(project!.directories).toEqual([{ kind: 'mounted', path: directory }]);
   await expect(proposed.getByRole('button', { name: '打开「notes」的项目设置' })).toBeVisible();
