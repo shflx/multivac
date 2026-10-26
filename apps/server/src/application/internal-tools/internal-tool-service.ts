@@ -79,7 +79,7 @@ export interface InternalToolServices {
     | 'create' | 'rename' | 'previewArchive' | 'restore'
   > & { archive(...args: Parameters<WorkspaceSessionService['archive']>): ReturnType<WorkspaceSessionService['archive']> | Promise<ReturnType<WorkspaceSessionService['archive']>> };
   /** 只读读取工作会话的可见消息（不打开会话、不建立运行时）。 */
-  transcripts: Pick<SessionTranscriptReader, 'readMessages'>;
+  transcripts: Pick<SessionTranscriptReader, 'readMessages'> & Partial<Pick<SessionTranscriptReader, 'readSnapshot'>>;
   /** 切换发起窗口的界面（只推给这个窗口的导航指令）。 */
   windows: WindowNavigator;
 }

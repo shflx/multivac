@@ -342,6 +342,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     return ok({
       runtimeSessionId: active.session.sessionId,
       leafEntryId: branch.at(-1)?.id ?? null,
+      branchEntryIds: branch.map(entry => entry.id),
       messages: mapPiActiveBranch(active.session.sessionId, branch, assistantSessionId),
     });
   }
@@ -361,6 +362,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       return ok({
         runtimeSessionId: identity.runtimeSessionId,
         leafEntryId: branch.at(-1)?.id ?? null,
+        branchEntryIds: branch.map(entry => entry.id),
         messages: mapPiActiveBranch(identity.runtimeSessionId, branch),
       });
     } catch {

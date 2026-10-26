@@ -1,3 +1,4 @@
+import { readSessionHistoryTool, readSessionMessageTool } from './session-transcript-tools.js';
 import { MCP_MANAGEMENT_TOOLS } from './mcp-management-tools.js';
 import { MCP_EXECUTION_TOOLS } from './mcp-tools.js';
 import { NOTE_TOOLS } from './note-tools.js';
@@ -61,7 +62,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   listSessionsTool,
   getSessionTool,
   getCurrentViewTool,
-  readSessionRecentTool,
+  readSessionRecentTool, readSessionHistoryTool, readSessionMessageTool,
   createSessionTool,
   renameSessionTool,
   archiveSessionTool,

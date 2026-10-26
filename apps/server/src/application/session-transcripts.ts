@@ -1,5 +1,6 @@
 import type { AssistantMessageView, CoordinatorSessionBinding } from '@multivac/contracts';
 import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
+import type { CoordinatorHistorySnapshot } from '../modules/sessions/coordinator-adapter.js';
 import type { CoordinatorAdapter } from '../modules/sessions/coordinator-adapter.js';
 
 export class SessionTranscriptUnavailableError extends Error {
@@ -26,20 +27,24 @@ export class SessionTranscriptReader {
   constructor(private readonly options: SessionTranscriptReaderOptions) {}
 
   readMessages(sessionId: string): AssistantMessageView[] {
+    return this.readSnapshot(sessionId).messages;
+  }
+
+  readSnapshot(sessionId: string): CoordinatorHistorySnapshot {
     const record = this.options.registry.get(sessionId);
     if (!record || record.kind !== 'work') throw new SessionTranscriptUnavailableError('只能读取工作会话的内容。');
 
     const live = this.options.adapter.readActiveBranch(sessionId);
-    if (live.ok) return live.value.messages;
+    if (live.ok) return live.value;
 
     // 还没有执行器绑定：会话从未打开过，也就还没有消息。
     const binding = this.options.bindings.get(sessionId);
-    if (!binding) return [];
+    if (!binding) return { runtimeSessionId: '', leafEntryId: null, messages: [], branchEntryIds: [] };
     const persisted = this.options.adapter.readPersistedHistory(
       { harness: binding.harness, runtimeSessionId: binding.runtimeSessionId, runtimeSessionRef: binding.runtimeSessionRef },
       record.workingDirectory?.path ?? binding.runtimeSessionRef,
     );
     if (!persisted.ok) throw new SessionTranscriptUnavailableError('会话的历史暂时无法读取。');
-    return persisted.value.messages;
+    return persisted.value;
   }
 }

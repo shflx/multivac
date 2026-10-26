@@ -133,7 +133,7 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
     const listed = await prompt(GLOBAL_ASSISTANT_SESSION_ID, '有哪些工作区',
       { toolCalls: [{ name: 'list_workspaces', arguments: {} }] });
     assert.deepEqual(listed.requests[0]!.tools.sort(), [
-      'archive_session', 'bash', 'confirm_human_task', 'control_task', 'create_session', 'create_task', 'create_task_group', 'delete_task', 'edit', 'get_book', 'get_current_view', 'get_inbox_request', 'get_session', 'get_task', 'get_task_request', 'list_books', 'list_inbox', 'list_managed_processes', 'list_projects', 'list_runs', 'list_sessions', 'list_task_artifacts', 'list_task_groups', 'list_task_requests', 'list_tasks', 'list_workspaces', 'open_book', 'open_management_page', 'open_session', 'propose_create_agent', 'propose_create_project', 'propose_create_task', 'propose_git_publish', 'propose_mount_directory', 'propose_move_session_to_project', 'propose_set_primary_directory', 'propose_stop_managed_process', 'propose_unmount_directory', 'read', 'read_managed_process_log', 'read_session_recent', 'read_task_artifact', 'rename_project', 'rename_session', 'respond_inbox_request', 'respond_task_request', 'restore_session',
+      'archive_session', 'bash', 'confirm_human_task', 'control_task', 'create_session', 'create_task', 'create_task_group', 'delete_task', 'edit', 'get_book', 'get_current_view', 'get_inbox_request', 'get_session', 'get_task', 'get_task_request', 'list_books', 'list_inbox', 'list_managed_processes', 'list_projects', 'list_runs', 'list_sessions', 'list_task_artifacts', 'list_task_groups', 'list_task_requests', 'list_tasks', 'list_workspaces', 'open_book', 'open_management_page', 'open_session', 'propose_create_agent', 'propose_create_project', 'propose_create_task', 'propose_git_publish', 'propose_mount_directory', 'propose_move_session_to_project', 'propose_set_primary_directory', 'propose_stop_managed_process', 'propose_unmount_directory', 'read', 'read_managed_process_log', 'read_session_recent', 'read_session_history', 'read_session_message', 'read_task_artifact', 'rename_project', 'rename_session', 'respond_inbox_request', 'respond_task_request', 'restore_session',
       'set_parallel_count', 'set_view_mode', 'stop_managed_process', 'stop_session_processes', 'submit_task_artifact', 'switch_workspace', 'update_project_constraints', 'update_task', 'write',
       'list_skills', 'propose_skill', 'list_notes', 'read_note', 'create_note', 'update_note', 'get_note_operation',
       'query_mcp_management', 'propose_mcp_management', 'list_mcp_tools', 'call_mcp_tool',
@@ -318,9 +318,10 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
     assert.match(results[1]!, /符合条件的会话共 1 个.*\n- \[接口调研\]\(multivac:\/\/session\/work-a\)/u);
     assert.match(results[2]!, /- 工作目录：项目托管目录 /u);
     assert.match(results[2]!, /- 状态：已归档/u);
-    assert.match(results[3]!, /最近 2 条消息/u);
-    assert.match(results[3]!, /用户（[^）]+）：看看 notes\.txt 里写了什么/u);
-    assert.match(results[3]!, /助手（[^）]+）：已读完，接口调研进展顺利。/u);
+    const preview = JSON.parse(results[3]!);
+    assert.equal(preview.messages.length, 2);
+    assert.equal(preview.messages[0].body.text, '看看 notes.txt 里写了什么');
+    assert.equal(preview.messages[1].body.text, '已读完，接口调研进展顺利。');
     assert.doesNotMatch(results[3]!, /秘密思考|工具输出-机密内容/u);
     // 不在一轮的来源里：没有发起窗口的视图，如实说明。
     assert.match(results[4]!, /拿不到发起这条消息的窗口的当前视图/u);
@@ -334,7 +335,7 @@ test('真实 Pi：查询工具读到真实的项目与会话；read_session_rece
     assert.notEqual(sessions.get(work.sessionId).archivedAt, null);
     const read = ended.find((event) => event.toolName === 'read_session_recent')!;
     assert.deepEqual(read.result, {
-      summary: '读取「接口调研」最近 2 条', refs: [{ kind: 'session', sessionId: work.sessionId, label: '接口调研' }],
+      summary: '读取「接口调研」最近消息预览', refs: [{ kind: 'session', sessionId: work.sessionId, label: '接口调研' }],
     });
     // 公开的结束事件只有摘要与对象，不带会话正文。
     assert.equal(JSON.stringify(ended).includes('进展顺利'), false);

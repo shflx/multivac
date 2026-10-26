@@ -86,6 +86,8 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   get_session: { displayName: '查看会话', keyArgument: { argument: 'sessionId', action: '查看会话' } },
   get_current_view: { displayName: '读取当前视图' },
   read_session_recent: { displayName: '读取会话内容', keyArgument: { argument: 'sessionId', action: '读取会话' } },
+  read_session_history: { displayName: '读取会话历史', keyArgument: { argument: 'sessionId', action: '读取会话历史' } },
+  read_session_message: { displayName: '续读会话消息', keyArgument: { argument: 'sessionId', action: '续读会话消息' } },
   create_session: { displayName: '新建会话', keyArgument: { argument: 'title', action: '新建会话' } },
   rename_session: { displayName: '改名会话', keyArgument: { argument: 'title', action: '会话改名为' } },
   archive_session: { displayName: '归档会话', keyArgument: { argument: 'sessionId', action: '归档会话' } },
@@ -180,7 +182,7 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
     label: '工作区与会话',
     purpose: '查询和整理工作区与会话，切换视图，打开管理页面。',
     tools: [
-      'list_workspaces', 'switch_workspace', 'list_sessions', 'get_session', 'get_current_view', 'read_session_recent',
+      'list_workspaces', 'switch_workspace', 'list_sessions', 'get_session', 'get_current_view', 'read_session_recent', 'read_session_history', 'read_session_message',
       'create_session', 'rename_session', 'archive_session', 'restore_session', 'open_session', 'set_view_mode',
       'open_management_page',
     ],

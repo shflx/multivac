@@ -145,6 +145,8 @@ export type CoordinatorToolAuthorizer = (
 ) => Promise<CoordinatorToolAuthorizationDecision>;
 
 export interface CoordinatorHistorySnapshot {
+  /** 仅供内部续读核对分支前缀，不向模型公开底层 entry 标识。 */
+  branchEntryIds?: readonly string[];
   runtimeSessionId: string;
   leafEntryId: string | null;
   messages: AssistantMessageView[];
