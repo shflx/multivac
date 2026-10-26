@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { UsageDays } from '@multivac/contracts';
 import { aggregateUsage, shiftUsageDate, usageCalendar, type AggregateUsageOptions } from '../src/modules/usage/aggregate-usage.js';
-import type { UsageRecord } from '../src/modules/usage/model-usage.js';
+import { measuredUsage, type UsageRecord } from '../src/modules/usage/model-usage.js';
 import { usageQuery } from '../src/adapters/http/usage-routes.js';
 
 const record = (requestId: string, startedAt: string, total = 60): UsageRecord => ({ requestId, startedAt,
@@ -99,6 +99,86 @@ test('未知项目独立于无项目，模型提供方不同不合并，Top5来�
     { ...record('b', '2026-10-13T13:00:00.000Z'), sessionId: 'same', projectId: 'two', projectName: '同名' },
   ], options(7));
   assert.match(renamedProjects.topSessions[0]!.description!, /多个项目归属/);
+});
+
+const unmeasured = (id: string, outcome: UsageRecord['outcome'], startedAt = '2026-10-13T12:00:00.000Z'): UsageRecord => ({
+  ...record(id, startedAt), sessionId: 'shared', outcome, tokens: null, missingReason: '历史保留的缺失原因',
+});
+
+for (const days of [7, 30, 90] as const) test(`${days}天失败、取消和所有pending只保留请求，不阻止日均及满足条件的环比`, () => {
+  const exempt = ['failed', 'cancelled', 'pending', 'pending'].map((outcome, index) => unmeasured(`exempt-${index}`, outcome as UsageRecord['outcome']));
+  const only = aggregateUsage(exempt, options(days));
+  assert.deepEqual(only.summary, { input: 0, cacheRead: 0, output: 0, total: 0, requests: 4, measuredRequests: 0, missingRequests: 0, cacheHitRate: null });
+  assert.equal(only.dailyAverage, 0);
+  assert.equal(only.delta, null); // 上期没有正数用量，仍不可比较。
+  assert.deepEqual(only.warnings, []);
+  for (const groups of Object.values(only.distributions)) {
+    assert.equal(groups[0]!.requests, 4);
+    assert.equal(groups[0]!.missingRequests, 0);
+    assert.equal(groups[0]!.share, null);
+  }
+  const previousAt = `${shiftUsageDate('2026-10-13', -days)}T12:00:00.000Z`;
+  const mixed = aggregateUsage([
+    ...exempt,
+    ...exempt.map(item => ({ ...item, requestId: `previous-${item.requestId}`, startedAt: previousAt })),
+    { ...record('measured', '2026-10-13T12:00:00.000Z'), sessionId: 'shared' },
+    record('previous-measured', previousAt, 120),
+  ], options(days));
+  assert.equal(mixed.summary.requests, 5);
+  assert.equal(mixed.summary.measuredRequests, 1);
+  assert.equal(mixed.summary.missingRequests, 0);
+  assert.equal(mixed.summary.total, 60);
+  assert.equal(mixed.previous.requests, 5);
+  assert.equal(mixed.previous.missingRequests, 0);
+  assert.equal(mixed.dailyAverage, 60 / days);
+  assert.equal(mixed.delta, -0.5);
+  assert.deepEqual(mixed.warnings, []);
+  for (const totals of [mixed.daily.at(-1)!, ...Object.values(mixed.distributions).flat(), mixed.topSessions[0]!]) {
+    for (const field of ['input', 'cacheRead', 'output', 'total', 'requests', 'measuredRequests', 'missingRequests', 'cacheHitRate'] as const) {
+      assert.equal(totals[field], mixed.summary[field]);
+    }
+  }
+  const unreliable = aggregateUsage(exempt, options(days, { collectionReliable: false, warnings: ['采集错误'] }));
+  assert.equal(unreliable.dailyAverage, null);
+  assert.equal(unreliable.delta, null);
+  assert.deepEqual(unreliable.warnings, ['采集错误']);
+  assert.equal(aggregateUsage([record('previous', previousAt), ...exempt], options(days, { collectionStartedAt: previousAt })).delta, null);
+});
+
+test('终态用量有效性与结果组合：失败取消正数照常累计，仅成功无效用量计缺失', () => {
+  const good = { input: 10, cacheRead: 20, cacheWrite: 30, output: 40, totalTokens: 100 };
+  const zero = { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, totalTokens: 0 };
+  for (const [stopReason, outcome] of [['stop', 'succeeded'], ['error', 'failed'], ['aborted', 'cancelled']] as const) {
+    for (const usage of [undefined, zero, { ...good, totalTokens: 101 }, good]) {
+      const measured = measuredUsage({ role: 'assistant', stopReason, usage });
+      assert.equal(measured.outcome, outcome);
+      const item = { ...record('result', '2026-10-13T12:00:00.000Z'), ...measured };
+      const result = aggregateUsage([item], options(7));
+      const valid = usage === good;
+      const missing = !valid && outcome === 'succeeded';
+      assert.equal(result.summary.requests, 1);
+      assert.equal(result.summary.measuredRequests, valid ? 1 : 0);
+      assert.equal(result.summary.missingRequests, missing ? 1 : 0);
+      assert.equal(result.summary.total, valid ? 100 : 0);
+      assert.equal(result.dailyAverage, missing ? null : (valid ? 100 : 0) / 7);
+      assert.equal(result.warnings.length, missing ? 1 : 0);
+    }
+  }
+  const mixed = aggregateUsage([
+    { ...record('valid', '2026-10-13T12:00:00.000Z'), sessionId: 'shared' },
+    unmeasured('success-missing', 'succeeded'), unmeasured('failed', 'failed'), unmeasured('cancelled', 'cancelled'), unmeasured('pending', 'pending'),
+  ], options(7));
+  assert.equal(mixed.summary.requests, 5);
+  assert.equal(mixed.summary.total, 60);
+  assert.equal(mixed.summary.missingRequests, 1);
+  assert.equal(mixed.dailyAverage, null);
+  assert.equal(mixed.delta, null);
+  assert.deepEqual(mixed.warnings, ['有 1 次请求未返回可确认的用量。']);
+  for (const totals of [mixed.daily.at(-1)!, ...Object.values(mixed.distributions).flat(), mixed.topSessions[0]!]) {
+    assert.equal(totals.requests, 5);
+    assert.equal(totals.total, 60);
+    assert.equal(totals.missingRequests, 1);
+  }
 });
 
 test('查询默认30天，只允许7/30/90和IANA时区，拒绝项目筛选与重复参数', () => {

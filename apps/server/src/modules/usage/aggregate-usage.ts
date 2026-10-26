@@ -5,7 +5,12 @@ const empty = (): UsageTotals => ({ input: 0, cacheRead: 0, output: 0, total: 0,
 const sourceLabels = { multivac: 'Multivac 协调', session: '会话', task: '任务执行', unknown: '未知来源' };
 const add = (sum: UsageTotals, record: UsageRecord) => {
   sum.requests++;
-  if (!record.tokens) { sum.missingRequests++; return; }
+  // 请求数包含失败、取消和待返回；只有成功结束却没有有效用量才计缺失。
+  // 在查询时判断，已有账本（包括重启遗留的 pending）与新调用使用同一口径。
+  if (!record.tokens) {
+    if (record.outcome === 'succeeded') sum.missingRequests++;
+    return;
+  }
   sum.measuredRequests++;
   for (const field of ['input', 'cacheRead', 'output', 'total'] as const) {
     sum[field] += record.tokens[field];

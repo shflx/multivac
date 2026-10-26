@@ -34,7 +34,7 @@ export interface ModelUsageRecorder {
 export const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
 const token = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
-/** 不根据费用或 total 差额猜字段；不符合三段分解的 SDK 记录保留为缺失。 */
+/** 不根据费用或 total 差额猜字段；无法确认的用量保留原因，由聚合层结合终态判定缺失。 */
 export function measuredUsage(message: unknown): Pick<UsageRecord, 'tokens' | 'raw' | 'missingReason' | 'outcome'> {
   const stop = isObject(message) ? message.stopReason : undefined;
   const outcome = stop === 'aborted' ? 'cancelled' : stop === 'error' || !isObject(message) || message.role !== 'assistant' ? 'failed' : 'succeeded';
@@ -51,6 +51,6 @@ export function measuredUsage(message: unknown): Pick<UsageRecord, 'tokens' | 'r
   if (reasoning !== undefined && (!token(reasoning) || reasoning > output)) return missing('推理 token 与输出包含关系无法确认');
   const raw = { input, output, cacheRead, cacheWrite, totalTokens, reasoning: token(reasoning) ? reasoning : null };
   // SDK 默认占位与提供方真的报告零无法仅凭最终对象区分；不把成功状态当成 usage 存在性的证明。
-  if (totalTokens === 0) return { outcome, tokens: null, raw, missingReason: '全零 usage 无法确认是提供方实际用量，按缺失处理' };
+  if (totalTokens === 0) return { outcome, tokens: null, raw, missingReason: '全零 usage 无法确认是提供方实际用量' };
   return { outcome, tokens: { input: input + cacheWrite, cacheRead, output, total: totalTokens }, raw, missingReason: null };
 }

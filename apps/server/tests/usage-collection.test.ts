@@ -9,6 +9,7 @@ import { UsageStatisticsSchema } from '@multivac/contracts';
 import { SqliteUsageRepository } from '../src/storage/sqlite-usage-repository.js';
 import { ModelUsageService } from '../src/application/model-usage-service.js';
 import { UsageStatisticsService } from '../src/application/usage-statistics-service.js';
+import { measuredUsage } from '../src/modules/usage/model-usage.js';
 
 const identity = (sessionId: string) => ({ sessionId, sessionTitle: '新会话', source: 'session' as const, projectId: null, projectKnown: true, projectName: null });
 const response = () => ({ role: 'assistant', stopReason: 'stop', usage: { input: 10, cacheRead: 20, cacheWrite: 30, output: 40, totalTokens: 100 } });
@@ -51,13 +52,36 @@ test('新账本和首次采集时间在重开后保留，不在重启时重新�
   try {
     const usage = new ModelUsageService(new SqliteUsageRepository(db), identity, () => '2026-10-12T08:00:00.000Z');
     usage.begin('s', 'pi', { provider: 'p', id: 'm' })(response());
+    usage.begin('failed', 'pi', { provider: 'p', id: 'm' })(undefined, new Error('request failed'));
+    usage.begin('cancelled', 'pi', { provider: 'p', id: 'm' })(undefined, { name: 'AbortError' });
+    usage.begin('pending', 'pi', { provider: 'p', id: 'm' });
+    const pending = usage.repository.records().find(item => item.outcome === 'pending')!;
     db.close(); db = new DatabaseSync(path);
     const restarted = new ModelUsageService(new SqliteUsageRepository(db), identity, () => '2026-10-13T08:00:00.000Z');
     assert.equal(restarted.repository.collectionStartedAt(), '2026-10-12T08:00:00.000Z');
-    const result = new UsageStatisticsService(restarted, () => undefined, () => '2026-10-13T12:00:00.000Z').query(30, 'UTC');
+    const statistics = new UsageStatisticsService(restarted, () => undefined, () => '2026-10-13T12:00:00.000Z');
+    const result = statistics.query(30, 'UTC');
     assert.equal(result.statisticsDays, 2);
+    assert.equal(result.summary.requests, 4);
+    assert.equal(result.summary.measuredRequests, 1);
+    assert.equal(result.summary.missingRequests, 0);
     assert.equal(result.summary.total, 100);
     assert.equal(result.dailyAverage, 50);
+    assert.deepEqual(result.warnings, []);
+    assert.equal(Check(UsageStatisticsSchema, result), true);
+    // 不清库、不结算历史 pending；真实终态补入同一请求后查询立即生效，重放不重计。
+    const completed = { ...pending, ...measuredUsage(response()) };
+    restarted.repository.put(completed);
+    restarted.repository.put(completed);
+    restarted.repository.put(pending);
+    const refreshed = statistics.query(30, 'UTC');
+    assert.equal(refreshed.summary.requests, 4);
+    assert.equal(refreshed.summary.measuredRequests, 2);
+    assert.equal(refreshed.summary.missingRequests, 0);
+    assert.equal(refreshed.summary.total, 200);
+    assert.equal(refreshed.dailyAverage, 100);
+    assert.deepEqual(refreshed.warnings, []);
+    assert.equal(Check(UsageStatisticsSchema, refreshed), true);
   } finally { db.close(); await rm(root, { recursive: true, force: true }); }
 });
 

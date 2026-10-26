@@ -13,8 +13,11 @@ export interface UsageTokens {
   total: number;
 }
 export interface UsageTotals extends UsageTokens {
+  /** 所有已观测调用，包括未计入测量或缺失的失败、取消及待返回调用。 */
   requests: number;
+  /** 有可信有效用量的调用数，包含返回正数用量的失败或取消调用。 */
   measuredRequests: number;
+  /** 成功结束但没有有效用量的调用数；失败、取消及所有待返回调用不计缺失。 */
   missingRequests: number;
   cacheHitRate: number | null;
 }
