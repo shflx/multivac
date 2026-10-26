@@ -41,7 +41,16 @@ export function TaskInspectorContent({ task, detail, requests, project, agent, p
     <header className="task-inspector-heading"><h2>{task.title}</h2><div className="task-inspector-controls">
       <button ref={trigger} type="button" className="icon-button" aria-label="更多任务操作" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><MoreHorizontal /></button>
       {navigation}
-      {menuOpen && <div ref={menu} className="task-management-popover" role="group" aria-label="更多任务操作" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node) && event.relatedTarget !== trigger.current) setMenuOpen(false); }} onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); setMenuOpen(false); trigger.current?.focus(); } }} onClick={(event) => { if ((event.target as HTMLElement).closest('button:not(:disabled)')) { trigger.current?.focus(); setMenuOpen(false); } }}>{management}</div>}
+      {menuOpen && <div
+        ref={menu} className="task-management-popover" role="group" aria-label="更多任务操作"
+        onMouseDown={(event) => {
+          // Safari 点击按钮时可能先把焦点移出菜单；保留当前焦点，避免失焦关闭吞掉点击。
+          if (event.button === 0) event.preventDefault();
+        }}
+        onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node) && event.relatedTarget !== trigger.current) setMenuOpen(false); }}
+        onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); setMenuOpen(false); trigger.current?.focus(); } }}
+        onClick={(event) => { if ((event.target as HTMLElement).closest('button:not(:disabled)')) { trigger.current?.focus(); setMenuOpen(false); } }}
+      >{management}</div>}
     </div></header>
     <div className="task-inspector-meta"><span>{project}</span>{!task.humanOnly && <span className="task-inspector-agent" title="执行智能体"><Bot />{agent}</span>}<span className="task-inspector-priority">优先级<TaskFilter label="优先级" name="任务优先级" icon={CircleAlert} appearance="field" floating disabled={['done', 'cancelled'].includes(task.status)} value={task.priority} onChange={(id) => onPriority(id as Task['priority'])} options={[{ id: 'high', label: '高' }, { id: 'medium', label: '中' }, { id: 'low', label: '低' }]} /></span></div>
     <label className="task-create-acceptance"><input type="checkbox" checked={!!task.humanOnly} disabled={humanOnlyBusy || !['idle', 'paused', 'failed'].includes(task.status) || !detail || !!detail.runs?.length || pending.length > 0} onChange={(event) => onHumanOnly(event.target.checked)} /><span>我来处理</span></label>
