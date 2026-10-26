@@ -81,14 +81,15 @@ export function readingSessionPolicy(input: {
 
 /**
  * 任务执行会话：按任务选定的智能体装配运行时，开放工作会话与任务执行工具。
- * 只有本次运行的首条命令或运行中的追加可以推进；停止意图或停止确认后不再受理发送。
+ * 会话只由任务系统推进：仅受理本次运行自身的命令，不接受用户直接发送或运行中追加；
+ * 用户经人工请求回应，回应随恢复命令带回。停止意图或停止确认后不再受理发送。
+ * 前端据此把任务会话中的 user 消息呈现为任务系统命令。
  */
 export function taskSessionPolicy(input: {
   sessionId: string; run: TaskRun;
   runtime: { runtimeConfig: CoordinatorRuntimeConfig; resolveNewSessionRuntimeConfig: () => Promise<CoordinatorRuntimeConfig> };
   internalTools: InternalTools; prepareText: PrepareText;
   currentRun: () => { run: TaskRun | null; task: { status: string; sessionId: string | null; currentRunId: string | null } | null };
-  currentPromptCommandId: () => string | null;
 }): SessionPolicy {
   return {
     runtimeConfig: input.runtime.runtimeConfig,
@@ -98,9 +99,9 @@ export function taskSessionPolicy(input: {
     authorizeSend: (command: SendAssistantMessageCommand) => {
       const { run, task } = input.currentRun();
       if (!run || !task) return;
-      const initial = command.commandId === run.commandId && ['queued', 'running'].includes(task.status) && run.status === 'running';
-      const followUp = task.status === 'running' && input.currentPromptCommandId() === run.commandId;
-      if (task.sessionId !== input.sessionId || task.currentRunId !== run.runId || (!initial && !followUp) || run.stopIntent || run.stopConfirmed) {
+      if (command.commandId !== run.commandId) rejected('任务会话由任务系统执行，不接受直接发送；请在请求卡或 Inbox 中回应。');
+      const current = ['queued', 'running'].includes(task.status) && run.status === 'running';
+      if (task.sessionId !== input.sessionId || task.currentRunId !== run.runId || !current || run.stopIntent || run.stopConfirmed) {
         rejected('任务当前不允许推进，请先通过任务控制继续执行。');
       }
     },

@@ -695,7 +695,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         const current = store.taskRuns.bySession(record.sessionId);
         return { run: current, task: current ? tasks.get(current.taskId) : null };
       },
-      currentPromptCommandId: () => sessionRuntimes.get(record.sessionId)?.commands.currentPromptCommandId() ?? null,
     });
     return workSessionPolicy({
       runtimeConfig: workConfig, internalTools: workSessionTaskTools, prepareText: prepareSkillText(record.sessionId),

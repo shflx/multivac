@@ -37,20 +37,18 @@ test('书伴：只开放相邻页工具，原文来源必须属于当前书籍',
   assert.throws(() => policy.authorizeSend!(command({ contextRefs: [ref('other')] })), /当前书籍/);
 });
 
-test('任务会话：仅本次运行的首条命令或运行中追加可以推进，停止意图后拒绝', () => {
+test('任务会话：仅受理本次运行自身的命令，拒绝用户直接发送与运行中追加，停止意图后拒绝', () => {
   const run = { runId: 'run', commandId: 'task-run:run', status: 'running', stopIntent: null, stopConfirmed: false } as TaskRun;
   let current = { run, task: { status: 'running', sessionId: 'session', currentRunId: 'run' } };
-  let prompt: string | null = null;
   const policy = taskSessionPolicy({
     sessionId: 'session', run, runtime: { runtimeConfig, resolveNewSessionRuntimeConfig: async () => runtimeConfig },
-    internalTools: tools, prepareText, currentRun: () => current, currentPromptCommandId: () => prompt,
+    internalTools: tools, prepareText, currentRun: () => current,
   });
   assert.doesNotThrow(() => policy.authorizeSend!(command({ commandId: 'task-run:run' })));
-  assert.throws(() => policy.authorizeSend!(command({ commandId: 'other' })), /不允许推进/);
-  prompt = 'task-run:run';
-  assert.doesNotThrow(() => policy.authorizeSend!(command({ commandId: 'follow-up' })));
+  assert.throws(() => policy.authorizeSend!(command({ commandId: 'other' })), /不接受直接发送/);
+  assert.throws(() => policy.authorizeSend!(command({ commandId: 'follow-up', streamingBehavior: 'followUp' })), /不接受直接发送/);
   current = { ...current, run: { ...run, stopIntent: 'pause' } };
-  assert.throws(() => policy.authorizeSend!(command({ commandId: 'follow-up' })), /不允许推进/);
+  assert.throws(() => policy.authorizeSend!(command({ commandId: 'task-run:run' })), /不允许推进/);
 });
 
 test('工作会话：开放工作会话工具并可单轮调用智能体，不额外限制发送', () => {
