@@ -55,6 +55,42 @@ test('概览精简关系并保留排队等待，详情保留长目标与完整�
   await expect.poll(async () => (await (await request.get(`${fakeApiRoot}/api/tasks/${child.taskId}`)).json()).runs[0].stopConfirmed).toBe(true);
 });
 
+test('任务操作菜单支持鼠标取消，键盘离开和 Esc 关闭后不丢动作', async ({ page, request }, testInfo) => {
+  await resetE2eState(request);
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
+  await page.getByRole('button', { name: '新建任务', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '创建任务', exact: true });
+  const title = '核对菜单取消操作';
+  await dialog.getByLabel('任务名称', { exact: true }).fill(title);
+  await dialog.getByLabel('目标说明', { exact: true }).fill('核对资料。\n内部工具：request_task_input#menu-ask {"question":"采用哪份资料？"}');
+  await dialog.getByRole('button', { name: '创建任务', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: '任务详情', exact: true });
+  await inspector.getByRole('button', { name: `启动任务：${title}`, exact: true }).click();
+  await expect(inspector.getByLabel('澄清回应', { exact: true })).toBeVisible();
+  const more = inspector.getByRole('button', { name: '更多任务操作', exact: true });
+  const menu = inspector.getByRole('group', { name: '更多任务操作', exact: true });
+  const cancel = menu.getByRole('button', { name: `取消任务：${title}`, exact: true });
+  await more.press('Enter');
+  await expect(menu.getByRole('button', { name: '暂停任务', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(more).toBeFocused();
+  await expect(menu).toHaveCount(0);
+  await more.press('Enter');
+  await page.keyboard.press('Shift+Tab');
+  await expect(menu).toHaveCount(0);
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await more.click();
+  await page.screenshot({ path: testInfo.outputPath('task-menu-before-cancel.png'), animations: 'disabled' });
+  // Safari 需保留菜单内的焦点到 click，不能在按下鼠标时先卸载取消按钮。
+  await cancel.click();
+  await expect(inspector.getByRole('region', { name: '当前情况', exact: true })).toContainText('已取消');
+  await expect(inspector.getByLabel('澄清回应', { exact: true })).toHaveCount(0);
+  await expect(more).toBeFocused();
+  await expect(menu).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('task-menu-after-cancel.png'), animations: 'disabled' });
+});
+
 test('看板在已完成列内展开较早完成任务，吸底条提示剩余数量并加载下一页', async ({ page, request }, testInfo) => {
   await resetE2eState(request);
   const create = async (title: string, fields = {}) => (await (await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: crypto.randomUUID(), title, goal: title, ...fields } })).json()).task;
