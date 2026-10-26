@@ -1,0 +1,21 @@
+.terminal-view { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; height: 100%; background: var(--surface); color: var(--ink); }
+.terminal-view:fullscreen { background: var(--surface); color: var(--ink); padding: 12px; }
+.terminal-header, .terminal-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.terminal-header > svg, .terminal-header button svg { width: 17px; height: 17px; }
+.terminal-header form { display: flex; gap: 6px; }
+.terminal-header button, .terminal-toolbar button, .terminal-exit button { font: inherit; border: 1px solid var(--line-strong); border-radius: 5px; background: transparent; color: inherit; padding: 5px 8px; cursor: pointer; }
+.terminal-state { font-size: 12px; flex: 1; opacity: .8; }
+.terminal-boundary { padding: 8px 14px; background: var(--warn-soft); color: var(--ink); border-bottom: 1px solid var(--warn-line); font-size: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+.terminal-boundary span { opacity: .8; }
+.terminal-toolbar { font-size: 12px; }
+.terminal-toolbar code { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.terminal-canvas { flex: 1; min-height: 100px; min-width: 0; overflow: hidden; padding: 8px; }
+.terminal-canvas .xterm { height: 100%; }
+.terminal-notice, .terminal-error { margin: 0; padding: 6px 14px; font-size: 12px; }
+.terminal-error { color: var(--danger); }
+.terminal-exit { padding: 10px 14px; font-size: 12px; border-top: 1px solid var(--line-strong); }
+.terminal-exit p { margin: 5px 0; overflow-wrap: anywhere; }
+.rail-terminal-icon { flex: none; font-size: 11px; opacity: .8; }
+.rail-terminal-status { font-size: 10px; opacity: .75; }
+.rail-create-menu { position: relative; }
+.rail-create-menu > div { display: flex; flex-direction: column; padding: 4px 14px; gap: 4px; }

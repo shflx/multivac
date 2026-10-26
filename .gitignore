@@ -43,6 +43,7 @@ docs/design/*
 !docs/web-access.md
 !docs/file-browser-actions.md
 !docs/terminal-contracts.md
+!docs/terminals.md
 !docs/design/work-session-agent.md
 output/
 .multica/

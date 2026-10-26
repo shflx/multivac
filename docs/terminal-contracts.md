@@ -1,6 +1,6 @@
 # 项目终端数据与传输契约
 
-当前只交付数据层与校验，不代表 PTY、HTTP/WebSocket 路由或界面已可用。依赖版本、运行时及真实 CLI 验收必须由后续实现分别验证。
+PTY、HTTP/WebSocket 与独立界面已接入。使用方式、固定依赖和验证入口见 [项目终端](terminals.md)；本文件维护数据与传输契约。
 
 ## 对象与持久化
 
@@ -12,11 +12,11 @@
 
 退出记录分别保存 code、signal、reason、occurredAt 和对应 instanceId。只有 reason 为 `process-exit`、code 为 0 且 signal 为 null 才表示正常成功。用户结束、项目移除、目录移除、服务退出、Multivac 重启和启动失败分别保留原因。
 
-仓储更新按 expectedInstanceId 比较，旧实例回调无法改写重开后的记录。重开保持 terminalId、项目、原目录、原命令，创建新的 instanceId；创建时间保留，instanceStartedAt 更新，可保留上一实例的 lastExit 供查看。终态必须携带属于当前实例的退出记录。`endInterrupted()` 只把遗留活动元数据改为 exited / multivac-restarted，清除未读与通知，无 PID 操作；实际服务启动调用由运行时接入。
+仓储更新按 expectedInstanceId 比较，旧实例回调无法改写重开后的记录。重开保持 terminalId、项目、原目录、原命令，创建新的 instanceId；创建时间保留，instanceStartedAt 更新，可保留上一实例的 lastExit 供查看。终态必须携带属于当前实例的退出记录。`endInterrupted()` 只把遗留活动元数据改为 exited / multivac-restarted，清除未读与通知，无 PID 操作；服务启动由 TerminalService 调用。
 
 ## HTTP 操作约定
 
-以下为后续路由实现使用的约定，目前没有注册这些路由。所有请求必须先过本机守卫，再查终端或创建进程。操作错误使用项目现有 error 响应结构，缺对象为 404、无效参数为 400、实例/状态冲突为 409、本机访问拒绝为 403。
+已注册的路由采用以下约定。所有请求必须先过本机守卫，再查终端或创建进程。操作错误使用项目现有 error 响应结构，缺对象为 404、无效参数为 400、实例/状态冲突为 409、本机访问拒绝为 403。
 
 | 路径与方法 | 参数 | 返回与语义 |
 | --- | --- | --- |
@@ -31,7 +31,7 @@
 
 浏览器同源 GET 可能不发送 Origin，且脚本不能自行设置该请求头。因此终端列表、详情也使用 application/json 的 POST，通过浏览器自动携带 Origin；仍拒绝所有缺 Origin 的终端请求。
 
-本机入口同时核对实际回环对端、本机登录身份及完整 Host/Origin。生产登记当前 API 端口，开发另登记保留浏览器 Host 的 5173 代理入口；不放行其他 localhost 端口、远程登录身份、转发头伪装、手机标识或非 macOS arm64 服务端。普通会话导航仍允许无 Origin，终端守卫始终要求 Origin。HTTP 守卫已接入路由分发前；upgrade 的共同守卫已提供，实际 ws 接入后必须在 handleUpgrade 和终端读取之前调用。
+本机入口同时核对实际回环对端、本机登录身份及完整 Host/Origin。生产登记当前 API 端口，开发另登记保留浏览器 Host 的 5173 代理入口；不放行其他 localhost 端口、远程登录身份、转发头伪装、手机标识或非 macOS arm64 服务端。普通会话导航仍允许无 Origin，终端守卫始终要求 Origin。HTTP 守卫位于路由分发前；upgrade 在 handleUpgrade 和终端读取之前调用同一来源守卫。
 
 目录登记只定义启动 cwd，不提供文件访问隔离。输入尺寸必须为 10–240 列、4–100 行。HTTP 正文最大 32 KiB；自定义预设偏好请求也使用 32 KiB 上限，重复预设 ID 拒绝。
 

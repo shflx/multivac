@@ -1,3 +1,4 @@
+import { rememberedTerminalSelection } from '../features/terminals/terminal-selection.js';
 import { DailyQuote } from './daily-quote.js';
 import { InboxDrawer, InboxView } from '../features/tasks/inbox-view.js';
 import { InboxButton } from '../features/tasks/inbox-button.js';
@@ -98,8 +99,8 @@ export function App() {
   const [modelSettingsDirty, setModelSettingsDirty] = useState(false);
   const [modelSettingsBusy, setModelSettingsBusy] = useState(false);
   const [modelSettingsDiscardSignal, setModelSettingsDiscardSignal] = useState(0);
-  const [workSurface, setWorkSurface] = useState<WorkSurface>(() => rememberedTaskSessionId() ? 'workspace' : 'assistant');
-  const [workspaceOpened, setWorkspaceOpened] = useState(() => !!rememberedTaskSessionId());
+  const [workSurface, setWorkSurface] = useState<WorkSurface>(() => rememberedTaskSessionId() || rememberedTerminalSelection() ? 'workspace' : 'assistant');
+  const [workspaceOpened, setWorkspaceOpened] = useState(() => !!(rememberedTaskSessionId() || rememberedTerminalSelection()));
   const workspaceSurfaceRef = useRef<HTMLDivElement>(null);
   // Multivac 侧栏只有一个展开状态：工作区与管理共用，切换面板时侧栏不跳。每次打开页面都从收起开始。
   const [sidebarOpen, setSidebarOpen] = useState(false);
