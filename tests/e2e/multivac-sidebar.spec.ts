@@ -47,7 +47,7 @@ for (const width of [1200, 1440] as const) {
     const panel = await sidebar(page).boundingBox();
     const managementPage = page.getByRole('main', { name: '模型' });
     const pageBox = await managementPage.boundingBox();
-    expect(Math.round(panel!.width)).toBe(360);
+    expect(Math.round(panel!.width)).toBe(420);
     expect(panel!.x + panel!.width).toBeLessThanOrEqual(width + 1);
     // 挤压而不是遮挡：管理页止于侧栏左缘。
     expect(pageBox!.x + pageBox!.width).toBeLessThanOrEqual(panel!.x + 1);
@@ -309,7 +309,7 @@ test('并排与浮层：切换只记在本机，刷新后保持；并排挤压�
   const overlaid = (await managementPage(page).boundingBox())!;
   expect(overlaid.width).toBeCloseTo(unsqueezed.width, 0);
   expect(panel.x).toBeLessThan(overlaid.x + overlaid.width);
-  expect(Math.round(panel.width)).toBe(360);
+  expect(Math.round(panel.width)).toBe(420);
   await expect(draft).toHaveValue('切换浮层前写的草稿');
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth))
     .toBe(false);

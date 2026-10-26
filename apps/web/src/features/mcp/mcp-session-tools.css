@@ -25,6 +25,10 @@
 .mcp-session-trigger[aria-expanded='true'] { color: var(--ink); }
 .mcp-session-trigger:disabled { opacity: 0.5; cursor: default; }
 .mcp-session-trigger svg { flex-shrink: 0; width: 16px; height: 16px; }
+/* 窄输入卡片只保留图标、可用数量与待处理点；完整名称仍在按钮文本中，读屏与悬停提示不变。 */
+@container assistant-composer (max-width: 480px) {
+  .mcp-session-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 /* 有未连接或待分类的服务时，文字后跟一个小点提示，不打断输入。 */
 .mcp-session-attention { flex-shrink: 0; width: 6px; height: 6px; margin-left: 1px; border-radius: 50%; background: var(--warn); }
 

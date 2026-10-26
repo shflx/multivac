@@ -81,7 +81,7 @@ test('收起时不留窄轨，旧版记住的展开状态不再生效；叫出�
   await sidebar(page).evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
   const squeezed = (await page.locator('.workspace-shell').boundingBox())!;
   const panel = (await sidebar(page).boundingBox())!;
-  expect(Math.round(panel.width)).toBe(360);
+  expect(Math.round(panel.width)).toBe(420);
   expect(squeezed.x + squeezed.width).toBeLessThanOrEqual(panel.x + 1);
   expect(panel.x + panel.width).toBeLessThanOrEqual(content.x + content.width + 1);
 });

@@ -172,7 +172,7 @@ export function McpSessionTools({ sessionId, disabled }: { sessionId: string; di
   return <div className="mcp-session-tools">
     <button type="button" className="mcp-session-trigger" aria-expanded={open} aria-controls={menuId} disabled={disabled}
       title="本会话可用的 MCP 工具；是否调用由模型决定，每次调用单独许可" onClick={() => { setOpen(value => !value); if (!open) void load(); }}>
-      <Plug aria-hidden="true" /><span>MCP{readyTools ? ` · ${readyTools}` : ''}</span>{attention && <i className="mcp-session-attention" role="img" aria-label="有服务待处理" />}
+      <Plug aria-hidden="true" /><span><span className="mcp-session-label">MCP{readyTools ? ' · ' : ''}</span>{readyTools || ''}</span>{attention && <i className="mcp-session-attention" role="img" aria-label="有服务待处理" />}
     </button>
     {open && <div ref={menu} className="mcp-session-menu" id={menuId} role="dialog" aria-label="本会话的 MCP 工具"
       onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}>

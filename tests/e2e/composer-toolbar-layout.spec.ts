@@ -266,6 +266,28 @@ test.describe('输入工具栏按容器宽度分组', () => {
       }
       await attachEvidence(testInfo, 'shared', measurements);
     });
+
+    test(`真实侧栏：长模型名下工具栏保持一行，MCP=${state}`, async ({ page }, testInfo) => {
+      await mockMcp(page, state);
+      await useLongModelName(page);
+      await page.goto('/');
+      await expect(page.locator('.assistant-composer').first().getByLabel('Multivac 草稿')).toBeEditable();
+      await openPanel(page, 'workspace');
+      await page.keyboard.press('ControlOrMeta+J');
+      const sidebar = page.locator('.multivac-sidebar');
+      await expect(sidebar).toBeVisible();
+      const composer = sidebar.locator('.assistant-composer');
+      await expect(composer.locator('.model-selector-name')).toHaveText(longName);
+      await checkMcp(composer, state);
+      const value = await measure(composer);
+      await attachEvidence(testInfo, 'sidebar', [value]);
+      // 侧栏宽度按工具栏各项的最大宽度确定，模型名截断后左右两组仍在同一行。
+      expect(Math.abs(value.left.cy - value.right.cy)).toBeLessThan(1);
+      expect(value.left.right).toBeLessThan(value.right.left);
+      expect(value.right.right).toBeLessThanOrEqual(value.bar.right + 1);
+      expect(value.modelName.overflow).toBe('ellipsis');
+      expect(value.modelName.fullWidth).toBeGreaterThan(value.modelName.width);
+    });
   }
 });
 
