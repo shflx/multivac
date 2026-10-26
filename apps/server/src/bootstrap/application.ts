@@ -1,3 +1,4 @@
+import { projectFileScope } from '../application/project-file-scope.js';
 import { WebSettingsService } from '../application/web-settings-service.js';
 import { createNamedWebProvider, createWebProvider } from './web-provider.js';
 import { WebAccessService } from '../application/web-access-service.js';
@@ -311,6 +312,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const harnessContext: HarnessContext = {
     environment, instance, paths, bashProcesses, executionDiagnostics,
     authorizeToolCall: toolAuthorization.authorize,
+    projectFileScope: projectFileScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, isTaskSession: id => !!store.taskRuns.bySession(id) }),
     usageRecorder: { begin: (sessionId, runtimeSessionId, model) => usage.begin(sessionId, runtimeSessionId, model) },
   };
   const harnessName = selectedHarness(environment);

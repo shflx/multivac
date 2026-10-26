@@ -78,6 +78,7 @@ export const createFakeHarness: HarnessFactory<FakeHarnessRuntime> = (context) =
     sessionPathRoot: context.paths.assistantSessionDir,
     promptDelayMs: Number(context.environment.MULTIVAC_FAKE_PROMPT_DELAY_MS ?? 180),
     authorizeToolCall: context.authorizeToolCall,
+    ...(context.projectFileScope ? { projectFileScope: context.projectFileScope } : {}),
     // 服务重启后按绑定恢复的会话照常对账模型，E2E 可以验证重启相关的行为。
     persistSessionModels: true,
     promptScenarioResolver: (text) => {

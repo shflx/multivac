@@ -34,6 +34,7 @@ import type {
   CoordinatorServerNotice,
   CoordinatorToolAuthorizationDecision,
   CoordinatorToolAuthorizer,
+  CoordinatorProjectFileScope,
   CreateCoordinatorSessionInput,
   CoordinatorSessionRecoveryIdentity,
 } from '../../modules/sessions/coordinator-adapter.js';
@@ -173,6 +174,7 @@ export interface FakeCoordinatorAdapterOptions {
   seedsHistory?: (assistantSessionId: string) => boolean;
   /** 越界写入场景的授权决定；缺省时一律拒绝，与未接入授权的 Pi 适配器一致。 */
   authorizeToolCall?: CoordinatorToolAuthorizer;
+  projectFileScope?: CoordinatorProjectFileScope;
   /**
    * 把会话的模型选择写到绑定的 runtimeSessionRef，模拟 Pi transcript 跨进程保留：
    * 服务重启后按绑定恢复时可以照常对账模型。只有 Fake 服务进程（E2E）开启。
@@ -223,6 +225,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private readonly recentSessionModel: CoordinatorModelConfig | undefined;
   private readonly seedsHistory: (assistantSessionId: string) => boolean;
   private readonly authorizeToolCall: CoordinatorToolAuthorizer | undefined;
+  private readonly projectFileScope: CoordinatorProjectFileScope | undefined;
   private readonly persistSessionModels: boolean;
   private promptCompletionControl: FakePromptCompletionControl | null = null;
   private streamNextPrompt = false;
@@ -252,6 +255,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     this.recentSessionModel = options.recentSessionModel;
     this.seedsHistory = options.seedsHistory ?? (() => true);
     this.authorizeToolCall = options.authorizeToolCall;
+    this.projectFileScope = options.projectFileScope;
     this.persistSessionModels = options.persistSessionModels ?? false;
   }
 
@@ -906,10 +910,12 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     let decision: CoordinatorToolAuthorizationDecision;
     let targetPath: string | undefined;
     try {
-      const verdict = await judgeToolCall(toolName, input, session.workingDirectory.path);
-      if (verdict.type !== 'outside') throw new Error('越界访问场景的目标没有落在工作目录之外。');
+      const verdict = await judgeToolCall(toolName, input, session.workingDirectory.path, {},
+        () => this.projectFileScope?.(session.binding.assistantSessionId, session.workingDirectory) ?? []);
+      if (verdict.type === 'block') throw new Error(verdict.reason);
+      if (!verdict.targetPath) throw new Error('无法确认文件目标。');
       targetPath = verdict.targetPath;
-      decision = this.authorizeToolCall
+      decision = verdict.type === 'allow' ? { allowed: true } : this.authorizeToolCall
         ? await this.authorizeToolCall({
             assistantSessionId: session.binding.assistantSessionId, toolName, toolCallId,
             requestedPath, targetPath, workingDirectory: { ...session.workingDirectory },

@@ -131,6 +131,9 @@ export type CoordinatorToolAuthorizationDecision =
   | { allowed: true }
   | { allowed: false; reason: string; endTurn?: boolean };
 
+/** 当前文件目录范围的服务端来源；不得接收模型声明的项目或目录。 */
+export type CoordinatorProjectFileScope = (sessionId: string, runtimeDirectory: WorkingDirectory) => readonly string[];
+
 /**
  * 目录外访问的授权决定。在 Pi 执行工具之前调用，等待期间本轮 Turn 保持运行；
  * signal 是本轮的中止信号，取消本轮时被中止，实现应随之尽快结束等待。
