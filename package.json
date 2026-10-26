@@ -11,7 +11,7 @@
     "packages/*"
   ],
   "scripts": {
-    "postinstall": "node scripts/patch-pi-responses.mjs",
+    "postinstall": "node scripts/patch-pi-responses.mjs && node scripts/patch-terminals.mjs",
     "predev": "node scripts/patch-pi-responses.mjs --check && npm run build -w @multivac/contracts",
     "dev": "MULTIVAC_REMOTE_ENABLED=1 node scripts/dev.mjs",
     "build": "npm run build -w @multivac/contracts && npm run build -w @multivac/server && npm run build -w @multivac/web",
