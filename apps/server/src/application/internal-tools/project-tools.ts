@@ -1,6 +1,10 @@
 import { Type } from 'typebox';
 import {
   CREATE_PROJECT_PROPOSAL_KIND,
+  PROJECT_FILE_SCOPE_NOTE,
+  PROJECT_CWD_CHANGE_NOTE,
+  PROJECT_UNMOUNT_NOTE,
+  PROJECT_SCOPE_LIMIT_NOTE,
   MOUNT_DIRECTORY_PROPOSAL_KIND,
   MOVE_SESSION_TO_PROJECT_PROPOSAL_KIND,
   normalizeProjectName,
@@ -156,7 +160,7 @@ export const proposeCreateProjectTool = defineInternalTool({
   effect: 'propose',
   description: `提议新建一个项目（例如用户说“把 ~/code/x 作为项目”）。${PROPOSAL_GUIDE}` +
     'name 为项目名称（用户没说时可以取目录的最后一段）；directory 为要挂载的已有目录（绝对路径或 ~/ 开头），' +
-    '不给时由 Multivac 创建托管目录。卡上写明将使用的目录、类型与“这个目录内的修改将自动执行”；' +
+    '不给时由 Multivac 创建托管目录。卡上写明将使用的目录、类型与普通项目工作会话的文件访问规则；' +
     '目录不合法或名称重名时卡上写明原因、不能确认；目录已经是某个项目的目录时不生成卡片，而是告诉你它在哪个项目里。' +
     '确认后项目与同名工作区出现。',
   parameters: Type.Object(
@@ -180,7 +184,7 @@ export const proposeMountDirectoryTool = defineInternalTool({
   effect: 'propose',
   description: `提议把一个已有目录挂载到项目，之后这个目录内的修改也将自动执行。${PROPOSAL_GUIDE}${PROJECT_ID_GUIDE}` +
     'directory 为已有目录（绝对路径或 ~/ 开头）；挂载后排在已有目录之后，不改变主目录。目录不存在、范围过大或已属于某个项目时，' +
-    '卡上写明原因、不能确认。修改目录只影响之后新建的会话。',
+    `卡上写明原因、不能确认。${PROJECT_FILE_SCOPE_NOTE}${PROJECT_CWD_CHANGE_NOTE}${PROJECT_SCOPE_LIMIT_NOTE}`,
   parameters: Type.Object(
     { projectId: ProjectIdParameter, directory: DirectoryParameter('要挂载的已有目录。') },
     { additionalProperties: false },
@@ -196,7 +200,7 @@ export const proposeUnmountDirectoryTool = defineInternalTool({
   effect: 'propose',
   description: `提议从项目中卸载一个目录（只解除关系，目录本身和其中的文件不删除）。${PROPOSAL_GUIDE}${PROJECT_ID_GUIDE}` +
     'directory 为项目中已有的目录路径（list_projects 列出）。项目至少保留一个目录：只剩它一个时卡上写明、不能确认；' +
-    '卸载主目录时由下一个目录成为主目录。已有会话继续使用创建时的工作目录。',
+    `卸载主目录时由下一个目录成为主目录。${PROJECT_UNMOUNT_NOTE}${PROJECT_CWD_CHANGE_NOTE}`,
   parameters: Type.Object(
     { projectId: ProjectIdParameter, directory: DirectoryParameter('要卸载的目录（项目中已有的）。') },
     { additionalProperties: false },
@@ -211,7 +215,7 @@ export const proposeSetPrimaryDirectoryTool = defineInternalTool({
   name: 'propose_set_primary_directory',
   effect: 'propose',
   description: `提议把项目中已有的一个目录设为主目录（项目中新建的会话在主目录中工作）。${PROPOSAL_GUIDE}${PROJECT_ID_GUIDE}` +
-    'directory 为项目中已有的目录路径（list_projects 列出）；已经是主目录时卡上写明、不能确认。已有会话继续使用创建时的工作目录。',
+    `directory 为项目中已有的目录路径（list_projects 列出）；已经是主目录时卡上写明、不能确认。${PROJECT_CWD_CHANGE_NOTE}`,
   parameters: Type.Object(
     { projectId: ProjectIdParameter, directory: DirectoryParameter('要设为主目录的目录（项目中已有的）。') },
     { additionalProperties: false },

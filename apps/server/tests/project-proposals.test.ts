@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { projectFileScope } from '../src/application/project-file-scope.js';
+import { createBoundaryFileTools } from '../src/runtime/executors/pi-tool-boundary.js';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -221,7 +223,7 @@ test('新建项目：只生成与界面同一核对的确认卡，确认前什�
       ],
       receipt: {
         headline: '已创建项目「读书笔记」',
-        detail: `同名工作区已就绪；目录：挂载目录 ${target}，目录内的修改将自动执行`,
+        detail: `同名工作区已就绪；目录：挂载目录 ${target}，普通项目工作会话可直接读取、编辑和写入`,
         actions: [
           { kind: 'open-workspace', workspaceId: project.projectId },
           { kind: 'open-project', projectId: project.projectId },
@@ -309,7 +311,8 @@ test('挂载 / 卸载 / 设主目录：与设置 · 项目同一套校验与说�
     assert.equal(mounted.status, 'executed');
     assert.deepEqual(directoriesOf(), [first, second]);
     assert.deepEqual(mounted.outcome?.receipt?.actions, [{ kind: 'open-project', projectId: project.projectId }]);
-    assert.match(mounted.outcome!.receipt!.detail, /目录内的修改将自动执行。修改目录只影响之后新建的会话/u);
+    assert.match(mounted.outcome!.receipt!.detail, /挂载、卸载和会话归属变化对后续文件调用生效/u);
+    assert.match(mounted.outcome!.receipt!.detail, /调整主目录不会迁移已有会话的工作目录/u);
 
     // 目录在提出之后被别的项目挂载：确认时过期，不挂载。
     const late = await propose('propose_mount_directory', { projectId: project.projectId, directory: third });
@@ -331,7 +334,8 @@ test('挂载 / 卸载 / 设主目录：与设置 · 项目同一套校验与说�
     const primary = await decide(setPrimary.proposal.proposalId, 'confirm');
     assert.equal(primary.status, 'executed');
     assert.deepEqual(directoriesOf(), [second, first]);
-    assert.equal(primary.outcome?.receipt?.headline, `「应用」的主目录已改为 ${second}`);
+    // 长任务目录中的路径可能触发回执标题截断；完整目录由上面的持久记录断言核对。
+    assert.match(primary.outcome!.receipt!.headline, /^「应用」的主目录已改为 /u);
     // 卸载卡是按“它是主目录”提出的：确认时它已不是主目录，过期。
     const stale = await decide(unmountPrimary.proposal.proposalId, 'confirm');
     assert.deepEqual([stale.status, stale.reason], ['expired', '它已经不是主目录了。']);
@@ -344,6 +348,38 @@ test('挂载 / 卸载 / 设主目录：与设置 · 项目同一套校验与说�
     assert.deepEqual(directoriesOf(), [second]);
     assert.equal(existsSync(first), true);
     assert.match(unmounted.outcome!.receipt!.detail, /目录本身和其中的文件没有删除/u);
+    assert.match(unmounted.outcome!.receipt!.detail, /卸载仅移除项目挂载这一权限来源/u);
+    assert.match(unmounted.outcome!.receipt!.detail, /有效的独立授权仍按原规则生效/u);
+  });
+});
+
+test('进程内项目确认执行链：挂载、设主目录及卸载确认后，已有文件工具与新会话按当前记录生效', async () => {
+  await withWorld(async ({ store, sessions, projects, propose, decide, mkdir }) => {
+    const primary = mkdir('primary');
+    const extra = mkdir('extra');
+    const project = projects.createProject({ name: '确认范围', directory: primary }).project;
+    const { session } = await sessions.create({ sessionId: 'scope-existing', title: '已有会话', workspaceId: project.projectId });
+    const scope = projectFileScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, isTaskSession: () => false });
+    const tools = createBoundaryFileTools({ cwd: session.workingDirectory.path, projectDirectories: () => scope(session.sessionId, session.workingDirectory) });
+    const write = tools.find(tool => tool.name === 'write')!;
+    const path = join(extra, 'probe.txt');
+    const execute = () => write.execute('scope-write', { path, content: 'confirmed' }, undefined, undefined, {} as never);
+    const mount = await propose('propose_mount_directory', { projectId: project.projectId, directory: extra });
+    await assert.rejects(execute(), /需要用户授权/);
+    assert.equal((await decide(mount.proposal.proposalId, 'confirm')).status, 'executed');
+    await execute();
+    assert.equal(readFileSync(path, 'utf8'), 'confirmed');
+    const primaryChange = await propose('propose_set_primary_directory', { projectId: project.projectId, directory: extra });
+    assert.equal((await decide(primaryChange.proposal.proposalId, 'confirm')).status, 'executed');
+    assert.equal(sessions.get(session.sessionId).workingDirectory.path, primary);
+    const { session: next } = await sessions.create({ sessionId: 'scope-new', title: '新会话', workspaceId: project.projectId });
+    assert.equal(next.workingDirectory.path, extra);
+    const unmount = await propose('propose_unmount_directory', { projectId: project.projectId, directory: extra });
+    await execute();
+    assert.equal((await decide(unmount.proposal.proposalId, 'confirm')).status, 'executed');
+    await assert.rejects(execute(), /需要用户授权/);
+    const nextTools = createBoundaryFileTools({ cwd: next.workingDirectory.path, projectDirectories: () => scope(next.sessionId, next.workingDirectory) });
+    await nextTools.find(tool => tool.name === 'read')!.execute('cwd-read', { path }, undefined, undefined, {} as never);
   });
 });
 

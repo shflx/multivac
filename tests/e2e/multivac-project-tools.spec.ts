@@ -101,7 +101,7 @@ test('“把目录作为项目”：对话中的卡与“新建项目…”内�
   await expect(field(proposed, '名称')).toHaveText('notes');
   await expect(proposed.locator('.directory-rule')).toHaveAttribute('data-directory-kind', 'mounted');
   await expect(proposed.locator('.directory-rule code')).toHaveText(directory);
-  await expect(field(proposed, '执行')).toHaveText('这个目录内的修改将自动执行。');
+  await expect(field(proposed, '执行')).toHaveText('普通项目工作会话可直接读取、编辑和写入这个目录，无需重复授权。');
   await expect(proposed.getByRole('button', { name: '创建项目' })).toBeEnabled();
   const chatRule = (await proposed.locator('.directory-rule').innerText()).replace(/\s+/gu, ' ');
   const chatExecution = await field(proposed, '执行').innerText();
@@ -195,9 +195,10 @@ test('挂载、设主目录、卸载：卡上是与设置 · 项目相同的说�
   await expect(field(mount, '项目')).toHaveText('应用');
   await expect(mount.locator('.directory-rule code')).toHaveText(docs);
   await expect(mount.locator('.directory-rule strong')).toHaveText('挂载目录');
-  await expect(field(mount, '执行')).toHaveText('这个目录内的修改将自动执行。');
-  await expect(field(mount, '说明')).toHaveText('挂载后排在已有目录之后，可以设为主目录；项目中新建的会话在主目录中工作。' +
-    '修改目录只影响之后新建的会话；已有会话继续使用创建时的工作目录。');
+  await expect(field(mount, '执行')).toHaveText('普通项目工作会话可直接读取、编辑和写入这个目录，无需重复授权。');
+  await expect(field(mount, '说明')).toContainText('挂载、卸载和会话归属变化对后续文件调用生效');
+  await expect(field(mount, '说明')).toContainText('调整主目录不会迁移已有会话的工作目录');
+  await expect(field(mount, '说明')).toContainText('隔离任务及全局 Multivac 维持原范围');
   expect(await directoriesOf()).toEqual([app]);
   await mount.getByRole('button', { name: '挂载' }).click();
   await expect(mount).toHaveAttribute('data-status', 'executed');
@@ -217,7 +218,9 @@ test('挂载、设主目录、卸载：卡上是与设置 · 项目相同的说�
   // 现在有两个目录：新提的卸载按当前状态可以确认，目录本身不删除。
   const unmountId = await callTool(home(page), '把 app 卸载', 'propose_unmount_directory', { projectId: project.projectId, directory: app });
   const unmount = card(home(page), unmountId);
-  await expect(field(unmount, '说明')).toHaveText('目录本身和其中的文件不会被删除，之后可以重新挂载。已有会话继续使用创建时的工作目录。');
+  await expect(field(unmount, '说明')).toContainText('目录本身和其中的文件不会被删除');
+  await expect(field(unmount, '说明')).toContainText('卸载仅移除项目挂载这一权限来源');
+  await expect(field(unmount, '说明')).toContainText('已有会话工作目录和有效的独立授权仍按原规则生效');
   await unmount.getByRole('button', { name: '卸载' }).click();
   await expect(unmount).toHaveAttribute('data-status', 'executed');
   expect(await directoriesOf()).toEqual([docs]);

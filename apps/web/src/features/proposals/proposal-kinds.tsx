@@ -308,13 +308,13 @@ export const PROPOSAL_KIND_VIEWS: Readonly<Record<string, ProposalKindView>> = {
   },
   [MOUNT_DIRECTORY_PROPOSAL_KIND]: {
     icon: FolderPlus,
-    subtitle: '确认后挂载，这个目录内的修改将自动执行',
+    subtitle: '确认后普通项目工作会话可直接读取、编辑和写入这个目录',
     confirmLabel: '挂载',
     Body: MountDirectoryBody,
   },
   [UNMOUNT_DIRECTORY_PROPOSAL_KIND]: {
     icon: FolderMinus,
-    subtitle: '确认后卸载，之后新建的会话不再使用这个目录',
+    subtitle: '确认后移除项目挂载权限，已有工作目录和有效独立授权仍按原规则生效',
     confirmLabel: '卸载',
     Body: UnmountDirectoryBody,
   },

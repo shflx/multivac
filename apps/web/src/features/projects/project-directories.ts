@@ -1,3 +1,4 @@
+import { PROJECT_FILE_SCOPE_NOTE, PROJECT_CWD_CHANGE_NOTE } from '@multivac/contracts';
 import type { CreateProject, Project, ProjectDirectoryKind, Workspace } from '@multivac/contracts';
 
 /**
@@ -5,12 +6,12 @@ import type { CreateProject, Project, ProjectDirectoryKind, Workspace } from '@m
  * 两者在目录内的修改都自动执行。
  */
 export const PROJECT_DIRECTORY_KINDS: Record<ProjectDirectoryKind, { label: string; rule: string }> = {
-  managed: { label: '项目托管目录', rule: '由 Multivac 创建并托管，目录内的修改自动执行。' },
-  mounted: { label: '挂载目录', rule: '你已有的目录，目录内的修改自动执行，目录外的修改需要确认。' },
+  managed: { label: '项目托管目录', rule: '由 Multivac 创建并托管，普通项目工作会话可直接读取、编辑和写入。' },
+  mounted: { label: '挂载目录', rule: '你已有的目录，普通项目工作会话可直接读取、编辑和写入；项目范围外无其他授权的访问仍需确认。' },
 };
 
-/** 修改目录的影响：只作用于之后新建的会话。设置页与确认卡共用这句说明。 */
-export const DIRECTORY_CHANGE_NOTE = '修改目录只影响之后新建的会话；已有会话继续使用创建时的工作目录。';
+/** 访问范围随当前记录生效，默认 cwd 的变更只作用于新会话。 */
+export const DIRECTORY_CHANGE_NOTE = `${PROJECT_FILE_SCOPE_NOTE}${PROJECT_CWD_CHANGE_NOTE}`;
 
 /** 工作区列表中的全部项目，按创建顺序。 */
 export function projectsOf(workspaces: readonly Workspace[] | null): Project[] {

@@ -1,6 +1,6 @@
 import { LoaderCircle } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { ProjectDirectoryKind } from '@multivac/contracts';
+import { PROJECT_FILE_SCOPE_NOTE, PROJECT_UNMOUNT_NOTE, PROJECT_SCOPE_LIMIT_NOTE, type ProjectDirectoryKind } from '@multivac/contracts';
 import { DIRECTORY_CHANGE_NOTE, PROJECT_DIRECTORY_KINDS } from './project-directories.js';
 
 /**
@@ -17,12 +17,13 @@ export const NEW_PROJECT_CARD = {
 } as const;
 
 /** “执行”一行：项目目录内的修改自动执行。 */
-export const PROJECT_EXECUTION_NOTE = '这个目录内的修改将自动执行。';
+export const PROJECT_EXECUTION_NOTE = '普通项目工作会话可直接读取、编辑和写入这个目录，无需重复授权。';
 
 /** 挂载目录的说明（设置 · 项目的挂载确认卡与对话中的挂载卡共用）。 */
 export const MOUNT_DIRECTORY_NOTES: readonly string[] = [
   '挂载后排在已有目录之后，可以设为主目录；项目中新建的会话在主目录中工作。',
   DIRECTORY_CHANGE_NOTE,
+  PROJECT_SCOPE_LIMIT_NOTE,
 ];
 
 /** 卸载目录的说明（设置 · 项目的卸载确认卡与对话中的卸载卡共用）。 */
@@ -30,7 +31,9 @@ export function unmountDirectoryNotes(primary: boolean): string[] {
   return [
     ...(primary ? ['它是主目录，卸载后由下一个目录成为主目录。'] : []),
     '目录本身和其中的文件不会被删除，之后可以重新挂载。',
-    '已有会话继续使用创建时的工作目录。',
+    PROJECT_FILE_SCOPE_NOTE,
+    PROJECT_UNMOUNT_NOTE,
+    '已有会话继续使用原工作目录；主目录卸载不会迁移已有会话。',
   ];
 }
 
