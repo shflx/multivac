@@ -26,6 +26,7 @@ export const createPiHarness: HarnessFactory = (context) => {
       agentDir: piPaths.agentDir,
       temporaryRoot: paths.modelCandidateDir,
       authorizeToolCall: context.authorizeToolCall,
+      ...(context.projectFileScope ? { projectFileScope: context.projectFileScope } : {}),
       bashProcesses: context.bashProcesses,
     }),
     modelSettingsCatalog: new PiModelSettingsCatalogFactory({ candidateRoot: paths.modelCandidateDir, authPath: piPaths.authPath }),

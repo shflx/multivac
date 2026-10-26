@@ -34,7 +34,7 @@ import {
   type SessionEntry,
 } from '@earendil-works/pi-coding-agent';
 import { createControlledResourceLoader } from './controlled-resource-loader.js';
-import type { OutsideWorkingDirectoryAuthorizer } from './pi-tool-boundary.js';
+import { createBoundaryFileTools, type OutsideWorkingDirectoryAuthorizer, type ToolBoundaryExtensionOptions } from './pi-tool-boundary.js';
 import { internalToolBoundary, type PiInternalToolSet } from './pi-internal-tools.js';
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
@@ -160,6 +160,7 @@ export interface PiCoordinatorSessionFactoryInput {
   ) => Promise<void>;
   /** 文件工具访问工作目录之外的路径时的授权决定；缺省时一律拒绝。 */
   authorizeOutsideAccess?: OutsideWorkingDirectoryAuthorizer;
+  projectDirectories?: () => readonly string[];
   /**
    * 本会话的内部工具：以 customTools 注入，在目录边界中按效果类别声明规则，并在提示词中生成说明。
    * 未传入的工具不会出现在 Pi 中。
@@ -613,6 +614,15 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
 
       if (input.config.readingOnly && input.internalTools?.specs.some(spec => !READING_PAGE_TOOL_NAMES.includes(spec.name) || spec.effect !== 'query')) throw new Error('书伴只允许注入相邻页只读工具。');
       let turnInstructions: string | undefined;
+      const guardedFiles = !input.config.readingOnly && !input.taskIsolation;
+      const toolBoundary: ToolBoundaryExtensionOptions = {
+        cwd: input.cwd,
+        readingOnly: input.config.readingOnly,
+        ...(guardedFiles ? { fileExecutionGuarded: true } : {}),
+        ...(guardedFiles && input.projectDirectories ? { projectDirectories: input.projectDirectories } : {}),
+        ...(input.authorizeOutsideAccess ? { authorizeOutsideAccess: input.authorizeOutsideAccess } : {}),
+        internalTools: { ...internalToolBoundary(input.internalTools?.specs ?? []), ...(input.skills ? { skill_load: 'query' as const, skill_resource: 'manage' as const } : {}) },
+      };
       const resourceLoader = await createControlledResourceLoader({
         ...(input.skills ? { skills: input.skills } : {}),
         settingsManager,
@@ -623,12 +633,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         compaction: input.config.compaction,
         readingOnly: input.config.readingOnly,
         // 目录边界以本次传入的会话工作目录为准，创建与恢复都经过这里。
-        toolBoundary: {
-          cwd: input.cwd,
-          readingOnly: input.config.readingOnly,
-          ...(input.authorizeOutsideAccess ? { authorizeOutsideAccess: input.authorizeOutsideAccess } : {}),
-          internalTools: { ...internalToolBoundary(input.internalTools?.specs ?? []), ...(input.skills ? { skill_load: 'query' as const, skill_resource: 'manage' as const } : {}) },
-        },
+        toolBoundary,
         ...(input.internalTools ? { internalTools: input.internalTools.specs } : {}),
       });
       appendUniqueDiagnostics(
@@ -658,7 +663,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       taskTools = input.taskIsolation ? await NativeTaskTools.create(input.cwd, [input.agentDir, ...(input.sessionDir ? [input.sessionDir] : []), ...(input.taskProtectedPaths ?? [])], input.taskLease) : undefined;
       const managedBash = !input.config.readingOnly && input.bashProcesses && input.assistantSessionId
         ? managedBashTool(input.assistantSessionId, input.cwd, input.bashProcesses, taskTools) : undefined;
-      const customTools = [...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? []), ...(input.skills?.definitions ?? [])];
+      const customTools = [...(guardedFiles ? createBoundaryFileTools(toolBoundary) : []), ...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? []), ...(input.skills?.definitions ?? [])];
       if (input.skills) {
         // 普通会话也使用已验证的原生隔离；任务复用原执行器及租约，不扩张任务能力。
         input.skills.bindExecutor(async (executable,args,options) => {

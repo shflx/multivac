@@ -1,5 +1,5 @@
 import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
-import { access, lstat, readlink, realpath } from 'node:fs/promises';
+import { access, lstat, readlink, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,10 @@ import {
   type ExtensionContext,
   type ToolCallEvent,
   type ToolCallEventResult,
+  type ToolDefinition,
+  createReadToolDefinition,
+  createEditToolDefinition,
+  createWriteToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import type { InternalToolEffect } from '../../modules/internal-tools/internal-tool.js';
 import { isPathWithin } from '../../modules/sessions/working-directory.js';
@@ -183,6 +187,7 @@ export async function judgeToolCall(
   input: Record<string, unknown>,
   cwd: string,
   internalTools: InternalToolBoundary = {},
+  projectDirectories: () => readonly string[] = () => [],
 ): Promise<ToolBoundaryVerdict> {
   const rule = Object.hasOwn(TOOL_BOUNDARY_RULES, toolName)
     ? TOOL_BOUNDARY_RULES[toolName as CoordinatorToolName]
@@ -216,9 +221,21 @@ export async function judgeToolCall(
     };
   }
 
-  return isPathWithin(workingDirectory, targetPath)
-    ? { type: 'allow', targetPath }
-    : { type: 'outside', toolName: toolName as CoordinatorPathToolName, requestedPath, targetPath };
+  if (isPathWithin(workingDirectory, targetPath)) return { type: 'allow', targetPath };
+
+  for (const directory of projectDirectories()) {
+    try {
+      const root = await realpath(directory);
+      if (!(await stat(root)).isDirectory()) continue;
+      // 文件系统核对有异步等待，放行前再确认挂载仍属于当前项目。
+      if (isPathWithin(root, targetPath) && projectDirectories().includes(directory)) {
+        return { type: 'allow', targetPath };
+      }
+    } catch {
+      // 失效目录不提供项目权限，仍可走独立的目录外授权。
+    }
+  }
+  return { type: 'outside', toolName: toolName as CoordinatorPathToolName, requestedPath, targetPath };
 }
 
 /**
@@ -248,6 +265,10 @@ export interface ToolBoundaryExtensionOptions {
   readingOnly?: boolean | undefined;
   /** 会话工作目录（绝对路径），取自 Multivac 会话记录。 */
   cwd: string;
+  /** 服务端当前项目目录来源，每次文件执行重新读取。隔离任务不传入。 */
+  projectDirectories?: () => readonly string[];
+  /** 普通 Pi 文件工具已有执行入口校验时，钩子不提前授予可能过期的许可。 */
+  fileExecutionGuarded?: boolean;
   /** 目录外访问的授权决定；缺省时一律拒绝。 */
   authorizeOutsideAccess?: OutsideWorkingDirectoryAuthorizer;
   /** 本会话注入的内部工具；缺省时没有内部工具，调用一律拦截。 */
@@ -266,7 +287,9 @@ export function createToolBoundaryExtension(options: ToolBoundaryExtensionOption
     context: ExtensionContext,
   ): Promise<ToolCallEventResult | undefined> => {
     if (options.readingOnly && !(READING_PAGE_TOOL_NAMES.includes(event.toolName) && options.internalTools?.[event.toolName] === 'query')) return { block: true, reason: '书伴仅可调用已注入的相邻页只读工具，不具备文件、命令或工作工具权限。' };
-    const verdict = await judgeToolCall(event.toolName, event.input, options.cwd, options.internalTools);
+    if (options.fileExecutionGuarded && TOOL_BOUNDARY_RULES[event.toolName as CoordinatorToolName] === 'target-path') return undefined;
+    if (context.signal?.aborted) return { block: true, reason: CANCELLED_REASON };
+    const verdict = await judgeToolCall(event.toolName, event.input, options.cwd, options.internalTools, options.projectDirectories);
     if (verdict.type === 'allow') {
       // 工作目录内的访问同样钉住：判定之后工具不一定立即执行（同批调用要等全部放行才一起执行，
       // 其间可能等待其他调用的授权），目录内的链接在此期间被改指到目录外时，仍访问判定时的位置。
@@ -321,4 +344,21 @@ export function createToolBoundaryExtension(options: ToolBoundaryExtensionOption
     flags: new Map(),
     shortcuts: new Map(),
   };
+}
+
+/** 在实际文件执行入口判定范围，避免整批工具等待期间保留失效的挂载许可。 */
+export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): ToolDefinition[] {
+  const boundary = createToolBoundaryExtension({ ...options, fileExecutionGuarded: false });
+  const check = boundary.handlers.get('tool_call')![0]!;
+  const definitions = [createReadToolDefinition(options.cwd), createEditToolDefinition(options.cwd), createWriteToolDefinition(options.cwd)] as unknown as ToolDefinition[];
+  return definitions.map(definition => ({
+    ...definition,
+    async execute(toolCallId, params, signal, onUpdate, context) {
+      const event = { type: 'tool_call', toolName: definition.name, toolCallId, input: { ...params as Record<string, unknown> } } as ToolCallEvent;
+      const result = await check(event, { ...context, signal }) as ToolCallEventResult | undefined;
+      if (result?.block) throw new Error(result.reason);
+      if (signal?.aborted) throw new Error(CANCELLED_REASON);
+      return definition.execute(toolCallId, event.input, signal, onUpdate, context);
+    },
+  }));
 }

@@ -239,15 +239,26 @@ test('默认 factory 直接装配受控资源、最终 settings 和 thinking 诊
   });
 
   try {
-    const result = await factory.create({ cwd, agentDir, sessionDir, config });
+    const mounted = join(root, 'mounted');
+    await mkdir(mounted);
+    let currentDirectories = [mounted];
+    const result = await factory.create({ cwd, agentDir, sessionDir, config, projectDirectories: () => currentDirectories });
 
     assert.equal(capturedRuntimeOptions?.allowModelNetwork, false);
     assert.ok(capturedAgentOptions);
     assert.ok(capturedAgentOptions.resourceLoader);
-    // 协调助手只使用 Pi 默认的四个内置工具，且不注册自定义工具。
+    // 保留四个工具名称，文件工具用 Pi 原定义包装，在实际执行入口核对范围。
     assert.deepEqual([...COORDINATOR_TOOL_ALLOWLIST], ['read', 'bash', 'edit', 'write']);
     assert.deepEqual(capturedAgentOptions?.tools, [...COORDINATOR_TOOL_ALLOWLIST]);
-    assert.equal(capturedAgentOptions?.customTools, undefined);
+    assert.deepEqual(capturedAgentOptions?.customTools?.map(tool => tool.name), ['read', 'edit', 'write']);
+    // 直接执行 factory 装配的真实 Pi 文件定义；SDK 会话/模型是本测试的注入替身。
+    const guardedWrite = capturedAgentOptions.customTools!.find(tool => tool.name === 'write')!;
+    const target = join(mounted, 'probe.txt');
+    await guardedWrite.execute('mounted-write', { path: target, content: 'mounted' }, undefined, undefined, {} as never);
+    assert.equal(await readFile(target, 'utf8'), 'mounted');
+    currentDirectories = [];
+    await assert.rejects(guardedWrite.execute('unmounted-write', { path: target, content: 'wrong' }, undefined, undefined, {} as never), /需要用户授权/);
+    assert.equal(await readFile(target, 'utf8'), 'mounted');
     assert.equal(capturedAgentOptions?.resourceLoader instanceof DefaultResourceLoader, false);
     assert.deepEqual(capturedAgentOptions?.resourceLoader?.getAgentsFiles(), { agentsFiles: [] });
     assert.deepEqual(capturedAgentOptions?.resourceLoader?.getSkills(), {

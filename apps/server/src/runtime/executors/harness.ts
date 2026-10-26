@@ -8,7 +8,7 @@ import type { McpRepository } from '../../modules/mcp/mcp.js';
 import type { ExecutionDiagnostics } from '../../application/execution-diagnostics.js';
 import type { ModelAccessBackend } from '../../modules/model-settings/model-access.js';
 import type { ModelSettingsCatalogFactory, StoredModelSettingsState } from '../../modules/model-settings/model-settings.js';
-import type { CoordinatorAdapter, CoordinatorToolAuthorizer } from '../../modules/sessions/coordinator-adapter.js';
+import type { CoordinatorAdapter, CoordinatorToolAuthorizer, CoordinatorProjectFileScope } from '../../modules/sessions/coordinator-adapter.js';
 import type { ModelUsageRecorder } from '../../modules/usage/model-usage.js';
 import type { MultivacRuntimeConfig } from '../../runtime-config.js';
 import type { MultivacDataPaths } from '../../storage/data-paths.js';
@@ -46,6 +46,7 @@ export interface HarnessContext {
   readonly paths: MultivacDataPaths;
   /** 目录外访问的授权决定；执行器在工具执行前调用。 */
   readonly authorizeToolCall: CoordinatorToolAuthorizer;
+  readonly projectFileScope?: CoordinatorProjectFileScope;
   /** 托管 bash：命令在服务端登记的进程中执行。 */
   readonly bashProcesses: BashExecutionPort;
   /** 模型调用用量记账；装配期间尚未就绪时也可传入延迟转发的实现。 */

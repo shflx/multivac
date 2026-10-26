@@ -37,6 +37,7 @@ import type {
   CoordinatorImage,
   CoordinatorServerNotice,
   CoordinatorToolAuthorizer,
+  CoordinatorProjectFileScope,
   CreateCoordinatorSessionInput,
   CoordinatorTaskLease,
   CoordinatorSessionRecoveryIdentity,
@@ -106,6 +107,7 @@ export interface PiCoordinatorAdapterOptions {
    * 目录边界扩展在所有会话（工作会话与全局 Multivac）中都会注入，与是否提供该选项无关。
    */
   authorizeToolCall?: CoordinatorToolAuthorizer;
+  projectFileScope?: CoordinatorProjectFileScope;
 }
 
 function ok<T>(value: T): CoordinatorResult<T> {
@@ -182,6 +184,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly sourceInstanceIdFactory: () => string;
   private readonly onDiagnostic: ((diagnostic: CoordinatorDiagnostic) => void) | undefined;
   private readonly authorizeToolCall: CoordinatorToolAuthorizer | undefined;
+  private readonly optionsProjectFileScope: CoordinatorProjectFileScope | undefined;
 
   private readonly executionDiagnostics: PiCoordinatorAdapterOptions['executionDiagnostics'];
   private readonly usageRecorder: PiCoordinatorAdapterOptions['usageRecorder'];
@@ -204,6 +207,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     this.sourceInstanceIdFactory = options.sourceInstanceIdFactory ?? randomUUID;
     this.onDiagnostic = options.onDiagnostic;
     this.authorizeToolCall = options.authorizeToolCall;
+    this.optionsProjectFileScope = options.projectFileScope;
   }
 
   async createSession(
@@ -702,6 +706,9 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     return {
       ...(this.skillsFor && !config.readingOnly ? { skills: this.skillsFor(assistantSessionId) } : {}),
       cwd: workingDirectory.path,
+      ...(!config.readingOnly && !['task-isolated', 'worktree'].includes(workingDirectory.kind) && this.optionsProjectFileScope ? {
+        projectDirectories: () => this.optionsProjectFileScope!(assistantSessionId, workingDirectory),
+      } : {}),
       assistantSessionId,
       ...(this.executionDiagnostics ? { executionDiagnostics: this.executionDiagnostics } : {}),
       ...(this.usageRecorder ? { usageRecorder: this.usageRecorder } : {}),

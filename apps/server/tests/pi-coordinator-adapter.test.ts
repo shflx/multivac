@@ -417,6 +417,28 @@ test('PiCoordinatorAdapter 按每次传入的会话工作目录构建运行时�
   adapter.dispose();
 });
 
+test('PiCoordinatorAdapter 动态目录来源跨创建与恢复生效，真实隔离模式不注入项目范围', async () => {
+  const factory = new StubFactory(resources(new StubSession()));
+  let current = ['/project/a'];
+  const calls: string[] = [];
+  const adapter = new PiCoordinatorAdapter({ sessionFactory: factory, projectFileScope: (id) => { calls.push(id); return current; } });
+  try {
+    await adapter.createSession({ assistantSessionId: 'work-a', config, workingDirectory: { kind: 'session-temp', path: '/work/a' } });
+    const source = factory.calls[0]!.input.projectDirectories!;
+    assert.deepEqual(source(), ['/project/a']);
+    current = ['/project/b'];
+    assert.deepEqual(source(), ['/project/b']);
+    assert.deepEqual(calls, ['work-a', 'work-a']);
+    for (const kind of ['task-isolated', 'worktree'] as const) {
+      await adapter.createSession({ assistantSessionId: kind, config, workingDirectory: { kind, path: '/ordinary-name' } });
+      assert.equal(factory.calls.at(-1)!.input.projectDirectories, undefined);
+      assert.equal(factory.calls.at(-1)!.input.taskIsolation, true);
+    }
+    await adapter.continueSession({ binding: { assistantSessionId: 'restored', harness: 'pi', runtimeSessionId: 'pi-1', runtimeSessionRef: '/sessions/pi-1.jsonl', updatedAt: '2026-09-14T07:00:00.000Z' }, config, workingDirectory: { kind: 'session-temp', path: '/work/restored' } });
+    assert.deepEqual(factory.calls.at(-1)!.input.projectDirectories!(), ['/project/b']);
+  } finally { adapter.dispose(); }
+});
+
 test('PiCoordinatorAdapter 把目录外访问交给授权决定，并补齐会话身份与工作目录记录', async () => {
   const first = new StubSession();
   const second = new StubSession();
