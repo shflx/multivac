@@ -45,8 +45,8 @@ interface ConversationPanelProps {
   onActivate: () => void;
   onFocusMode: () => void;
   onReturnToParallel: () => void;
-  /** 任务视图独占显示，返回保留的工作区现场。 */
-  taskView?: boolean;
+  /** 任务会话所属任务：任务视图独占显示，返回保留的工作区现场；对话按任务会话三方呈现。 */
+  taskId?: string | null;
   onManageModels: () => void;
   /** 把选中内容连同本会话交给 Multivac 侧栏。 */
   onHandToMultivac?: (quote: AssistantQuote) => void;
@@ -80,8 +80,9 @@ function activates(event: SyntheticEvent): boolean {
 export function ConversationPanel({
   sessionId, workspaceId, onReadingFocus, title, workingDirectory, visible, current, claimFocus = true, focusRequest, focused, slotLabel = '', collapseComposer,
   onActivate, onFocusMode, onReturnToParallel, onManageModels, onHandToMultivac, onDrillDown,
-  stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive, taskView = false,
+  stackPath = [], originText = null, onBackToParent, onMoveToProject, onArchive, taskId = null,
 }: ConversationPanelProps) {
+  const taskView = Boolean(taskId);
   const [reading, updateReading] = useReadingScene(workspaceId, sessionId, workingDirectory?.path ?? '');
   const filesOpen = !reading.hidden;
   const readingView = reading.view;
@@ -233,6 +234,7 @@ export function ConversationPanel({
       <div className="conversation-discussion" hidden={discussionHidden}>
       <AssistantView
         allowAgentSelection={!taskView}
+        taskId={taskId}
         sessionId={sessionId}
         variant="panel"
         active={visible && !discussionHidden}

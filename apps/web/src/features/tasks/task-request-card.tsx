@@ -3,12 +3,14 @@ import { CircleHelp, Check, Pause, Play } from 'lucide-react';
 import type { HumanRequest } from '@multivac/contracts';
 import { useTaskRequests } from './task-requests-provider.js';
 import { ArtifactPreview } from './artifact-preview.js';
+import { SESSION_REQUEST_KINDS } from './task-session-timeline.js';
 
 export function TaskRequestCard({ request, inInbox = false }: { request: HumanRequest; inInbox?: boolean }) {
   const { store, pending, errors, drafts } = useTaskRequests();
   const busy = pending.has(request.requestId);
   if (!store) return null;
-  if (request.status !== 'pending') return <div className="proposal-receipt" data-request-id={request.requestId}><Check aria-hidden="true" /><span>{request.status === 'answered' ? '回应已保存' : '请求已失效'}{request.answer ? `：${request.answer}` : ''}</span></div>;
+  // 已处理的请求不再是卡片：任务会话按决定时间显示为回应（TaskRequestReply）。
+  if (request.status !== 'pending') return null;
   return <section className="task-receipt proposal-card pending task-request-card" aria-label="任务人工请求" data-request-id={request.requestId}>
     <div className="receipt-title"><CircleHelp aria-hidden="true" /><div><strong>{request.kind === 'recovery' ? '恢复待确认' : request.kind === 'review' ? '成果待验收' : '需要你回应'}</strong></div></div>
     {!inInbox && <ObjectLink target={{ kind: 'inbox', id: request.requestId }}>在 Inbox 中处理</ObjectLink>}
@@ -24,8 +26,8 @@ export function TaskRequestCard({ request, inInbox = false }: { request: HumanRe
     </footer>
   </section>;
 }
-/** 对话只保留需要及时回应的澄清与恢复请求；成果审核统一在任务详情处理。 */
+/** 对话末尾只保留待回应的澄清与恢复请求；成果审核统一在任务详情处理。 */
 export function SessionTaskRequests({ sessionId }: { sessionId: string }) {
   const { requests } = useTaskRequests();
-  return <>{requests.filter((request) => request.sessionId === sessionId && ['clarification', 'recovery'].includes(request.kind)).map((request) => <TaskRequestCard key={request.requestId} request={request} />)}</>;
+  return <>{requests.filter((request) => request.sessionId === sessionId && request.status === 'pending' && SESSION_REQUEST_KINDS.includes(request.kind)).map((request) => <TaskRequestCard key={request.requestId} request={request} />)}</>;
 }

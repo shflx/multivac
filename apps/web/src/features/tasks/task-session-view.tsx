@@ -41,7 +41,7 @@ export function TaskSessionView({ sessionId, active, onReturn, onManageModels, o
   return <section className="task-session-view" aria-label="任务会话视图" hidden={!active}>
     {session ? <ConversationPanel
       sessionId={sessionId} workspaceId={session.workspaceId} title={session.title} workingDirectory={session.workingDirectory}
-      visible={active} current focused taskView collapseComposer={false} onReadingFocus={setReading}
+      visible={active} current focused taskId={session.taskId ?? null} collapseComposer={false} onReadingFocus={setReading}
       onActivate={() => undefined} onFocusMode={() => undefined} onReturnToParallel={onReturn}
       onManageModels={onManageModels} onHandToMultivac={onHandToMultivac}
     /> : <div className="workspace-empty">

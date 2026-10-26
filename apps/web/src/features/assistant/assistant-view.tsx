@@ -54,6 +54,8 @@ import { useCurrentView } from './current-view.js';
 import { rememberedApproval } from './tool-authorizations.js';
 import { ProposalCard } from '../proposals/proposal-card.js';
 import { SessionTaskRequests } from '../tasks/task-request-card.js';
+import { useTaskRequests } from '../tasks/task-requests-provider.js';
+import { SESSION_REQUEST_KINDS, TaskRequestReply, TaskSessionNotice, TaskSystemCommand, placeRequestReplies } from '../tasks/task-session-timeline.js';
 import { ConversationConfirmations } from './conversation-confirmations.js';
 import { SessionTaskLink } from '../tasks/session-task-link.js';
 import { useProposals } from '../proposals/proposals-provider.js';
@@ -93,6 +95,11 @@ interface AssistantViewProps {
   collapseComposer?: boolean;
   /** 折叠入口的可访问名称中使用的会话名。 */
   composerLabel?: string;
+  /**
+   * 任务会话所属任务：任务会话只由任务系统推进，user 消息呈现为任务系统命令，
+   * 用户回应按决定时间插入对话，输入区换成说明。
+   */
+  taskId?: string | null;
   /**
    * 当前正在看的对象（Multivac 侧栏：工作区的焦点会话或项目页选中的对象）。
    * 输入区提示它，发送时作为上下文引用交给 Multivac，由服务端核对后以用户数据形式交给模型。
@@ -164,7 +171,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
  */
 function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
-  collapseComposer = false, composerLabel = 'Multivac', context = null, allowAgentSelection = false,
+  collapseComposer = false, composerLabel = 'Multivac', context = null, allowAgentSelection = false, taskId = null,
   onHandToMultivac, onDrillDown, onOpenFileReference, incomingQuote = null, onIncomingQuoteHandled, focusRequest, onManageModels,
   readCurrentView,
 }: Omit<AssistantViewProps, 'sessionId'> & {
@@ -179,6 +186,12 @@ function AssistantSessionView({
     hasMore, loadingEarlier, historyError, model: modelState,
   } = session;
   const remote = useRemoteConversation();
+  const { requests: taskRequests } = useTaskRequests();
+  const taskReplies = taskId
+    ? placeRequestReplies(timeline, taskRequests.filter((request) => request.sessionId === session.sessionId && SESSION_REQUEST_KINDS.includes(request.kind)), hasMore)
+    : null;
+  // 首条任务系统命令只在已读到会话开头时才能确定。
+  const firstTaskCommand = taskId && !hasMore ? timeline.find((item) => item.kind === 'message' && item.message.role === 'user') : undefined;
   const writesAnchor = variant !== 'sidebar';
   // 对话内的确认卡只属于全局 Multivac（首页与侧栏共用同一份提议）。
   const isCoordinator = session.sessionId === GLOBAL_ASSISTANT_SESSION_ID;
@@ -730,7 +743,7 @@ function AssistantSessionView({
                 </div>
               ) : (
                 <>
-                  {timeline.map((item, index) => item.kind === 'trace' ? (
+                  {timeline.flatMap((item, index) => [...(taskReplies?.before.get(index) ?? []).map((request) => <TaskRequestReply key={`request:${request.requestId}`} request={request} />), item.kind === 'trace' ? (
                     <Fragment key={item.key}>
                       <ExecutorLabel executor={item.trace?.executor ?? (item.commandId ? session.executors[item.commandId] : null) ?? null} />
                       <ToolExecutionGroup
@@ -749,12 +762,14 @@ function AssistantSessionView({
                       {/* Multivac 直接执行的管理动作（新建、改名、归档、恢复会话）的回执：跟在这一轮之后，轨迹收起后仍可见。 */}
                       {isCoordinator && !remote && <ToolReceipts records={item.tools} />}
                     </Fragment>
+                  ) : taskId && item.message.role === 'user' ? (
+                    <TaskSystemCommand key={item.message.id} message={item.message} first={item === firstTaskCommand} />
                   ) : (
                     <article
                       className={[
                         'chat-row',
                         item.message.role,
-                        continuesSpeaker(index) ? 'continued' : '',
+                        continuesSpeaker(index) && !taskReplies?.before.has(index) ? 'continued' : '',
                         item.message.id === echoId ? 'pending' : '',
                       ].filter(Boolean).join(' ')}
                       data-entry-id={item.message.streamCursor === undefined ? item.message.runtimeEntryId : undefined}
@@ -810,7 +825,8 @@ function AssistantSessionView({
                         {onOpenFileReference && item.message.fileReferences?.some((reference) => reference.startOffset === undefined && reference.kind !== 'image') && <div className="discussion-references">{item.message.fileReferences.filter((reference) => reference.startOffset === undefined && reference.kind !== 'image').map((reference) => <button key={reference.href} type="button" title={`${reference.root}/${reference.path}${reference.section ? ` · ${reference.section}` : ''}`} aria-label={`打开原文 ${reference.path}`} onClick={() => onOpenFileReference(reference)}><FileText /><span>{reference.path}{reference.line ? ` · 第 ${reference.line}${reference.endLine ? `-${reference.endLine}` : ''} 行` : reference.section ? ` · ${reference.section}` : ''}</span></button>)}</div>}
                       </div>
                     </article>
-                  ))}
+                  )])}
+                  {taskReplies?.tail.map((request) => <TaskRequestReply key={`request:${request.requestId}`} request={request} />)}
                   {session.authorizations
                     .filter((request) => request.status === 'pending' &&
                       !(request.commandId && placedAuthorizationCommands.has(request.commandId)))
@@ -874,7 +890,12 @@ function AssistantSessionView({
             </div>
           )}
 
-          {composerCollapsed ? (
+          {taskId ? (
+            <div className="assistant-composer task-readonly">
+              {runStatusBar}
+              <TaskSessionNotice />
+            </div>
+          ) : composerCollapsed ? (
             <div className="assistant-composer collapsed">
               <button
                 type="button"
