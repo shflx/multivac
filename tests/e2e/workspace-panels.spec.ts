@@ -203,7 +203,7 @@ test('并排数可设为 3 / 4：各栏之间都可调整列宽，放不下时�
   const widths = await page.locator('.workspace-slot').evaluateAll((slots) => slots.map((slot) => slot.getBoundingClientRect().width));
   expect(widths.every((width) => width >= 319.5)).toBe(true);
   expect(await page.locator('.workspace-panels').evaluate((grid) => grid.scrollWidth > grid.clientWidth)).toBe(true);
-  expect(Math.round((await page.locator('.multivac-sidebar').boundingBox())!.width)).toBe(360);
+  expect(Math.round((await page.locator('.multivac-sidebar').boundingBox())!.width)).toBe(420);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
 
   // 当前会话在第 4 栏时调小为 2：它保留在最后一栏，其余会话退出显示但不关闭。

@@ -926,7 +926,7 @@ svg {
   height: 100%;
 }
 
-/* 当前面板在左，Multivac 侧栏停靠右侧：并排时占 360px 挤压页面，浮层时覆盖页面右侧。 */
+/* 当前面板在左，Multivac 侧栏停靠右侧：并排时按侧栏宽度挤压页面，浮层时覆盖页面右侧。 */
 .shell-content {
   position: relative;
   display: flex;
@@ -2228,7 +2228,7 @@ svg {
 }
 
 .composer-meta > .model-selector.compact {
-  max-width: 150px;
+  max-width: 130px;
 }
 
 /* 触发器也必须遵守模型入口分配到的宽度，不能越过相邻按钮。 */
@@ -2472,8 +2472,10 @@ svg {
 }
 
 .multivac-sidebar {
+  /* 按输入工具栏一行放下的宽度确定：+、Skill、模型名上限、紧凑 MCP 与发送。 */
+  --multivac-sidebar-width: 420px;
   display: flex;
-  flex: 0 0 360px;
+  flex: 0 0 var(--multivac-sidebar-width);
   flex-direction: column;
   min-width: 0;
   min-height: 0;
@@ -2499,7 +2501,7 @@ svg {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 360px;
+  width: var(--multivac-sidebar-width);
   box-shadow: var(--shadow-float);
 }
 
