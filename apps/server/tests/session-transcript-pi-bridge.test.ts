@@ -28,7 +28,22 @@ test('真实Pi桥接：全局实际工具集合经受控脚本从最近预览定
     sourcePiSessionId: 'third-private-session', sourceSessionId: 'third-session', sourceTitle: '第三会话',
   });
   manager.appendMessage({ role: 'user', content: draft, timestamp: 1 });
-  for (let i = 1; i <= 30; i++) manager.appendMessage({ role: 'user', content: `后续短消息${i}`, timestamp: i + 1 });
+  for (let i = 1; i <= 30; i++) {
+    if (i !== 15) {
+      manager.appendMessage({ role: 'user', content: `后续短消息${i}`, timestamp: i + 1 });
+      continue;
+    }
+    // 联合验证只读投影：这些排除字段真实存在于 Pi 历史，不能经分页或正文工具泄露。
+    manager.appendMessage({ role: 'assistant', api: 'openai-responses', provider: 'openai', model: 'controlled',
+      content: [
+        { type: 'thinking', thinking: '秘密思考：不得出现在读取结果' },
+        { type: 'text', text: `后续短消息${i}` },
+        { type: 'toolCall', id: 'private-call', name: 'private-tool', arguments: { secret: '原始工具输入：不得公开' } },
+      ], usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      stopReason: 'toolUse', timestamp: i + 1,
+    });
+    manager.appendMessage({ role: 'toolResult', toolCallId: 'private-call', toolName: 'private-tool', content: [{ type: 'text', text: '工具输出机密：不得公开' }], isError: false, timestamp: i + 1 });
+  }
   const targetFile = join(root, 'target.jsonl');
   await writeFile(targetFile, [manager.getHeader(), ...manager.getEntries()].map(e => JSON.stringify(e)).join('\n') + '\n');
   const originalFile = await readFile(targetFile, 'utf8');
@@ -61,7 +76,7 @@ test('真实Pi桥接：全局实际工具集合经受控脚本从最近预览定
             assert.equal(last.role, 'toolResult'); assert.equal(last.isError, false);
             const resultText = last.content.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
             assert.ok(resultText.length <= 12_000);
-            assert.doesNotMatch(resultText, /third-private-entry|third-private-session|target\.jsonl|sourceRuntimeEntryId/);
+            assert.doesNotMatch(resultText, /third-private-entry|third-private-session|target\.jsonl|sourceRuntimeEntryId|秘密思考|原始工具输入|工具输出机密/);
             const page = JSON.parse(resultText);
             calls.push({ tool: last.toolName, ...page.range, done: page.done });
             if (page.messages) {
@@ -131,7 +146,7 @@ test('真实Pi桥接：全局实际工具集合经受控脚本从最近预览定
     const rejected = await workService.invoke({ assistantSessionId: 'work', toolName: 'read_session_message', toolCallId: 'forged', args: { sessionId: 'target', messageRef: 'forged' } }, new AbortController().signal);
     assert.equal(rejected.ok, false); assert.equal(service.validate('read_thinking', {}).ok, false);
     const evidence = process.env.MULTIVAC_TRANSCRIPT_EVIDENCE;
-    if (evidence) await writeFile(evidence, JSON.stringify({ model: '受控脚本，非真实模型自主行为', bridge: '真实Pi SDK + 生产factory + customTools + InternalToolService + 持久历史投影', draftLength: draft.length, quoteLength: quote.length, exactReassembly: true, calls, returnLengths, declaredTools: declaredTools[0], factorySessions: factories, targetFileUnchanged: true, toolSetsMatched: true }, null, 2));
+    if (evidence) await writeFile(evidence, JSON.stringify({ model: '受控脚本，非真实模型自主行为', bridge: '真实Pi SDK + 生产factory + customTools + InternalToolService + 持久历史投影', draftLength: draft.length, quoteLength: quote.length, exactReassembly: true, calls, returnLengths, declaredTools: declaredTools[0], factorySessions: factories, targetFileUnchanged: true, excludedPrivateContent: true, toolSetsMatched: true }, null, 2));
   } finally { adapter.dispose(); await rm(root, { recursive: true, force: true }); }
 });
 
