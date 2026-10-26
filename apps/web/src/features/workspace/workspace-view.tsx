@@ -1,3 +1,6 @@
+import { lazy, Suspense } from 'react';
+import { useTerminals } from '../terminals/terminals-provider.js';
+const LazyTerminalView = lazy(() => import('../terminals/terminal-view.js').then(module => ({ default: module.TerminalView })));
 import {
   Columns2,
   Columns3,
@@ -112,6 +115,8 @@ export function WorkspaceView({
   onFocusChange, onHandToMultivac, onOpenSession, onViewChange, railRef: pickerRef, railControllerRef, onCloseOverlay, onChooseLayout,
 }: WorkspaceViewProps) {
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
+  const terminals = useTerminals();
+  const selectedTerminal = terminals.selected?.workspaceId === workspaceId ? terminals.terminals.find(item => item.terminalId === terminals.selected?.terminalId) : undefined;
   const workspaceSessions = useWorkspaceSessions();
   const { ensureLoaded, upsert } = workspaceSessions;
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
@@ -382,15 +387,15 @@ export function WorkspaceView({
 
   const currentTitle = currentId ? titleOf(currentId) : '';
   useEffect(() => {
-    onFocusChange?.(currentId ? { sessionId: currentId, title: currentTitle } : null);
-  }, [currentId, currentTitle, onFocusChange]);
+    onFocusChange?.(!selectedTerminal && currentId ? { sessionId: currentId, title: currentTitle } : null);
+  }, [currentId, currentTitle, onFocusChange, selectedTerminal]);
 
   // 界面呈现的现场按内容比较，内容不变时不重复通知。
-  const viewReportJson = sceneLoaded
+  const viewReportJson = sceneLoaded && !selectedTerminal
     ? JSON.stringify({ parallelCount, viewMode, slots: parallelIds, focusedSessionId: currentId })
     : null;
   useEffect(() => {
-    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null, reading: viewMode === 'focus' && readingFocus?.sessionId === currentId ? readingFocus : null });
+    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null, reading: !selectedTerminal && viewMode === 'focus' && readingFocus?.sessionId === currentId ? readingFocus : null });
   }, [workspaceId, viewReportJson, onViewChange, viewMode, readingFocus, currentId]);
 
   /**
@@ -406,6 +411,7 @@ export function WorkspaceView({
 
   /** 从列表打开会话：聚焦查看，栏位不变。 */
   function focusSession(id: string): void {
+    terminals.select(null);
     applyScene(focusSessionInScene(scene, id));
   }
 
@@ -457,6 +463,7 @@ export function WorkspaceView({
   }
 
   function handleCreated(session: WorkspaceSession): void {
+    terminals.select(null);
     upsert(session);
     if (session.workspaceId !== workspaceId) {
       setCreating(false);
@@ -555,6 +562,7 @@ export function WorkspaceView({
       currentId, parallelCount,
       onSwitch: onSwitchWorkspace,
       onOpen: (target, id) => {
+        terminals.select(null);
         onCloseOverlay();
         if (everySession.find(session => session.sessionId === id)?.taskId || target !== workspaceId) onOpenSession?.(target, id);
         else if (viewMode === 'parallel' && parallelIds.includes(id)) setFocusedId(id);
@@ -604,7 +612,7 @@ export function WorkspaceView({
         </div>
       )}
 
-      {sessions === null || !sceneLoaded ? (
+      {selectedTerminal ? <Suspense fallback={<p>正在加载终端…</p>}><LazyTerminalView record={selectedTerminal} visible={active} /></Suspense> : sessions === null || !sceneLoaded ? (
         <div className="workspace-empty" aria-live="polite">
           {loadError ? (
             <>

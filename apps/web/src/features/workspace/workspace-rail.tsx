@@ -1,3 +1,4 @@
+import { useTerminals } from '../terminals/terminals-provider.js';
 import { Archive, Check, Clock3, ChevronDown, ChevronRight, Columns2, Folder, FolderInput, MoreHorizontal, Pencil, Plus, X } from 'lucide-react';
 import { useEffect, useImperativeHandle, useRef, useState, type RefObject, type ReactNode, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
@@ -45,6 +46,8 @@ function focusWithoutScrolling(event: MouseEvent<HTMLButtonElement>) {
 
 /** 分组与会话共同标识一行；同一会话出现在多个集合时不会串改名状态。 */
 export function WorkspaceRail(props: WorkspaceRailProps) {
+  const terminals = useTerminals();
+  const [createMenu, setCreateMenu] = useState<string | null>(null);
   const { sessions, rename, archive } = useWorkspaceSessions();
   const confirm = useConfirm();
   const [collapsed, setCollapsed] = useState<string[]>([]);
@@ -95,6 +98,11 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
         // 任务会话只从任务详情进入独立视图，不计入工作区列表，与主区域的会话现场保持一致。
         const members = logical ? recentSessions(workSessions, props.recentDays, props.clock) : workSessions.filter((session) => session.workspaceId === id).slice().reverse();
         const live = members.filter((session) => session.archivedAt === null);
+        const projectTerminals = logical ? [] : terminals.terminals.filter(item => item.projectId === workspace.project?.projectId);
+        const mixed = [
+          ...live.map(session => ({ type: 'session' as const, session, at: session.lastActivityAt ?? session.createdAt })),
+          ...projectTerminals.filter(terminal => !terminal.closedAt).map(terminal => ({ type: 'terminal' as const, terminal, at: terminal.lastActivityAt })),
+        ].sort((a, b) => b.at.localeCompare(a.at));
         const open = !collapsed.includes(id);
         return <section className="rail-group" key={id} data-workspace-id={id}>
           <div className={`rail-folder${current ? ' active' : ''}`}>
@@ -105,10 +113,26 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
               <span className="rail-folder-icon">{logical ? <Clock3 /> : <Folder />}<span>{open ? <ChevronDown /> : <ChevronRight />}</span></span>
               <span className="nav-label">{workspace.name}</span>{logical && <small>{props.recentDays} 天</small>}
             </button>
-            {!logical && <button type="button" className="icon-button" aria-label={`在「${workspace.name}」新建会话`} title="新建会话" onClick={() => props.onCreate(id)}><Plus /></button>}
+            {!logical && <button type="button" className="icon-button" aria-label={`在「${workspace.name}」新建会话`} title="新建会话" onClick={() => workspace.project && terminals.available ? setCreateMenu(createMenu === id ? null : id) : props.onCreate(id)}><Plus /></button>}
           </div>
+          {createMenu === id && workspace.project && <div className="rail-create-menu" role="group" aria-label="新建工作区对象"><div>
+            <small>会话</small><button type="button" onClick={() => { setCreateMenu(null); props.onCreate(id); }}>新建工作会话</button>
+            <small>终端</small>{([
+              ['blank', '空白终端'], ['claude', 'Claude Code'], ['codex', 'Codex'], ['custom', '自定义命令…'],
+            ] as const).map(([kind, title]) => <button type="button" key={kind} onClick={() => { setCreateMenu(null); props.onSwitch(id); terminals.create(workspace.project!, kind); }}>{title}</button>)}
+          </div></div>}
           {open && <div className="rail-group-items">
-            {live.map((session) => {
+            {mixed.map((entry) => {
+              if (entry.type === 'terminal') {
+                const terminal = entry.terminal;
+                return <div className={`rail-item${terminals.selected?.terminalId === terminal.terminalId ? ' selected' : ''}`} key={`terminal:${terminal.terminalId}`} data-terminal-id={terminal.terminalId}>
+                  <button type="button" className="rail-session-open" onClick={() => { props.onSwitch(id); terminals.select({ workspaceId: id, terminalId: terminal.terminalId }); }}>
+                    <span className="rail-terminal-icon">{terminal.preset.kind === 'blank' ? '>_' : terminal.preset.kind === 'claude' ? '✳' : terminal.preset.kind === 'codex' ? '◈' : '⌘'}</span><span className="nav-label">{terminal.title}</span>
+                    <small className="rail-terminal-status">{['exited', 'failed'].includes(terminal.status) ? '已结束' : terminal.status === 'stop-unconfirmed' ? '未确认' : '运行'}{terminal.unread ? ' · ●' : ''}{terminal.notificationCount ? ` · 通知 ${terminal.notificationCount}` : ''}</small>
+                  </button>
+                </div>;
+              }
+              const session = entry.session;
               const key = `${id}:${session.sessionId}`;
               const slot = current ? props.slots.indexOf(session.sessionId) : -1;
               return <div className={`rail-item${current && session.sessionId === props.currentId ? ' selected' : ''}`} key={key} data-session-id={session.sessionId}>
@@ -123,7 +147,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
                   <button type="submit" className="icon-button" aria-label="保存名称" disabled={busy || !normalizeWorkspaceSessionTitle(title)}><Check /></button>
                   <button type="button" className="icon-button" aria-label="取消改名" onClick={() => setEditing(null)}><X /></button>
                 </form> : <>
-                  <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => props.onOpen(id, session.sessionId)}><span className="nav-label">{session.title}</span><SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
+                  <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => { terminals.select(null); props.onOpen(id, session.sessionId); }}><span className="nav-label">{session.title}</span><SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
                   <button type="button" className="icon-button rail-more" onMouseDown={focusWithoutScrolling} aria-label={`更多「${session.title}」`} title="更多" aria-expanded={menu?.key === key} onClick={(event) => {
                     const trigger = event.currentTarget;
                     const rect = trigger.getBoundingClientRect();
@@ -132,13 +156,15 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
                 </>}
               </div>;
             })}
-            {!live.length && <p className="rail-empty">还没有会话</p>}
+            {!mixed.length && <p className="rail-empty">还没有会话或终端</p>}
+            {projectTerminals.some(item => item.closedAt) && <details><summary>已关闭终端</summary>{projectTerminals.filter(item => item.closedAt).map(terminal => <button type="button" className="rail-session-open" key={terminal.terminalId} onClick={() => { props.onSwitch(id); terminals.select({ workspaceId: id, terminalId: terminal.terminalId }); }}>{terminal.title} · 重新打开</button>)}</details>}
           </div>}
         </section>;
       })}
       <button type="button" className="rail-new-project" ref={projectTrigger} onClick={() => setCreatingProject(true)}><Plus />新建项目…</button>
       {error && <p className="workspace-error" role="alert">{error}</p>}
     </div>
+    {terminals.error && <p role="alert">{terminals.error}</p>}
     {props.children}
     {menu && createPortal(<div ref={menuRef} className="rail-menu" role="menu" aria-label={`会话操作：${menu.session.title}`} style={{ top: menu.top, left: menu.left }} onKeyDown={(event) => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); menu.trigger.focus(); setMenu(null); }
