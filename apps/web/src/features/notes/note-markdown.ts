@@ -77,6 +77,14 @@ export function parseNoteMarkdown(source: string, schema: Schema): NoteMarkdown 
       case 'inlineCode': return text(node.value, node, true).map(child => ({ ...child, marks: [{ type: 'code' }] }));
       case 'code': return [{ type: 'codeBlock', attrs: { language: node.lang ?? null }, content: text(node.value, node, true) }];
       case 'break': return [{ type: 'hardBreak' }];
+      case 'html': {
+        // 只识别无属性的换行标签；其余 HTML 继续作为原文保留，不执行。
+        if (/^(?:<br\s*\/?>)+$/i.test(node.value)) {
+          const content = [...node.value.matchAll(/<br\s*\/?>/gi)].map(() => ({ type: 'hardBreak' }));
+          return inline ? content : [{ type: 'paragraph', content }];
+        }
+        return [{ type: inline ? 'noteRawInline' : 'noteRawBlock', attrs: { source: source.slice(bounds(node).start, bounds(node).end) } }];
+      }
       case 'thematicBreak': return [{ type: 'horizontalRule' }];
       case 'link': return marked(node, 'link', { href: node.url, title: node.title ?? null });
       case 'linkReference': {
