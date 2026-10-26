@@ -1,5 +1,6 @@
 import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
-import { access, lstat, readlink, realpath, stat } from 'node:fs/promises';
+import { access, lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -346,7 +347,7 @@ export function createToolBoundaryExtension(options: ToolBoundaryExtensionOption
   };
 }
 
-/** 在实际文件执行入口判定范围，避免整批工具等待期间保留失效的挂载许可。 */
+/** 文件队列出队后、首次 I/O 前才授予调用许可；预先解析目标只用于钉住，不保留挂载许可。 */
 export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): ToolDefinition[] {
   const boundary = createToolBoundaryExtension({ ...options, fileExecutionGuarded: false });
   const check = boundary.handlers.get('tool_call')![0]!;
@@ -355,10 +356,36 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
     ...definition,
     async execute(toolCallId, params, signal, onUpdate, context) {
       const event = { type: 'tool_call', toolName: definition.name, toolCallId, input: { ...params as Record<string, unknown> } } as ToolCallEvent;
-      const result = await check(event, { ...context, signal }) as ToolCallEventResult | undefined;
-      if (result?.block) throw new Error(result.reason);
-      if (signal?.aborted) throw new Error(CANCELLED_REASON);
-      return definition.execute(toolCallId, event.input, signal, onUpdate, context);
+      const planned = await judgeToolCall(definition.name, event.input, options.cwd, options.internalTools, options.projectDirectories);
+      if (planned.type === 'block') throw new Error(planned.reason);
+      const target = planned.targetPath;
+      if (!target) throw new Error('无法确认文件目标。');
+      const executionInput = { ...event.input };
+      pinTargetPath(executionInput, target, options.cwd);
+      let started = false;
+      const beforeIo = async (filePath?: string) => {
+        if (signal?.aborted) throw new Error(CANCELLED_REASON);
+        const current = await resolveToolTargetPath(definition.name, (event.input as Record<string, unknown>).path as string, options.cwd);
+        if (current !== target || (filePath && await resolveRealTargetPath(filePath) !== target)) {
+          throw new Error('文件实际目标在执行前发生了变化，调用未执行，请按新目标重新确认。');
+        }
+        if (started) return;
+        const result = await check(event, { ...context, signal }) as ToolCallEventResult | undefined;
+        if (result?.block) throw new Error(result.reason);
+        if (signal?.aborted) throw new Error(CANCELLED_REASON);
+        started = true;
+      };
+      // 每个调用独立持有状态；复用 Pi 的队列、替换算法、图片与截断处理。
+      const operations = {
+        readFile: async (path: string) => { await beforeIo(path); return readFile(path); },
+        writeFile: async (path: string, content: string) => { await beforeIo(path); await writeFile(path, content, 'utf8'); },
+        access: async (path: string) => { await beforeIo(); await access(path, definition.name === 'edit' ? constants.R_OK | constants.W_OK : constants.R_OK); },
+        mkdir: async (path: string) => { await beforeIo(); await mkdir(path, { recursive: true }); },
+      };
+      const guarded = (definition.name === 'read' ? createReadToolDefinition(options.cwd, { operations })
+        : definition.name === 'edit' ? createEditToolDefinition(options.cwd, { operations })
+          : createWriteToolDefinition(options.cwd, { operations })) as unknown as ToolDefinition;
+      return guarded.execute(toolCallId, executionInput, signal, onUpdate, context);
     },
   }));
 }
