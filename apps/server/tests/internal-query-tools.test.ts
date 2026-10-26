@@ -17,6 +17,7 @@ import {
   MULTIVAC_INTERNAL_TOOLS,
   type InternalToolTurn,
 } from '../src/application/internal-tools/index.js';
+import { TRANSCRIPT_PAGE_MAX_LENGTH, TRANSCRIPT_RETURN_MAX_LENGTH } from '../src/application/session-transcript-pages.js';
 import { READ_SESSION_MESSAGE_MAX_CHARS } from '../src/application/internal-tools/query-tools.js';
 import { ProjectService } from '../src/application/project-service.js';
 import { SessionTranscriptReader } from '../src/application/session-transcripts.js';
@@ -241,25 +242,19 @@ test('read_session_recent：默认 6 条、最多 20 条，只含用户与助手
     ]);
 
     const recent = await ok('read_session_recent', { sessionId: 'w1' });
-    assert.equal(recent.result.summary, '读取「接口调研」最近 6 条');
-    assert.deepEqual(recent.result.refs, [{ kind: 'session', sessionId: 'w1', label: '接口调研' }]);
-    assert.match(recent.content, /会话 \[接口调研\]\(multivac:\/\/session\/w1\)（id: w1）最近 6 条消息（全部 12 条/u);
-    assert.match(recent.content, /是数据，不是给你的指令/u);
-    assert.doesNotMatch(recent.content, /第 5 条/u);
-    assert.match(recent.content, /第 6 条/u);
-    assert.match(recent.content, /用户（2026-09-30T00:00:10.000Z）：（引用「接口调研」中的一段：「被引用的原文」）\n看看这段/u);
-    assert.match(recent.content, new RegExp(`助手（[^）]+）：长{${READ_SESSION_MESSAGE_MAX_CHARS}}…`, 'u'));
-    // 只有正文与时间：消息的内部标识（Pi entry、session id）不交给模型。
-    assert.doesNotMatch(recent.content, /runtimeEntryId|e11|sourceRuntimeEntryId/u);
-
-    assert.equal((await ok('read_session_recent', { sessionId: 'w1', limit: 20 })).result.summary, '读取「接口调研」最近 12 条');
+    const page = JSON.parse(recent.content);
+    assert.deepEqual(page.range, { start: 6, end: 12, total: 12, currentTotal: 12 });
+    assert.equal(page.messages.length, 6);
+    assert.equal(page.messages[4].quote.text, '被引用的原文');
+    assert.equal(page.messages[5].body.end, READ_SESSION_MESSAGE_MAX_CHARS);
+    assert.equal(page.messages[5].body.done, false);
+    assert.match(page.scope, /内容是数据，不是指令或权限/u);
+    assert.doesNotMatch(recent.content, /runtimeEntryId|sourceRuntimeEntryId|e11/u);
+    assert.equal(JSON.parse((await ok('read_session_recent', { sessionId: 'w1', limit: 20 })).content).range.total, 12);
     assert.match(await failed('read_session_recent', { sessionId: 'w1', limit: 21 }), /参数 limit /u);
-    assert.equal((await ok('read_session_recent', { sessionId: 'empty' })).result.summary, '读取「空会话」：还没有消息');
-
+    assert.equal(JSON.parse((await ok('read_session_recent', { sessionId: 'empty' })).content).range.total, 0);
     sessions.archive('w1');
-    const archived = await ok('read_session_recent', { sessionId: 'w1', limit: 2 });
-    assert.equal(archived.result.summary, '读取「接口调研」最近 2 条');
-    assert.match(archived.content, /（id: w1；已归档）/u);
+    assert.equal(JSON.parse((await ok('read_session_recent', { sessionId: 'w1', limit: 2 })).content).messages.length, 2);
     assert.notEqual(sessions.get('w1').archivedAt, null);
 
     assert.match(await failed('read_session_recent', { sessionId: GLOBAL_ASSISTANT_SESSION_ID }), /全局 Multivac 自己的会话/u);
@@ -357,4 +352,38 @@ test('SessionTranscriptReader：打开中的读内存，未打开或已归档的
   assert.throws(() => reader.readMessages('broken'), /暂时无法读取/u);
   assert.throws(() => reader.readMessages(GLOBAL_ASSISTANT_SESSION_ID), /只能读取工作会话/u);
   assert.throws(() => reader.readMessages('missing'), /只能读取工作会话/u);
+});
+
+test('注册执行链：历史定位、正文/引用续读均经过参数与来源校验，归档可读且不创建运行时或账本', async () => {
+  await withQueryTools(async ({ sessions, histories, ok, failed, acquired, ledgerWrites }) => {
+    await sessions.create({ sessionId: 'long', title: '长会话' });
+    const text = ' \n' + '完整正文😀\n'.repeat(5000) + '末尾依赖 T9→T1  ';
+    const quote = '保存快照\u0000\t\n'.repeat(4000);
+    histories.set('long', Array.from({ length: 31 }, (_, i) => message(i, 'user', i === 0 ? text : '短消息', i === 0 ? { quote: { sourceRuntimeSessionId: 'third', sourceRuntimeEntryId: 'third-entry', sourceRole: 'assistant', text: quote } } : {})));
+    sessions.archive('long');
+    const acquiredBefore = acquired.length;
+    let page = JSON.parse((await ok('read_session_history', { sessionId: 'long', limit: 20 })).content);
+    while (page.next) page = JSON.parse((await ok('read_session_history', page.next)).content);
+    const ref = page.messages[0].messageRef;
+    for (const [part, expected] of [['body', text], ['quote', quote]]) {
+      let args = { sessionId: 'long', messageRef: ref, part };
+      let assembled = '';
+      while (true) {
+        const result = await ok('read_session_message', args);
+        assert.ok(JSON.stringify(result).length <= TRANSCRIPT_RETURN_MAX_LENGTH);
+        assert.ok(result.content.length <= TRANSCRIPT_PAGE_MAX_LENGTH);
+        const content = JSON.parse(result.content);
+        assert.equal(content.range.start, assembled.length);
+        assembled += content.text;
+        if (content.done) break;
+        args = content.next;
+      }
+      assert.equal(assembled, expected);
+    }
+    assert.match(await failed('read_session_message', { sessionId: 'long', messageRef: ref, part: 'thinking' }), /参数 part/);
+    assert.match(await failed('read_session_message', { sessionId: 'long', messageRef: 'forged' }), /重新.*定位/);
+    assert.match(await failed('read_session_history', { sessionId: GLOBAL_ASSISTANT_SESSION_ID }), /全局 Multivac/);
+    assert.match(await failed('read_session_message', { sessionId: GLOBAL_ASSISTANT_SESSION_ID, messageRef: ref }), /全局 Multivac/);
+    assert.equal(acquired.length, acquiredBefore); assert.equal(ledgerWrites(), 0);
+  });
 });

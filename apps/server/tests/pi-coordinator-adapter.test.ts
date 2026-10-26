@@ -133,6 +133,7 @@ test('PiCoordinatorAdapter 使用 continueRecent 并从 active branch 映射历�
     value: {
       runtimeSessionId: 'pi-1',
       leafEntryId: 'entry-1',
+      branchEntryIds: ['entry-1'],
       messages: [{
         id: 'pi-1:entry-1',
         runtimeSessionId: 'pi-1',
