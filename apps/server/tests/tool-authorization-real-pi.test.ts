@@ -316,7 +316,7 @@ test('真实 Pi：等待授权期间符号链接被改指，批准后不访问�
   });
 });
 
-test('真实 Pi：同一批工具调用中，已放行的调用（目录外经批准、目录内直接放行）在等待其他授权期间链接被改指，执行时仍访问放行时核对的目标', async () => {
+test('真实 Pi：并行文件调用独立授权，等待时链接改指只拒绝受影响的读取，其他调用保留已确认目标', async () => {
   await withRealPi(async ({ cwd, outside, model, eventStream, authorization, adapter, session }) => {
     await session.initialize();
     await writeFile(join(outside, 'a.txt'), 'approved A');
@@ -326,35 +326,40 @@ test('真实 Pi：同一批工具调用中，已放行的调用（目录外经�
     await mkdir(inside);
     await symlink(inside, join(cwd, 'inside-link'));
 
-    // Pi 默认并行执行一批工具调用：先逐个经过 tool_call 钩子，全部放行后才一起执行。
-    // 第一个调用（目录外，批准）与第二个调用（目录内，直接放行）都要等第三个调用的授权结束才执行。
-    const requests: ToolAuthorizationRequest[] = [];
-    let secondRequest!: () => void;
-    const secondArrived = new Promise<void>((resolve) => { secondRequest = resolve; });
-    eventStream.subscribe((event) => {
+    // 文件工具在自己的首次 I/O 前授权；不同调用到达授权处的顺序不固定。
+    let pending!: (request: ToolAuthorizationRequest) => void;
+    const pendingLink = new Promise<ToolAuthorizationRequest>(resolve => { pending = resolve; });
+    let written!: () => void;
+    const insideWritten = new Promise<void>(resolve => { written = resolve; });
+    eventStream.subscribe(event => {
       if (event.type !== 'assistant.authorization.requested') return;
-      requests.push(event.data.request);
-      // 事件在请求登记等待之前发出，决定放到下一个事件循环。
-      if (requests.length === 1) setImmediate(() => authorization.decide(SESSION_ID, event.data.request.requestId, 'once'));
-      else secondRequest();
+      if (event.data.request.requestedPath === join(outside, 'batch-link')) pending(event.data.request);
+      else setImmediate(() => authorization.decide(SESSION_ID, event.data.request.requestId, 'once'));
     });
+    assert.equal(adapter.subscribe(SESSION_ID, event => {
+      if (event.type === 'coordinator.tool.ended' && event.toolName === 'write') {
+        assert.equal(event.isError, false);
+        written();
+      }
+    }).ok, true);
     model.script({ toolCalls: [
       { name: 'read', arguments: { path: join(outside, 'batch-link') } },
       { name: 'write', arguments: { path: 'inside-link/new.txt', content: 'inside only' } },
       { name: 'read', arguments: { path: join(outside, 'a.txt') } },
     ] }, { text: '完成。' });
     const run = adapter.prompt(SESSION_ID, '一批调用');
-    await secondArrived;
+    const [request] = await Promise.all([pendingLink, insideWritten]);
 
-    // 前两个调用已放行、尚未执行时，两条链接都被改指（目录内的链接改指到目录外）。
+    // 保持第一条读取待授权，确认目录内写入能独立完成；随后改指两条链接。
     await repoint(join(outside, 'batch-link'), join(outside, 'b.txt'));
     await repoint(join(cwd, 'inside-link'), outside);
-    authorization.decide(SESSION_ID, requests[1]!.requestId, 'once');
+    authorization.decide(SESSION_ID, request.requestId, 'once');
     assert.equal(await runStatus(run), 'completed');
 
     const results = model.takeToolResults();
     assert.equal(results.length, 3);
-    assert.match(results[0]!, /approved A/u);
+    assert.match(results[0]!, /等待授权期间发生了变化/u);
+    assert.match(results[2]!, /approved A/u);
     assert.doesNotMatch(results.join('\n'), /unapproved B secret/u);
     assert.equal(readFileSync(join(inside, 'new.txt'), 'utf8'), 'inside only');
     assert.equal(existsSync(join(outside, 'new.txt')), false);
@@ -390,10 +395,10 @@ test('真实 Pi：批准后按钉住的真实路径执行，@、file://、经链
     ] }, { text: '完成。' });
     assert.equal(await runStatus(adapter.prompt(SESSION_ID, '各种写法')), 'completed');
 
-    assert.deepEqual(requested.map((request) => request.targetPath), [
+    assert.deepEqual(requested.map((request) => request.targetPath).sort(), [
       join(outside, 'plain.txt'), join(outside, 'plain.txt'), join(outside, 'it’s.txt'),
       join(outside, 'shot 10.00\u202FAM.txt'), join(outside, 'edit.txt'), join(outside, 'new', 'deep.txt'),
-    ]);
+    ].sort());
     const results = model.takeToolResults();
     assert.equal(results.length, 6);
     assert.match(results[0]!, /plain content/u);
