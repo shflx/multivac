@@ -84,17 +84,17 @@ test('“X 进展如何”：读取会话最近的正文（不含思考），工
 
   const toolCallId = `e2e-read-${Date.now()}`;
   await send(home(page), `接口调研进展如何？\n内部工具：read_session_recent#${toolCallId} {"sessionId":"progress-a"}`);
-  const reply = replyWith(home(page), '最近 2 条消息');
-  await expect(reply).toContainText('用户（');
+  const reply = replyWith(home(page), 'recent-preview');
+  await expect(reply).toContainText('user');
   await expect(reply).toContainText('先把接口列一下');
-  await expect(reply).toContainText('助手（');
+  await expect(reply).toContainText('assistant');
   await expect(reply).toContainText('Fake Multivac 已处理当前消息。');
   // 工作会话的思考内容不在读取结果里。
   await expect(reply).not.toContainText('正在梳理当前请求需要核对的范围');
 
   const row = await toolRow(home(page), toolCallId);
   await expect(row.locator('span').first()).toHaveText('读取会话 progress-a');
-  await expect(row.locator('em')).toHaveText('已完成 · 读取「接口调研」最近 2 条');
+  await expect(row.locator('em')).toHaveText('已完成 · 读取「接口调研」最近消息预览');
   await expect(row.locator('.run-trace-refs').getByRole('button', { name: '接口调研' })).toBeVisible();
 
   // 回复中的会话链接：切到工作区并聚焦这个会话。
@@ -107,7 +107,7 @@ test('“X 进展如何”：读取会话最近的正文（不含思考），工
   await page.reload();
   await openPanel(page, 'home');
   const restored = await toolRow(home(page), toolCallId);
-  await expect(restored.locator('em')).toHaveText('已完成 · 读取「接口调研」最近 2 条');
+  await expect(restored.locator('em')).toHaveText('已完成 · 读取「接口调研」最近消息预览');
   await expect(restored.locator('.run-trace-refs').getByRole('button', { name: '接口调研' })).toBeVisible();
 });
 

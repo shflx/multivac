@@ -153,7 +153,7 @@ test('HTTP（Fake）：发送时带上的当前视图只作为这一轮的来源
     const tools = page.toolExecutions!.filter((tool) => tool.commandId === 'cmd-view');
     assert.deepEqual(tools.map((tool) => [tool.displayName, tool.result?.summary]), [
       ['读取当前视图', '工作区「默认工作区」· 并排 2 栏'],
-      ['读取会话内容', '读取「接口调研」最近 2 条'],
+      ['读取会话内容', '读取「接口调研」最近消息预览'],
     ]);
     // 工具记录只有摘要与对象，不带会话正文。
     assert.equal(JSON.stringify(tools).includes('先把接口列一下'), false);
