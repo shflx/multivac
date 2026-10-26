@@ -1,6 +1,6 @@
 import { Type } from 'typebox';
 import { SessionTranscriptUnavailableError } from '../session-transcripts.js';
-import { transcriptMessage, transcriptPreview, TRANSCRIPT_RETURN_MAX_LENGTH } from '../session-transcript-pages.js';
+import { transcriptMessage, transcriptPreview, TRANSCRIPT_PAGE_MAX_LENGTH, TRANSCRIPT_RETURN_MAX_LENGTH } from '../session-transcript-pages.js';
 import { InternalToolError } from '../../modules/internal-tools/internal-tool.js';
 import { defineInternalTool, type InternalToolServices } from './internal-tool-service.js';
 import { requireSession, sessionRef, summaryOf } from './tool-text.js';
@@ -13,8 +13,17 @@ const Limit = Type.Optional(Type.Integer({ minimum: 1, maximum: 20 }));
 export function readTranscriptPage(services: InternalToolServices, sessionId: string, read: () => object, summary: string) {
   const session = requireSession(services, sessionId, '读取会话');
   try {
-    const outcome = { content: JSON.stringify(read()), result: { summary: summaryOf(summary), refs: [sessionRef(session)] } };
-    if (JSON.stringify(outcome).length > TRANSCRIPT_RETURN_MAX_LENGTH) throw new InternalToolError('读取结果超过单页预算。');
+    const running = services.sessions.isRunning(sessionId);
+    const page = {
+      ...read(),
+      sourceLink: `[${session.title.slice(0, 80)}](multivac://session/${sessionId})`,
+      sessionState: { archived: session.archivedAt !== null, running },
+      ...(running ? { availability: '按现有可见来源读取；生成中尚未投影的正文不保证可见。' } : {}),
+    };
+    const outcome = { content: JSON.stringify(page), result: { summary: summaryOf(summary), refs: [sessionRef(session)] } };
+    if (outcome.content.length > TRANSCRIPT_PAGE_MAX_LENGTH || JSON.stringify({ ok: true, ...outcome }).length > TRANSCRIPT_RETURN_MAX_LENGTH) {
+      throw new InternalToolError('读取结果超过单页预算。');
+    }
     return outcome;
   } catch (error) {
     if (error instanceof SessionTranscriptUnavailableError) throw new InternalToolError(`没有读取会话：${error.message}`);

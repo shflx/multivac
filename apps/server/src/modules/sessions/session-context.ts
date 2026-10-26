@@ -12,10 +12,17 @@ function clip(text: string, limit: number): string {
 
 /** 按时间顺序摘录会话最近的几条可见消息；总长度超限时从最早的一条开始舍弃。 */
 export function sessionContextExcerpt(messages: readonly AssistantMessageView[]): string {
-  const lines = messages.slice(-SESSION_CONTEXT_MAX_MESSAGES).map((message) =>
-    `${message.role === 'user' ? '用户' : '助手'}：${clip(message.text, SESSION_CONTEXT_MESSAGE_MAX_CHARS)}`);
-  while (lines.length > 1 && lines.join('\n').length > SESSION_CONTEXT_MAX_CHARS) lines.shift();
-  return lines.length > 0 ? lines.join('\n') : '（该会话还没有消息）';
+  if (messages.length === 0) return '（该会话还没有消息）';
+  const lines = messages.slice(-SESSION_CONTEXT_MAX_MESSAGES).map((message) => {
+    const text = message.text.trim();
+    const incomplete = text.length > SESSION_CONTEXT_MESSAGE_MAX_CHARS;
+    let end = incomplete ? SESSION_CONTEXT_MESSAGE_MAX_CHARS - 1 : text.length;
+    if (end > 0 && /[\uD800-\uDBFF]/u.test(text[end - 1]!) && /[\uDC00-\uDFFF]/u.test(text[end] ?? '')) end--;
+    return `${message.role === 'user' ? '用户' : '助手'}${incomplete ? '（正文未完）' : ''}：${text.slice(0, end)}${incomplete ? '…' : ''}`;
+  });
+  const header = () => `有限摘录：最近 ${lines.length}/${messages.length} 条，消息范围 [${messages.length - lines.length},${messages.length})；保存引用未自动注入。`;
+  while (lines.length > 1 && [header(), ...lines].join('\n').length > SESSION_CONTEXT_MAX_CHARS) lines.shift();
+  return [header(), ...lines].join('\n');
 }
 
 /** Multivac 侧栏正在看的会话（工作区的焦点会话）。 */
