@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { GLOBAL_ASSISTANT_SESSION_ID, type WorkingDirectory } from '@multivac/contracts';
-import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { withFileMutationQueue, type ExtensionContext } from '@earendil-works/pi-coding-agent';
+import { setImmediate as nextTick } from 'node:timers/promises';
 import { projectFileScope } from '../src/application/project-file-scope.js';
 import { ProjectService } from '../src/application/project-service.js';
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
@@ -161,7 +162,44 @@ test('项目范围按真实路径判定：链接逃逸、..、同前缀兄弟目
   } finally { await f.cleanup(); }
 });
 
-test('身份来自真实记录和运行模式：全局、任务 Run、worktree/task-isolated 和宿主讨论不获得项目范围', async () => {
+test('Pi 真实文件队列：排队期间卸载时，出队后的 write/edit 重新确认且不修改文件', async () => {
+  const f = await fixture();
+  try {
+    const file = join(f.paths.extra!, 'queued.txt');
+    await writeFile(file, 'original');
+    for (const name of ['write', 'edit']) {
+      f.mount();
+      let release!: () => void;
+      const held = new Promise<void>(resolve => { release = resolve; });
+      const blocker = withFileMutationQueue(file, () => held);
+      let scopeRead!: () => void;
+      const planned = new Promise<void>(resolve => { scopeRead = resolve; });
+      let reads = 0;
+      let requests = 0;
+      const tools = createBoundaryFileTools({
+        cwd: f.old.workingDirectory!.path,
+        projectDirectories: () => {
+          const directories = f.scope('old', f.old.workingDirectory!);
+          if (++reads === 2) scopeRead();
+          return directories;
+        },
+        authorizeOutsideAccess: async () => { requests++; return { allowed: false, reason: '卸载后需要重新确认。' }; },
+      });
+      const waiting = f.invoke(tools, name, file, name === 'write' ? { content: 'wrong' } : { edits: [{ oldText: 'original', newText: 'wrong' }] });
+      // 观察到预解析最后一次范围读取，再让 Promise 链进入 SDK 队列；不用时间猜测。
+      await planned;
+      await nextTick();
+      f.unmount();
+      release();
+      await blocker;
+      await assert.rejects(waiting, /卸载后需要重新确认/);
+      assert.equal(requests, 1);
+      assert.equal(await readFile(file, 'utf8'), 'original');
+    }
+  } finally { await f.cleanup(); }
+});
+
+test('身份来自真实记录和运行模式：全局、任务 Run、worktree/task-isolated 不获得项目范围', async () => {
   const f = await fixture();
   try {
     f.mount();
