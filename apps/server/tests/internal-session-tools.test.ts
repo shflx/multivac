@@ -209,7 +209,10 @@ test('create_session：指定父会话时新建栈式子会话，留在父会话
     assert.equal(child.workspaceId, research.projectId);
     assert.equal(child.originText, null);
     assert.equal(child.workingDirectory.path, sessions.get('parent').workingDirectory.path);
-    assert.deepEqual(registry.get(child.sessionId)!.origin, { parentTitle: '导航结构', parentExcerpt: '用户：整理导航\n助手：分三层' });
+    assert.deepEqual(registry.get(child.sessionId)!.origin, {
+      parentTitle: '导航结构',
+      parentExcerpt: '有限摘录：最近 2/2 条，消息范围 [0,2)；保存引用未自动注入。\n用户：整理导航\n助手：分三层',
+    });
     // 不带选中内容：子会话输入区没有来自父会话的引用。
     assert.equal(pageStates.get(child.sessionId).quote, null);
     assert.match(stacked.content, /它是 \[导航结构\]\(multivac:\/\/session\/parent\) 的栈式子会话，承接了父会话最近内容的摘录（没有带选中内容）/u);

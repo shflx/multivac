@@ -149,7 +149,11 @@ test('HTTP（Fake）：发送时带上的当前视图只作为这一轮的来源
     const page = (await httpJson(port, '/api/assistant/session')).body as AssistantSessionPageResponse;
     const reply = page.messages.at(-1)!.text;
     assert.match(reply, /- 第 2 栏：\[接口调研\]\(multivac:\/\/session\/work-a\)/u);
-    assert.match(reply, /用户（[^）]+）：先把接口列一下/u);
+    const preview = JSON.parse(reply.slice(reply.indexOf('\n\n') + 2));
+    assert.equal(preview.mode, 'recent-preview');
+    assert.equal(preview.messages[0].role, 'user');
+    assert.equal(preview.messages[0].body.text, '先把接口列一下');
+    assert.equal(preview.messages[0].body.done, true);
     const tools = page.toolExecutions!.filter((tool) => tool.commandId === 'cmd-view');
     assert.deepEqual(tools.map((tool) => [tool.displayName, tool.result?.summary]), [
       ['读取当前视图', '工作区「默认工作区」· 并排 2 栏'],
