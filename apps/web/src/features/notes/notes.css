@@ -84,7 +84,7 @@
 .note-writing-surface { position: relative; min-height: 360px; font-size: 16px; line-height: 1.95; letter-spacing: .01em; }
 .note-rich-editor { min-height: 360px; padding: 0; color: var(--ink); outline: none; overflow-wrap: anywhere; white-space: pre-wrap; font-size: inherit; line-height: inherit; caret-color: var(--accent); }
 .note-rich-editor > :first-child { margin-top: 0; }
-.note-rich-editor p { margin: 0 0 20px; }
+.note-rich-editor p { margin: 0 0 20px; white-space: pre-wrap; }
 .note-rich-editor:has(> p:only-child > br:only-child)::before { position: absolute; color: var(--faint); content: attr(data-placeholder); pointer-events: none; }
 .note-rich-editor :is(h1, h2, h3) { color: var(--ink); font-weight: 650; letter-spacing: -.02em; line-height: 1.45; }
 .note-rich-editor h1 { font-size: 28px; margin: 36px 0 18px; }
