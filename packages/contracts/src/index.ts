@@ -17,6 +17,7 @@ export * from './project-resources.js';
 export * from './project-proposals.js';
 export * from './proposals.js';
 export * from './session-model-selection.js';
+export * from './session-context-management.js';
 export * from './tool-authorization.js';
 export * from './workbench.js';
 export * from './workspace-scene.js';

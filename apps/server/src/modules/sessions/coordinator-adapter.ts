@@ -15,6 +15,9 @@ import type {
   CoordinatorSkill,
   CoordinatorThinkingLevel,
   WorkingDirectory,
+  ContextCompactionOperation,
+  ContextModelIdentity,
+  SessionContextState,
 } from '@multivac/contracts';
 import type { InternalToolOutcome, InternalToolSpec } from '../internal-tools/internal-tool.js';
 import type { SkillSource } from '../skills/skill-source.js';
@@ -187,6 +190,27 @@ export interface CoordinatorCapabilities {
   readonly toolStopProof: boolean;
   /** 能把 Skill 交给 Agent（见 bindSkills）；不支持时会话中没有 Skill 工具。 */
   readonly skills: boolean;
+  /** 未声明视为不支持；只读查询不得为此新建或恢复运行时。 */
+  readonly contextSnapshot?: boolean;
+  /** 仅在历史保留、失败一致性及持久恢复已验证后声明支持。 */
+  readonly nativeCompaction?: boolean;
+}
+
+/** Pi 等执行器专用类型不得穿过此端口。持久意图、宿主准入和会话互斥由应用层负责。 */
+export interface CoordinatorContextManagementPort {
+  readContext(sessionId: string): CoordinatorResult<SessionContextState>;
+  /** 调用前已持久化操作意图；执行器再次核对空闲、身份、版本与实际持久模型。 */
+  compactContext(input: {
+    operationId: string;
+    sessionId: string;
+    expectedRevision: string;
+    expectedModel: ContextModelIdentity;
+  }): Promise<CoordinatorResult<ContextCompactionOperation>>;
+  /** 未知返回或恢复时只读对账原操作，不重放模型请求、不补写摘要。 */
+  reconcileCompaction(input: {
+    identity: CoordinatorSessionRecoveryIdentity;
+    operation: ContextCompactionOperation;
+  }): CoordinatorResult<ContextCompactionOperation>;
 }
 
 /** 任务执行工具的额度租约：工具副作用前登记、真实结束后结算，返回剩余字节；租约失效时抛错。 */
@@ -196,6 +220,8 @@ export interface CoordinatorAdapter {
   /** 执行器标识。创建的绑定带上它；续接与读取持久历史只接受同一 harness 的身份，其他身份以 SESSION_BINDING_MISMATCH 拒绝。 */
   readonly harness: CoordinatorHarnessId;
   readonly capabilities: CoordinatorCapabilities;
+  /** 可选能力端口；缺失时应用层明确返回不可用，不能回退为普通总结请求。 */
+  readonly contextManagement?: CoordinatorContextManagementPort;
   /** 执行器自身的内部目录（凭据、会话文件等）；任务目录、Git 通道与托管进程不得触及。 */
   readonly protectedPaths: readonly string[];
   /** 装配时接入任务执行额度租约，只调用一次；未接入时任务工具拒绝执行。 */
