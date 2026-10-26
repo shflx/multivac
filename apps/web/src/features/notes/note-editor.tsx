@@ -1,12 +1,14 @@
 import { createPortal } from 'react-dom';
 import { Check as checkSchema } from 'typebox/value';
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useReducer, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Check, Save, LoaderCircle, PencilLine, Maximize2, Minimize2, History, Trash2 } from 'lucide-react';
 import { DeleteNoteSchema, type DeleteNote, type Note, type NoteSelection } from '@multivac/contracts';
 import { getNote, updateNote, deleteNote, NotesApiError } from '../../data/notes-api.js';
 import { newCommandId } from '../../data/command-id.js';
 import type { Editor } from '@tiptap/react';
 import { NoteRichText, NoteRichTextTools } from './note-rich-text.js';
+import { NoteEditErrorNotice, NoteSaveErrorNotice } from './note-edit-error.js';
+import { noteEditorErrors } from './note-edit-protection.js';
 import { useNoteSelectionToolbar } from './note-selection-toolbar.js';
 import { NoteVersions } from './note-versions.js';
 import { useConfirm } from '../../components/confirm-card.js';
@@ -26,7 +28,8 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
   });
   const current = useRef(draft); current.current = draft;
   const mounted = useRef(true);
-  const [error, setError] = useState('');
+  const [{ editing: editingError, save: error }, dispatchError] = useReducer(noteEditorErrors, { editing: null, save: '' });
+  const setError = useCallback((message: string) => dispatchError({ type: 'save-error', message }), []);
   const [storageError, setStorageError] = useState('');
   const [busy, setBusy] = useState(false);
   const imageInput = useRef<((files: File[]) => void) | null>(null);
@@ -196,7 +199,11 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
       </div>
       {deleteError && <div className="notes-error" role="alert">{deleteError}</div>}
       {pendingDeletion && <p className="notes-hint">删除结果待核对，请重试原删除请求；核对期间暂停编辑与保存。</p>}
-      {(storageError || error) && <div className="notes-error" role="alert">{storageError || error}<button type="button" disabled={busy} onClick={() => void save()}>重试保存</button></div>}
+      <NoteEditErrorNotice error={editingError} disabled={deleting || !!pendingDeletion || !richEditor} onReturn={() => {
+        focusBody(); dispatchError({ type: 'edit-dismissed' });
+      }} />
+      {storageError && <div className="notes-error" role="alert">{storageError}{(dirty || draft.pending) && <button type="button" disabled={busy} onClick={() => void save()}>保存到服务端</button>}</div>}
+      <NoteSaveErrorNotice message={error} canRetry={!!draft.pending} busy={busy} onRetry={() => void save()} />
       {remote && <div className="note-conflict" role="alert"><strong>服务端已有 v{remote.revision}，本机草稿已保留</strong><details><summary>对照服务端最新内容</summary><h3>{remote.title}</h3><pre>{remote.body}</pre></details><button type="button" disabled={busy || uploads > 0} onClick={() => void rebase()}>核对后继续编辑本机草稿</button></div>}
       {uploads > 0 && <p className="notes-hint" role="status">还有 {uploads} 张图片未完成。上传完成后可保存；失败图片可重试或移除。关闭或刷新前请完成处理。</p>}
       {draft.pending && <p className="notes-hint">原保存命令仍待核对；重试使用原内容。新输入继续保留。</p>}
@@ -222,8 +229,8 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
           <div className="note-document-meta"><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
         </header>
         <div className="note-writing-surface" onPointerDown={selectionToolbar.onPointerDown} onKeyDown={selectionToolbar.onEditorKeyDown}>
-          <NoteRichText noteId={initial.id} active={active} imageInputRef={imageInput} onUploadsChange={uploadsChanged} body={draft.body} disabled={deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={setError} onChange={body => {
-            dismissedSelection.current = null; put({ ...current.current, body, edit: current.current.edit + 1 }); setSelection(null);
+          <NoteRichText noteId={initial.id} active={active} imageInputRef={imageInput} onUploadsChange={uploadsChanged} body={draft.body} disabled={deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={error => dispatchError({ type: 'edit-error', error })} onChange={body => {
+            dispatchError({ type: 'edit-accepted' }); dismissedSelection.current = null; put({ ...current.current, body, edit: current.current.edit + 1 }); setSelection(null);
           }} onSelection={picked => {
             const dismissed = dismissedSelection.current;
             if (picked && dismissed && dismissed.start === picked.start && dismissed.end === picked.end && dismissed.text === picked.text) return;

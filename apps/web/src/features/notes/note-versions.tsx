@@ -9,7 +9,7 @@ const ignore = () => {};
 function NoteVersionBody({ note, previewRoot }: { note: Note; previewRoot: HTMLElement | null }) {
   const element = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
-  return <><NoteRichText noteId={note.id} body={note.body} disabled elementRef={element} previewRoot={previewRoot} onReady={ignore} onChange={ignore} onSelection={ignore} onError={setError} />{error && <p role="alert">{error}</p>}</>;
+  return <><NoteRichText noteId={note.id} body={note.body} disabled elementRef={element} previewRoot={previewRoot} onReady={ignore} onChange={ignore} onSelection={ignore} onError={error => setError(error.message)} />{error && <p role="alert">{error}</p>}</>;
 }
 
 export function NoteVersions({ current, knownRevision, blocked, onRestore, onClose }: {
