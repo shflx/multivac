@@ -15,7 +15,8 @@ function tokens(value: number): string {
   }
   return value.toLocaleString('zh-CN');
 }
-const value = (amount: number, totals: UsageTotals) => totals.requests === 0 || totals.measuredRequests > 0 ? tokens(amount) : '—';
+// 无有效测量时，只对真实缺失显示占位；失败、取消和待返回仍显示已记录的零。
+const value = (amount: number, totals: UsageTotals) => totals.missingRequests === 0 || totals.measuredRequests > 0 ? tokens(amount) : '—';
 const breakdown = (totals: UsageTotals) => `输入 ${value(totals.input, totals)} · 缓存命中 ${value(totals.cacheRead, totals)} · 输出 ${value(totals.output, totals)}`;
 const dayLabel = (date: string) => date.slice(5).split('-').map(Number).join('/');
 
@@ -104,7 +105,7 @@ export function UsagePage({ active }: { active: boolean }) {
           {data.distributions[dimension].length === 0 && <p className="usage-empty">暂无可分组的用量记录。</p>}
         </SettingsCard>
         <SettingsCard title="用量最多的会话" description="按已记录用量排序，展示前五个会话。">
-          <ol className="usage-sessions">{data.topSessions.map((session, index) => <li key={session.key}><span className="usage-session-rank" aria-hidden="true">{index + 1}</span><div><strong>{session.label}</strong><small>{session.description}{session.missingRequests > 0 && ` · ${session.missingRequests} 次用量缺失`}</small></div><span className="usage-session-amount">{tokens(session.total)}</span></li>)}</ol>
+          <ol className="usage-sessions">{data.topSessions.map((session, index) => <li key={session.key}><span className="usage-session-rank" aria-hidden="true">{index + 1}</span><div><strong>{session.label}</strong><small>{session.description}{session.missingRequests > 0 && ` · ${session.missingRequests} 次用量缺失`}</small></div><span className="usage-session-amount">{value(session.total, session)}</span></li>)}</ol>
           {data.topSessions.length === 0 && <p className="usage-empty">暂无可确认用量的会话。</p>}
         </SettingsCard>
       </div>

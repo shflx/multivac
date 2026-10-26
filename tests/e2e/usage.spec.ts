@@ -102,6 +102,65 @@ test('首次加载与读取失败不伪造零，空账本显示零，真实缺�
   await expect(page.locator('.usage-page').getByText('暂无日均', { exact: true })).toHaveCount(0);
 });
 
+test('豁免调用、混合用量、终态刷新及真实异常在各区域显示一致', async ({ page, request }) => {
+  await resetE2eState(request);
+  type Mode = 'exempt' | 'mixed' | 'completed' | 'missing' | 'collection-error';
+  let mode: Mode = 'exempt';
+  await page.route('**/api/usage?**', route => {
+    const days = Number(new URL(route.request().url()).searchParams.get('days')) as UsageDays;
+    const data = fixture(days);
+    const measured = mode === 'mixed' || mode === 'completed' || mode === 'collection-error';
+    const summary = { ...(measured ? data.summary : zero()), requests: mode === 'mixed' || mode === 'completed' ? 5 : 4, missingRequests: mode === 'missing' ? 1 : 0 };
+    if (mode === 'completed') {
+      for (const field of ['input', 'cacheRead', 'output', 'total', 'measuredRequests'] as const) summary[field] *= 2;
+    }
+    data.summary = summary;
+    data.daily = data.daily.map(day => ({ ...day, ...(day.date === data.endDate ? summary : zero()) }));
+    data.previous = { ...fixture(days).summary };
+    data.delta = mode === 'missing' || mode === 'collection-error' ? null : (summary.total - data.previous.total) / data.previous.total;
+    data.dailyAverage = mode === 'missing' || mode === 'collection-error' ? null : summary.total;
+    for (const groups of Object.values(data.distributions)) for (const group of groups) Object.assign(group, summary, { share: measured ? 1 : null });
+    data.topSessions = measured ? data.topSessions.map(group => ({ ...group, ...summary })) : [];
+    data.warnings = mode === 'missing' ? ['有 1 次请求未返回可确认的用量。']
+      : mode === 'collection-error' ? ['用量记录发生错误，当前仅显示已记录的用量。'] : [];
+    return route.fulfill({ json: data });
+  });
+  await openUsage(page);
+  const usage = page.locator('.usage-page');
+  await expect(usage.locator('.usage-metric strong')).toHaveText(['0', '0', '0', '4']);
+  await expect(usage).toContainText('缓存命中 —');
+  await expect(usage).toContainText('日均 0 token');
+  await expect(usage).toContainText('较上一周期 −100%');
+  await expect(usage.locator('.usage-day-detail')).toContainText('输入 0 · 缓存命中 0 · 输出 0');
+  await expect(usage.locator('.usage-day-detail')).toContainText('4 次已观测请求');
+  for (const label of ['按模型', '按项目', '按来源']) {
+    await page.getByRole('radio', { name: label, exact: true }).click();
+    await expect(usage.locator('.usage-breakdown')).toContainText('0 · —');
+    await expect(usage.locator('.usage-breakdown')).toContainText('4 次请求');
+  }
+  await expect(usage.getByText(/用量缺失|缺失用量|未返回可确认/)).toHaveCount(0);
+  for (const next of ['mixed', 'completed'] as const) {
+    mode = next;
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(usage.locator('.usage-metric strong')).toHaveText(next === 'mixed' ? ['240', '200', '40', '5'] : ['480', '400', '80', '5']);
+    await expect(usage.locator('.usage-day-detail')).toContainText(next === 'mixed' ? '输入 120 · 缓存命中 80 · 输出 40' : '输入 240 · 缓存命中 160 · 输出 80');
+    await expect(usage.locator('.usage-session-amount')).toHaveText(next === 'mixed' ? '240' : '480');
+    await expect(usage.getByText(/用量缺失|缺失用量|未返回可确认/)).toHaveCount(0);
+  }
+  mode = 'missing';
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(usage.locator('.usage-metric strong')).toHaveText(['—', '—', '—', '4']);
+  await expect(usage.locator('.usage-warning')).toContainText('有 1 次请求未返回可确认的用量。');
+  await expect(usage.locator('.usage-day-detail')).toContainText('1 次用量缺失');
+  await expect(usage.locator('.usage-breakdown')).toContainText('1 次用量缺失');
+  await expect(usage.getByText(/日均|较上一周期/)).toHaveCount(0);
+  mode = 'collection-error';
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(usage.locator('.usage-metric strong')).toHaveText(['240', '200', '40', '4']);
+  await expect(usage.locator('.usage-warning')).toContainText('用量记录发生错误');
+  await expect(usage.getByText(/用量缺失|缺失用量|未返回可确认|日均|较上一周期/)).toHaveCount(0);
+});
+
 test('快速切换范围时迟到响应不能覆盖新范围', async ({ page, request }) => {
   await resetE2eState(request);
   let release: () => void = () => {};
