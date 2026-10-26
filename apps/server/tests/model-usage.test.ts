@@ -87,7 +87,7 @@ test('运行时只调用一次原实现，complete 与 stream 终态均采集且
   } finally { db.close(); }
 });
 
-test('调用拒绝和未收到终态保留缺失请求，迟到终态不能被缺失记录降级', () => {
+test('调用拒绝和未收到终态保留请求，迟到终态不能被无用量记录降级', () => {
   const db = new DatabaseSync(':memory:');
   const repo = new SqliteUsageRepository(db);
   const service = new ModelUsageService(repo, identity);
