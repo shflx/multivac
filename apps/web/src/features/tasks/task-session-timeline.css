@@ -1,0 +1,19 @@
+/* 任务系统命令：不是“你”说的话，收成居左的一行，与对话正文对齐。 */
+.task-system-command { margin: 0 41px 22px; }
+.task-system-command > button { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 8px 3px 6px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font: inherit; font-size: var(--t-xs); cursor: pointer; }
+.task-system-command > button:hover { background: var(--surface-subtle); color: var(--ink); }
+.task-system-command > button:focus-visible { outline: 0; box-shadow: var(--focus-halo); }
+.task-system-command svg { flex: none; width: 13px; height: 13px; }
+.task-system-chevron { transition: transform 120ms ease; }
+.task-system-command > button[aria-expanded='true'] .task-system-chevron { transform: rotate(90deg); }
+.task-system-command > p { margin: 6px 0 0; padding: 10px 12px; border-left: 2px solid var(--line-strong); border-radius: 0 var(--r-sm) var(--r-sm) 0; background: var(--surface-subtle); color: var(--muted); font-size: var(--t-xs); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 用户回应沿用用户气泡，只在上方加一行标签说明来源。 */
+.task-request-reply-label { max-width: 100%; margin: 0 2px 4px; overflow: hidden; color: var(--faint); font-size: var(--t-xs); text-overflow: ellipsis; white-space: nowrap; }
+.task-request-void { margin: -6px 0 22px; color: var(--faint); font-size: var(--t-xs); text-align: center; overflow-wrap: anywhere; }
+
+/* 输入区位置改为说明：保留运行状态条，不提供输入。 */
+.assistant-composer.task-readonly { padding: 8px 12px; box-shadow: none; }
+.task-session-notice { display: flex; align-items: flex-start; gap: 8px; margin: 0; color: var(--muted); font-size: var(--t-xs); line-height: 1.6; }
+.task-session-notice svg { flex: none; width: 14px; height: 14px; margin-top: 2px; }
+.assistant-composer.task-readonly .run-status + .task-session-notice { margin-top: 8px; }
