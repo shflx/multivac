@@ -1,6 +1,7 @@
 import { expectNoteBody, replaceNoteBody } from './notes-helpers.js';
 import { expect, test, type Page, type APIRequestContext } from '@playwright/test';
 import { fakeApiRoot, openPanel } from './test-state.js';
+import type { Editor } from '@tiptap/core';
 
 const document = (page: Page) => page.locator('.notes-open-document:visible');
 const markdown = (page: Page) => document(page).getByLabel('笔记正文', { exact: true });
@@ -88,7 +89,10 @@ test('保存失败保持原命令，迟到重试不丢后来输入', async ({ pa
   });
   await replaceNoteBody(page, '第一次待保存'); await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '核对并重试保存', exact: true })).toBeEnabled();
-  await replaceNoteBody(page, '失败之后继续输入'); fail = false;
+  await expect(document(page).getByRole('button', { name: '重试保存', exact: true })).toBeVisible();
+  await replaceNoteBody(page, '失败之后继续输入');
+  await expect(document(page).getByRole('button', { name: '重试保存', exact: true })).toBeVisible();
+  fail = false;
   await document(page).getByRole('button', { name: '核对并重试保存', exact: true }).click();
   await expect(document(page).getByRole('button', { name: '保存笔记', exact: true })).toBeEnabled();
   expect(bodies).toHaveLength(2); expect(bodies[1]).toEqual(bodies[0]);
@@ -98,6 +102,49 @@ test('保存失败保持原命令，迟到重试不丢后来输入', async ({ pa
   await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
   expect((await note(request, id)).body).toBe('失败之后继续输入');
   expect(bodies[2]!.commandId).not.toBe(bodies[0]!.commandId);
+});
+
+test('转换拒绝保留正文草稿，返回编辑恢复焦点，后续合法输入清除转换提示', async ({ page }, testInfo) => {
+  await openNotes(page);
+  await create(page, `转换恢复-${crypto.randomUUID()}`, '原正文', false);
+  const body = markdown(page);
+  const draft = () => page.evaluate(() => {
+    const id = sessionStorage.getItem('multivac:active-note');
+    const key = sessionStorage.getItem(`multivac:note-draft-pointer:${id}`);
+    return key ? localStorage.getItem(key) : null;
+  });
+  const puts: string[] = [];
+  page.on('request', request => { if (request.method() === 'PUT' && /\/api\/notes\//u.test(request.url())) puts.push(request.postData() ?? ''); });
+  const reject = async () => {
+    await body.focus(); await body.press('ControlOrMeta+Home');
+    await body.press('Shift+ArrowRight'); await body.press('Shift+ArrowRight');
+    await body.evaluate(element => {
+      const editor = (element as HTMLElement & { editor: Editor }).editor;
+      const manager = editor.markdown!, original = manager.serialize;
+      manager.serialize = function (...args) {
+        manager.serialize = original;
+        throw new Error('受控转换异常');
+      };
+    });
+    await document(page).getByRole('button', { name: '粗体', exact: true }).click();
+  };
+  const before = await draft();
+  await reject();
+  await expect(document(page).getByRole('alert')).toContainText('刚才这次正文修改未写入');
+  await expect(body).toHaveText('原正文'); expect(await draft()).toBe(before);
+  await expect(document(page).getByRole('button', { name: '重试保存', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('note-conversion-refused.png'), animations: 'disabled' });
+  await document(page).getByRole('button', { name: '返回编辑', exact: true }).click();
+  await expect(body).toBeFocused(); await expect(document(page).getByRole('alert')).toHaveCount(0);
+  expect(puts).toHaveLength(0); expect(await draft()).toBe(before);
+  await reject();
+  await body.press('ArrowRight'); await page.keyboard.insertText('合法输入');
+  await expect(body).toContainText('合法输入');
+  await expect(document(page).getByRole('alert')).toHaveCount(0);
+  await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+  await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  await openNotes(page, true); await expect(body).toContainText('合法输入');
+  await expect(document(page).getByRole('button', { name: '返回编辑', exact: true })).toHaveCount(0);
 });
 
 test('两个窗口的正文版本冲突保留草稿并要求显式核对', async ({ page, context, request }) => {

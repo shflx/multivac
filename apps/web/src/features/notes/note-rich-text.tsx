@@ -8,18 +8,19 @@ import { Plugin, EditorState, AllSelection, Selection } from '@tiptap/pm/state';
 import type { Transaction } from '@tiptap/pm/state';
 import { Slice } from '@tiptap/pm/model';
 import { Bold, Italic, Strikethrough, List, ListOrdered, Quote, Code, Undo2, Redo2, ImagePlus } from 'lucide-react';
-import { NOTE_BODY_LIMIT, type NoteSelection } from '@multivac/contracts';
+import type { NoteSelection } from '@multivac/contracts';
+import { prepareNoteEdit, type NoteEditError } from './note-edit-protection.js';
 import { parseNoteMarkdown, updateNoteMarkdown, noteMarkdownSelection, type NoteMarkdown } from './note-markdown.js';
 
 export function NoteRichText({ noteId, body, disabled, active = true, elementRef, imageInputRef, onUploadsChange, onReady, onChange, onSelection, onError, previewRoot }: {
   noteId: string; body: string; disabled: boolean; active?: boolean; elementRef: RefObject<HTMLDivElement | null>;
   imageInputRef?: RefObject<((files: File[]) => void) | null>; onUploadsChange?(count: number): void; previewRoot?: HTMLElement | null;
-  onReady(editor: Editor | null): void; onChange(body: string): void; onSelection(selection: NoteSelection | null): void; onError(message: string): void;
+  onReady(editor: Editor | null): void; onChange(body: string): void; onSelection(selection: NoteSelection | null): void; onError(error: NoteEditError): void;
 }) {
   const props = useRef({ body, disabled, onChange, onSelection, onError, onUploadsChange });
   props.current = { body, disabled, onChange, onSelection, onError, onUploadsChange };
   const [preview, setPreview] = useState<ImageSource | null>(null);
-  const [images] = useState(() => new NoteImageUploads(noteId, () => !props.current.disabled, setPreview, message => props.current.onError(message)));
+  const [images] = useState(() => new NoteImageUploads(noteId, () => !props.current.disabled, setPreview, message => props.current.onError({ kind: 'image', message })));
   const source = useRef<NoteMarkdown | null>(null);
   const pending = useRef(new WeakMap<Transaction, NoteMarkdown>());
   const editor = useEditor({
@@ -45,17 +46,11 @@ export function NoteRichText({ noteId, body, disabled, active = true, elementRef
           filterTransaction(transaction) {
             if (!transaction.docChanged || !source.current) return true;
             if (props.current.disabled) return false;
-            try {
-              const pasted = transaction.getMeta('note-markdown-paste') as NoteMarkdown | undefined;
-              const doc = noteWithoutUploads(transaction.doc);
-              const next = pasted?.doc.eq(doc) ? pasted : updateNoteMarkdown(source.current, doc, content => owner.markdown!.serialize(content));
-              if (next.source.length > NOTE_BODY_LIMIT) { props.current.onError(`正文不能超过 ${NOTE_BODY_LIMIT.toLocaleString()} 个字符，刚才的修改未写入。`); return false; }
-              pending.current.set(transaction, next);
-              return true;
-            } catch {
-              props.current.onError('这次正文修改未能转换为 Markdown，原内容已保留。');
-              return false;
-            }
+            const pasted = transaction.getMeta('note-markdown-paste') as NoteMarkdown | undefined;
+            const result = prepareNoteEdit(source.current, noteWithoutUploads(transaction.doc), content => owner.markdown!.serialize(content), pasted);
+            if (!result.ok) { props.current.onError(result.error); return false; }
+            pending.current.set(transaction, result.markdown);
+            return true;
           },
         })];
       },
