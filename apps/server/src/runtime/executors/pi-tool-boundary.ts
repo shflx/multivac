@@ -14,6 +14,7 @@ import {
   createReadToolDefinition,
   createEditToolDefinition,
   createWriteToolDefinition,
+  detectSupportedImageMimeTypeFromFile,
 } from '@earendil-works/pi-coding-agent';
 import type { InternalToolEffect } from '../../modules/internal-tools/internal-tool.js';
 import { isPathWithin } from '../../modules/sessions/working-directory.js';
@@ -378,6 +379,7 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
       // 每个调用独立持有状态；复用 Pi 的队列、替换算法、图片与截断处理。
       const operations = {
         readFile: async (path: string) => { await beforeIo(path); return readFile(path); },
+        detectImageMimeType: async (path: string) => { await beforeIo(path); return detectSupportedImageMimeTypeFromFile(path); },
         writeFile: async (path: string, content: string) => { await beforeIo(path); await writeFile(path, content, 'utf8'); },
         access: async (path: string) => { await beforeIo(); await access(path, definition.name === 'edit' ? constants.R_OK | constants.W_OK : constants.R_OK); },
         mkdir: async (path: string) => { await beforeIo(); await mkdir(path, { recursive: true }); },
