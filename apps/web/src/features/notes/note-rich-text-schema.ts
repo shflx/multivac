@@ -7,6 +7,23 @@ import { Markdown } from '@tiptap/markdown';
 import { TableKit } from '@tiptap/extension-table';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
+import { toggleNoteTextMark } from './note-text-formatting.js';
+
+const NoteStarterKit = StarterKit.extend({
+  addExtensions() {
+    return (this.parent?.() ?? []).map(extension => {
+      // 显式换行在段尾及空段落中也能回读；不依赖下一行必须有文字。
+      if (extension.name === 'hardBreak') return extension.extend({ renderMarkdown: () => '<br />' });
+      if (extension.name === 'bold' || extension.name === 'italic') {
+        const name = extension.name;
+        return extension.extend({ addCommands() {
+          return { ...this.parent?.(), [name === 'bold' ? 'toggleBold' : 'toggleItalic']: () => toggleNoteTextMark(name) };
+        } });
+      }
+      return extension;
+    });
+  },
+});
 
 const NoteImageUpload = Node.create({
   name: 'noteImageUpload', group: 'inline', inline: true, atom: true,
@@ -32,7 +49,7 @@ function rawMarkdown(inline: boolean) {
   });
 }
 export const noteRichTextExtensions = [
-  StarterKit.configure({ paragraph: false, codeBlock: false, listItem: false, underline: false, trailingNode: false, link: { openOnClick: false, autolink: false, linkOnPaste: false, HTMLAttributes: { target: null, rel: 'noopener noreferrer' } } }),
+  NoteStarterKit.configure({ paragraph: false, codeBlock: false, listItem: false, underline: false, trailingNode: false, link: { openOnClick: false, autolink: false, linkOnPaste: false, HTMLAttributes: { target: null, rel: 'noopener noreferrer' } } }),
   Paragraph.extend({ renderMarkdown: (node, helpers) => {
     if (!node.content?.length) return '&nbsp;';
     // 文本节点中的块级符号尚未触发输入规则时，必须作为字面文字保存。
