@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import sharp from 'sharp';
 import { GLOBAL_ASSISTANT_SESSION_ID, type WorkingDirectory } from '@multivac/contracts';
 import { withFileMutationQueue, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { setImmediate as nextTick } from 'node:timers/promises';
@@ -159,6 +160,18 @@ test('项目范围按真实路径判定：链接逃逸、..、同前缀兄弟目
     } });
     await assert.rejects(f.invoke(changedTools, 'write', link, { content: 'wrong' }), /实际目标.*发生了变化/);
     assert.equal(await readFile(secret, 'utf8'), 'secret');
+  } finally { await f.cleanup(); }
+});
+
+test('范围包装保留 Pi 图片读取：项目目录内的 PNG 仍返回图片内容块', async () => {
+  const f = await fixture();
+  try {
+    f.mount();
+    const path = join(f.paths.extra!, 'pixel.png');
+    await sharp({ create: { width: 1, height: 1, channels: 3, background: '#ffffff' } }).png().toFile(path);
+    const result = await f.invoke(f.toolsFor('old'), 'read', path);
+    assert.ok(result.content.some(item => item.type === 'image'), JSON.stringify(result));
+    assert.equal(f.authorization.list('old').length, 0);
   } finally { await f.cleanup(); }
 });
 
