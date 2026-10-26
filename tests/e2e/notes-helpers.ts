@@ -21,6 +21,8 @@ export async function replaceNoteBody(page: Page, source: string) {
 export async function expectNoteBody(page: Page, source: string) {
   await expect(noteBody(page)).toBeVisible();
   function text(node: Nodes): string {
+    // 笔记只将无属性换行标签解释为换行；换行元素没有 textContent。
+    if (node.type === 'html' && /^(?:<br\s*\/?>)+$/i.test(node.value)) return '';
     if (['html', 'footnoteReference', 'footnoteDefinition', 'definition'].includes(node.type)) return source.slice(node.position?.start.offset, node.position?.end.offset);
     if (node.type === 'image' || node.type === 'imageReference') return `图片 · ${node.alt || '未命名'}`;
     if ('value' in node && typeof node.value === 'string') return node.value;

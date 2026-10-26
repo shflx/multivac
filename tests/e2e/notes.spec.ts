@@ -104,6 +104,58 @@ test('保存失败保持原命令，迟到重试不丢后来输入', async ({ pa
   expect(bodies[2]!.commandId).not.toBe(bodies[0]!.commandId);
 });
 
+test('段尾及空段落软换行可继续输入撤销重做，保存再加载保留未编辑原文', async ({ page, request }, testInfo) => {
+  await openNotes(page);
+  for (const first of ['段尾', '']) {
+    const suffix = '\n\n\n末段 **保留**。 \n';
+    const id = await create(page, `软换行-${first || '空段落'}-${crypto.randomUUID()}`, (first || '&nbsp;') + suffix, false);
+    const body = markdown(page), paragraph = body.locator('p').first();
+    await body.focus(); await body.press('ControlOrMeta+Home');
+    for (let i = 0; i < first.length; i++) await body.press('ArrowRight');
+    await body.press('Shift+Enter');
+    const breaks = paragraph.locator('br:not(.ProseMirror-trailingBreak)');
+    await expect(breaks).toHaveCount(1);
+    await expect(document(page).getByRole('alert')).toHaveCount(0);
+    await document(page).getByRole('button', { name: '撤销正文修改', exact: true }).click();
+    await expect(breaks).toHaveCount(0);
+    await document(page).getByRole('button', { name: '重做正文修改', exact: true }).click();
+    await expect(breaks).toHaveCount(1);
+    await page.keyboard.insertText('继续输入');
+    await expect(paragraph).toHaveText(first + '继续输入');
+    await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+    await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+    const saved = await note(request, id);
+    expect(saved.body).toBe(first + '<br />继续输入' + suffix);
+    await openNotes(page, true);
+    await expect(paragraph).toHaveText(first + '继续输入'); await expect(breaks).toHaveCount(1);
+    await testInfo.attach(`soft-break-${first || 'empty'}.json`, { body: JSON.stringify(saved, null, 2), contentType: 'application/json' });
+  }
+});
+
+test('含边界空格选区加粗和斜体保留选区，继续输入和保存回读正确', async ({ page, request }, testInfo) => {
+  await openNotes(page);
+  for (const [label, tag] of [['粗体', 'strong'], ['斜体', 'em']] as const) {
+    const suffix = '\n\n\n末段 **保留**。 \n';
+    const id = await create(page, `格式空格-${label}-${crypto.randomUUID()}`, '前  选中文字  后' + suffix, false);
+    const body = markdown(page), paragraph = body.locator('p').first();
+    await body.focus(); await body.press('ControlOrMeta+Home'); await body.press('ArrowRight');
+    for (let i = 0; i < '  选中文字  '.length; i++) await body.press('Shift+ArrowRight');
+    await document(page).getByRole('button', { name: label, exact: true }).click();
+    await expect(paragraph.locator(tag)).toHaveText('选中文字');
+    expect(await body.evaluate(() => window.getSelection()?.toString())).toBe('  选中文字  ');
+    await expect(document(page).getByRole('alert')).toHaveCount(0);
+    await document(page).getByRole('button', { name: '撤销正文修改', exact: true }).click(); await expect(paragraph.locator(tag)).toHaveCount(0);
+    await document(page).getByRole('button', { name: '重做正文修改', exact: true }).click(); await expect(paragraph.locator(tag)).toHaveText('选中文字');
+    await body.press('ArrowRight'); await page.keyboard.insertText('继续输入');
+    await document(page).getByRole('button', { name: '保存笔记', exact: true }).click();
+    await expect(document(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+    const saved = await note(request, id); expect(saved.body.endsWith(suffix)).toBeTruthy();
+    await openNotes(page, true); await expect(paragraph.locator(tag)).toHaveText('选中文字');
+    await expect(paragraph).toHaveText('前  选中文字  继续输入后');
+    await testInfo.attach(`format-${tag}.json`, { body: JSON.stringify(saved, null, 2), contentType: 'application/json' });
+  }
+});
+
 test('转换拒绝保留正文草稿，返回编辑恢复焦点，后续合法输入清除转换提示', async ({ page }, testInfo) => {
   await openNotes(page);
   await create(page, `转换恢复-${crypto.randomUUID()}`, '原正文', false);
@@ -121,7 +173,7 @@ test('转换拒绝保留正文草稿，返回编辑恢复焦点，后续合法�
     await body.evaluate(element => {
       const editor = (element as HTMLElement & { editor: Editor }).editor;
       const manager = editor.markdown!, original = manager.serialize;
-      manager.serialize = function (...args) {
+      manager.serialize = function () {
         manager.serialize = original;
         throw new Error('受控转换异常');
       };
