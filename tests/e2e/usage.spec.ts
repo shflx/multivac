@@ -19,7 +19,10 @@ function fixture(days: UsageDays, empty = false): UsageStatistics {
     warnings: [] };
 }
 async function openUsage(page: Page) {
-  await page.goto('/'); await openPanel(page, 'management');
+  await page.goto('/');
+  // 等待外壳挂载后再按快捷键，避免初次加载时按键早于事件监听。
+  await expect(page.getByRole('button', { name: '快捷键', exact: true })).toBeVisible();
+  await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '统计', exact: true }).click();
 }
 
@@ -233,13 +236,17 @@ test('统计页在大屏铺满内容区，分布与排名并排；侧栏窄容�
   await page.screenshot({ path: testInfo.outputPath('usage-wide-1920.png') });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: testInfo.outputPath('usage-desktop-1440.png') });
-  await page.setViewportSize({ width: 920, height: 1000 });
+  await page.setViewportSize({ width: 1020, height: 1000 });
   await page.keyboard.press('Control+j');
   await expect(usage).toBeVisible();
   const metrics = usage.locator('.usage-metric');
   const first = (await metrics.nth(0).boundingBox())!, second = (await metrics.nth(1).boundingBox())!, third = (await metrics.nth(2).boundingBox())!;
   expect(first.y).toBeCloseTo(second.y, 0);
   expect(third.y).toBeGreaterThan(first.y);
+  // 更窄的容器应按既有断点切为单列，侧栏加宽后仍不溢出。
+  await page.setViewportSize({ width: 920, height: 1000 });
+  const narrowFirst = (await metrics.nth(0).boundingBox())!, narrowSecond = (await metrics.nth(1).boundingBox())!;
+  expect(narrowSecond.y).toBeGreaterThan(narrowFirst.y);
   const narrowLeft = (await distribution.boundingBox())!, narrowRight = (await sessions.boundingBox())!;
   expect(narrowRight.y).toBeGreaterThanOrEqual(narrowLeft.y + narrowLeft.height);
   expect(await usage.evaluate(element => element.scrollWidth <= element.clientWidth)).toBeTruthy();
