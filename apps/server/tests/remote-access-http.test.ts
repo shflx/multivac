@@ -1,3 +1,5 @@
+import { WebSocket } from 'ws';
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { createServer, request } from 'node:http';
@@ -22,10 +24,10 @@ function http(port: number, path: string, method = 'GET', body?: unknown, header
     outgoing.on('error', reject); outgoing.end(body === undefined ? undefined : JSON.stringify(body));
   });
 }
-async function fixture(remoteOrigin = origin, useDefaultToken = false) {
-  const base = resolve('.tmp'); await mkdir(base, { recursive: true });
+async function fixture(remoteOrigin = origin, useDefaultToken = false, mode: 'development' | 'production' = 'production') {
+  const base = mode === 'development' ? tmpdir() : resolve('.tmp'); await mkdir(base, { recursive: true });
   const root = await mkdtemp(join(base, 'remote-http-'));
-  const app = createMultivacApplication({ ...testApplicationEnvironment(root), MULTIVAC_E2E_CONTROL: '1',
+  const app = createMultivacApplication({ ...testApplicationEnvironment(root), MULTIVAC_E2E_CONTROL: '1', MULTIVAC_MODE: mode,
     MULTIVAC_REMOTE_ENABLED: '1', ...(useDefaultToken ? {} : { MULTIVAC_REMOTE_TOKEN: token }), MULTIVAC_REMOTE_ORIGIN: remoteOrigin });
   await app.ready; await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
   const address = app.server.address(); assert.ok(address && typeof address === 'object');
@@ -59,7 +61,7 @@ test('远程HTTP：未登录拒绝、token登录、直接越界/正文替换拒�
     assert.equal((await http(f.port, '/api/assistant/page-state', 'GET', undefined, headers)).body.quote, null);
     assert.deepEqual((await http(f.port, '/api/assistant/page-state')).body.quote, foreignQuote);
     for (const path of ['/api/task-requests', '/api/artifacts/version', '/api/tasks', '/api/projects', '/api/preferences', '/api/processes', '/api/reading/books',
-      '/api/authorization-grants', '/api/sessions/global-coordinator/session', '/api/sessions/other/session',
+      '/api/terminals', '/api/terminals/list', '/api/terminals/nonexistent/stream', '/api/authorization-grants', '/api/sessions/global-coordinator/session', '/api/sessions/other/session',
       `/api/sessions/other/images/${'a'.repeat(64)}/content`, '/api/sessions/other/files']) {
       assert.equal((await http(f.port, path, 'GET', undefined, headers)).status, 403, path);
     }
@@ -208,7 +210,7 @@ test('省略 origin 时局域网、Tailscale IP/域名与 IPv6 共用 token，�
 });
 
 test('开发代理保留局域网身份：关闭时拒绝，启用后要求登录且草稿可保存，本机入口保持', async t => {
-  const f = await fixture();
+  const f = await fixture(origin, false, 'development');
   t.after(() => f.close());
   const vite = await createViteServer({
     root: fileURLToPath(new URL('../../web', import.meta.url)),
@@ -251,8 +253,11 @@ test('开发代理保留局域网身份：关闭时拒绝，启用后要求登�
     }, headers)).status, 200);
     assert.equal((await http(port, '/api/assistant/page-state', 'GET', undefined, headers)).body.draft, '局域网代理草稿');
     assert.equal((await http(port, '/api/tasks', 'GET', undefined, headers)).status, 403);
-    assert.equal((await http(port, '/api/access')).body.kind, 'local');
-    assert.equal((await http(port, '/api/tasks')).status, 200);
+    // 任意回环代理端口不自动成为本机入口；开发只登记固定的浏览器 Host。
+    assert.equal((await http(port, '/api/access')).status, 403);
+    assert.equal((await http(port, '/api/access', 'GET', undefined, { host: '127.0.0.1:5173' })).body.kind, 'local');
+    assert.equal((await http(port, '/api/tasks', 'GET', undefined, { host: '127.0.0.1:5173' })).status, 200);
+    assert.equal((await http(f.port, '/api/access')).body.kind, 'local');
   } finally {
     proxy.closeAllConnections();
     await new Promise<void>(resolve => proxy.close(() => resolve()));
@@ -282,6 +287,19 @@ test('远程HTTP/SSE：实时与回放/JSON补漏一致，退出/轮换/关闭�
     assert.ok(received.every(item => (item.data as AssistantPublicEvent).assistantSessionId === GLOBAL_ASSISTANT_SESSION_ID));
     assert.deepEqual(one.named(WORKBENCH_SSE_EVENT_NAME), []);
     await local.waitFor(messages => messages.some(item => item.event === WORKBENCH_SSE_EVENT_NAME && item.data.type === 'session.changed'));
+    if (process.platform === 'darwin' && process.arch === 'arm64') {
+      const project = (await http(f.port, '/api/projects', 'POST', { name: '终端远程隔离' })).body.project;
+      const terminal = f.app.terminals.create({ projectId: project.projectId, preset: { kind: 'custom', executable: '/bin/echo', argv: ['TERMINAL-PRIVATE-OUTPUT'] }, size: { cols: 80, rows: 24 } });
+      await local.waitFor(messages => messages.some(item => item.event === WORKBENCH_SSE_EVENT_NAME && item.data.type === 'terminal.changed'));
+      assert.equal((await http(f.port, `/api/terminals/${terminal.terminalId}/get`, 'POST', {}, headers)).status, 403);
+      const socket = new WebSocket(`ws://127.0.0.1:${f.port}/api/terminals/${terminal.terminalId}/stream`, { headers });
+      await new Promise<void>((resolve, reject) => {
+        socket.on('unexpected-response', (_request, response) => { assert.equal(response.statusCode, 403); response.resume(); socket.terminate(); resolve(); });
+        socket.on('open', () => { socket.terminate(); reject(new Error('远程登录不应升级终端连接')); }); socket.on('error', () => {});
+      });
+      assert.ok(!JSON.stringify(one.messages).includes(terminal.terminalId));
+      assert.deepEqual(one.named(WORKBENCH_SSE_EVENT_NAME), []);
+    }
     assert.ok(local.named(ASSISTANT_SSE_EVENT_NAME).some(item => item.data.assistantSessionId === 'remote-other'));
     const replay = await http(f.port, `/api/assistant/events?after=${start}&until=${last}`, 'GET', undefined, headers);
     assert.deepEqual(replay.body.events.map((event: AssistantPublicEvent) => event.cursor), [first, last]);

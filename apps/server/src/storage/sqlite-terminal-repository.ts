@@ -49,6 +49,8 @@ export class SqliteTerminalRepository implements TerminalRepository {
       .run(record.terminalId, record.projectId, JSON.stringify(record));
   }
 
+  deleteAllForTest(): void { this.database.prepare('DELETE FROM project_terminal').run(); }
+
   replace(record: ProjectTerminal, expectedInstanceId: string): boolean {
     checked(record);
     return runInTransaction(this.database, () => {

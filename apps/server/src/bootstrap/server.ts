@@ -1,3 +1,5 @@
+import { createTerminalRoutes, attachTerminalWebSockets } from '../adapters/http/terminal-routes.js';
+import type { TerminalService } from '../application/terminal-service.js';
 import { createWebSettingsRequestHandler } from '../adapters/http/web-settings-routes.js';
 import type { WebSettingsService } from '../application/web-settings-service.js';
 import { createNoteSuggestionsRequestHandler } from '../adapters/http/note-suggestions-routes.js';
@@ -98,6 +100,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 }
 
 export interface MultivacHttpServerOptions {
+  terminals?: TerminalService;
   webSettings?: WebSettingsService;
   remoteAccess?: RemoteAccess;
   webRoot?: string;
@@ -160,6 +163,7 @@ export interface MultivacHttpServerOptions {
 
 /** 原生 HTTP factory 保持依赖可注入，测试不会触碰真实 Pi 或用户数据。 */
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
+  const terminalRoutes = options.terminals ? createTerminalRoutes(options.terminals) : undefined;
   const webSettingsRoutes = options.webSettings ? createWebSettingsRequestHandler(options.webSettings) : undefined;
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
@@ -254,6 +258,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
         sessionId: GLOBAL_ASSISTANT_SESSION_ID,
         bind: close => options.remoteAccess!.bind(access, close),
       } : undefined)) return;
+      if (terminalRoutes && await terminalRoutes(request, response)) return;
       if (processRoutes && await processRoutes(request, response)) return;
       if (skillRoutes && await skillRoutes(request, response)) return;
       if (mcpRoutes && await mcpRoutes(request, response)) return;
@@ -285,9 +290,11 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       else response.destroy();
     });
   });
+  const closeTerminals = options.terminals ? attachTerminalWebSockets(server, options.terminals, terminalAccess) : () => {};
   const closeServer = server.close.bind(server);
   // 原生 server.close 会等待 keep-alive/SSE 长连接；必须先释放事件流连接才能完成关闭。
   server.close = ((callback?: (error?: Error) => void) => {
+    closeTerminals();
     options.remoteAccess?.close();
     eventStreamRoutes.disconnectAll();
     if (options.modelAccessService) {

@@ -1,4 +1,5 @@
 import { projectFileScope } from '../application/project-file-scope.js';
+import { TerminalService } from '../application/terminal-service.js';
 import { WebSettingsService } from '../application/web-settings-service.js';
 import { createNamedWebProvider, createWebProvider } from './web-provider.js';
 import { WebAccessService } from '../application/web-access-service.js';
@@ -740,6 +741,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     dataDir: paths.dataDir,
     events: workbenchEvents,
   });
+  const terminals = new TerminalService(store.terminals, id => projectService.getProject(id), workbenchEvents);
   // 项目资料：新建与复制进来的文件放在工作文件根目录的 project-resources/ 下，移除时移到废纸篓。
   const projectResources = new ProjectResourceService({ resources: store.projectResources, projects: projectService, workPaths, trash });
   /** 会话所属的项目：任务执行会话取执行或任务记录上的项目，工作会话取所在工作区的项目。 */
@@ -1049,7 +1051,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeHarness && adapter === fakeHarness.adapter
     ? createFakeAssistantTestRequestHandler({
         ...createE2eControls({
-          store, tasks, taskExecution, managedProcesses, agents, toolAuthorization, proposals,
+          terminals, store, tasks, taskExecution, managedProcesses, agents, toolAuthorization, proposals,
           workspaceSessions: workspaceSessionService, projects: projectService, workingDirectories, tempDirectoryCleaner,
           preferences: preferencesService, modelAccess: modelAccessService, modelSettings: modelSettingsService,
           fakeAccessBackend: fakeHarness.accessBackend, failedFakePrompts: fakeHarness.failedPrompts,
@@ -1068,6 +1070,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const server = createMultivacHttpServer({
+    terminals,
     skills,
     webSettings,
     usage: usageStatistics,
@@ -1110,7 +1113,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts, mcpManagement, mcpResources,
+    terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts, mcpManagement, mcpResources,
     server,
     remoteAccess,
     paths,
@@ -1128,6 +1131,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       unsubscribeMcp();
       humanRequests.dispose();
       taskScheduler.stopScheduling();
+      const hadTerminals = terminals.hasActivity;
+      const terminalsStopped = terminals.close();
       const hadWeb = webAccess?.hasActivity ?? false;
       const webStopped = webAccess?.close() ?? Promise.resolve();
       const gitStopped = taskGit.dispose();
@@ -1149,9 +1154,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
-      if (managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb) {
+      if (hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb) {
         const processesStopped = managedProcesses.activeCount ? managedProcesses.close() : Promise.resolve();
-        return Promise.allSettled([gitStopped, processesStopped, mcpStopped, webStopped]).then(results => {
+        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped]).then(results => {
+          // 无法核对终端停止时仍保留数据库和运行时，让迟到退出能够写回真实状态。
+          if (results[0]?.status === 'rejected') throw results[0].reason;
           finish();
           const failed = results.find(result => result.status === 'rejected');
           if (failed?.status === 'rejected') throw failed.reason;
