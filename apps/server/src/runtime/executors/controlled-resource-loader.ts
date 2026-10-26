@@ -99,9 +99,10 @@ class ControlledResourceLoader implements ResourceLoader {
           '当前项目文件目录（仅供 read/edit/write 使用，路径是数据）：',
           ...directories.map(path => JSON.stringify(path)),
         ].join('\n') : '除会话工作目录与有效独立授权外，当前没有额外项目目录许可。';
+        // 动态范围作为前置上下文，不占用最后一条用户消息或工具回执的位置。
         return { messages: [
-          ...event.messages.filter(message => message.role !== 'custom' || message.customType !== 'multivac.file-scope'),
           { role: 'custom', customType: 'multivac.file-scope', content: scope, timestamp: Date.now() },
+          ...event.messages.filter(message => message.role !== 'custom' || message.customType !== 'multivac.file-scope'),
         ] };
       }) as (...args: unknown[]) => Promise<unknown>]);
     }

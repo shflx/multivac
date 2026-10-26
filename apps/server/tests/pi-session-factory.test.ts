@@ -100,23 +100,27 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     const refresh = dynamic.getExtensions().extensions[0]!.handlers.get('context')![0]!;
     const original = [{ role: 'user', content: '读取文件', timestamp: 1 }];
     const first = await refresh({ messages: original }, {}) as { messages: { role: string; customType?: string; content: string }[] };
-    assert.match(first.messages.at(-1)!.content, /"\/mounted\/one"/);
-    assert.match(first.messages.at(-1)!.content, /后续文件调用生效/);
-    assert.match(first.messages.at(-1)!.content, /不会迁移已有会话/);
-    assert.match(first.messages.at(-1)!.content, /有效的独立授权/);
+    assert.match(first.messages[0]!.content, /"\/mounted\/one"/);
+    assert.match(first.messages[0]!.content, /后续文件调用生效/);
+    assert.match(first.messages[0]!.content, /不会迁移已有会话/);
+    assert.match(first.messages[0]!.content, /有效的独立授权/);
     assert.equal(original.length, 1);
+    assert.deepEqual(first.messages.at(-1), original[0]);
+    const toolResult = { role: 'toolResult', toolCallId: 'read-result', toolName: 'read', content: [{ type: 'text', text: '真实工具回执' }], isError: false, timestamp: 2 };
+    const withResult = await refresh({ messages: [...original, toolResult] }, {}) as typeof first;
+    assert.deepEqual(withResult.messages.at(-1), toolResult);
     currentDirectories = ['/mounted/two'];
     const second = await refresh({ messages: first.messages }, {}) as typeof first;
     assert.equal(second.messages.length, 2);
-    assert.doesNotMatch(second.messages.at(-1)!.content, /mounted\/one/);
-    assert.match(second.messages.at(-1)!.content, /mounted\/two/);
+    assert.doesNotMatch(second.messages[0]!.content, /mounted\/one/);
+    assert.match(second.messages[0]!.content, /mounted\/two/);
     currentDirectories = [];
     const removed = await refresh({ messages: second.messages }, {}) as typeof first;
-    assert.match(removed.messages.at(-1)!.content, /没有额外项目目录许可/);
-    assert.doesNotMatch(removed.messages.at(-1)!.content, /mounted/);
+    assert.match(removed.messages[0]!.content, /没有额外项目目录许可/);
+    assert.doesNotMatch(removed.messages[0]!.content, /mounted/);
     const withoutProject = await extensions[0]!.handlers.get('context')![0]!({ messages: [] }, {}) as typeof first;
-    assert.match(withoutProject.messages.at(-1)!.content, /没有额外项目目录许可/);
-    assert.doesNotMatch(withoutProject.messages.at(-1)!.content, /可直接.*附加目录/);
+    assert.match(withoutProject.messages[0]!.content, /没有额外项目目录许可/);
+    assert.doesNotMatch(withoutProject.messages[0]!.content, /可直接.*附加目录/);
 
     // reload 不改变扩展列表：不会因重新读取设置而发现本地扩展。
     await injected.reload();
