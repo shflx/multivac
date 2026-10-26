@@ -1,3 +1,4 @@
+import type { TerminalService } from '../application/terminal-service.js';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentService } from '../application/agent-service.js';
@@ -19,6 +20,7 @@ import type { SqliteAssistantStore } from '../storage/sqlite-assistant-store.js'
 
 /** Fake E2E 控制需要的已装配对象；只在显式开启 E2E 控制时使用。 */
 export interface E2eControlParts {
+  terminals?: TerminalService;
   store: SqliteAssistantStore;
   tasks: TaskService;
   taskExecution: TaskExecutionService;
@@ -72,6 +74,8 @@ export function createE2eControls(parts: E2eControlParts) {
       parts.toolAuthorization.resetGrantsForTest();
       parts.proposals.resetForTest();
       parts.workspaceSessions.resetForTest();
+      await parts.terminals?.resetForTest();
+      parts.store.terminals.deleteAllForTest();
       parts.projects.resetForTest();
       parts.workingDirectories.clearSessionsForTest();
       parts.tempDirectoryCleaner.resetForTest();
