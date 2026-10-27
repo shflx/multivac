@@ -122,6 +122,9 @@ export function progressFeedback(event: AssistantPublicEvent, notAuthorized = fa
     case 'assistant.compaction.started':
       return { phase: 'compaction', message: '正在压缩会话上下文' };
     case 'assistant.compaction.ended':
+      if (event.data.status === 'cancelled') {
+        return { phase: 'processing', message: '会话上下文压缩已取消，继续等待运行结果' };
+      }
       return {
         phase: 'processing',
         message: event.data.status === 'failed' ? '会话上下文压缩失败，继续等待运行结果' : '上下文压缩完成',
