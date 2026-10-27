@@ -10,6 +10,7 @@ import { GlobalEventsProvider } from './features/events/global-events-provider.j
 import { ProposalsProvider } from './features/proposals/proposals-provider.js';
 import { WorkbenchSyncProvider } from './features/workbench/workbench-sync-provider.js';
 import { WorkspaceSessionsProvider } from './features/workspace/workspace-sessions-provider.js';
+import { TerminalsProvider } from './features/terminals/terminals-provider.js';
 import './styles/base.css';
 import './styles/remote-access.css';
 import { TaskRequestsProvider } from './features/tasks/task-requests-provider.js';
@@ -31,7 +32,8 @@ createRoot(document.getElementById('root')!).render(
               <WorkbenchSyncProvider>
                 {/* 会话状态全局唯一：首页、工作区、Multivac 侧栏与管理共用，外壳也据此判断侧栏的去留。 */}
                 <AssistantSessionsProvider>
-                  <TasksProvider><TaskRequestsProvider><RunsProvider><App /></RunsProvider></TaskRequestsProvider></TasksProvider>
+                  {/* 项目终端：工作区、侧栏与 Command+K 共用同一份终端列表。 */}
+                  <TerminalsProvider><TasksProvider><TaskRequestsProvider><RunsProvider><App /></RunsProvider></TaskRequestsProvider></TasksProvider></TerminalsProvider>
                 </AssistantSessionsProvider>
               </WorkbenchSyncProvider>
             </ProposalsProvider>
