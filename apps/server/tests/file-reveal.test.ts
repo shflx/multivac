@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,9 +39,9 @@ test('Finder定位只用固定open与独立参数，文件选中、目录指定F
     f.service.read = async () => { throw new Error('不应读正文'); };
     const file = await call(f.handler, request(f.url()), local);
     assert.equal(file.status, 200); assert.match(file.body.message, /命令已退出/);
-    assert.deepEqual(f.calls[0], { executable: '/usr/bin/open', args: ['-R', join(f.root, f.file)] });
+    assert.deepEqual(f.calls[0], { executable: '/usr/bin/open', args: ['-R', await realpath(join(f.root, f.file))] });
     assert.equal((await call(f.handler, request(f.url('目录 空格.app', 'directory')), local)).status, 200);
-    assert.deepEqual(f.calls[1], { executable: '/usr/bin/open', args: ['-a', '/System/Library/CoreServices/Finder.app', join(f.root, '目录 空格.app')] });
+    assert.deepEqual(f.calls[1], { executable: '/usr/bin/open', args: ['-a', '/System/Library/CoreServices/Finder.app', await realpath(join(f.root, '目录 空格.app'))] });
   } finally { await f.close(); }
 });
 
