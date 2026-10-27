@@ -307,7 +307,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
     isTaskSession: id => !!store.taskRuns.bySession(id), runs: store.taskRuns,
     currentExecution: id => sessionRuntimes.get(id)?.commands.currentPromptCommandId(),
-    currentDirectory: id => workingDirectories.resolveForRuntime(id),
+    // 命令准入只读当前记录，不用运行时恢复入口补建准备期间已消失的目录。
+    currentDirectory: id => {
+      const directory = sessionRegistry.get(id)?.workingDirectory;
+      if (!directory) throw new Error('会话没有有效的工作目录记录。');
+      return directory;
+    },
     bash: { execute: (...args) => managedProcesses.bash.execute(...args) },
   });
   // 执行器（harness）按启动配置选择；适配器、模型目录与访问后端都由它提供。用量记账在下方创建，调用时才转发。

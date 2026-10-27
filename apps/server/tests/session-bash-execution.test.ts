@@ -3,8 +3,8 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { realpathSync, unlinkSync, symlinkSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { realpathSync, unlinkSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TaskRun } from '@multivac/contracts';
@@ -68,14 +68,16 @@ async function fixture() {
   });
   let execution: string | null = 'turn';
   let run: TaskRun | null = null;
+  let directoryReads = 0;
   const port = sessionBashExecution({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
     isTaskSession: () => !!run, runs: { bySession: () => run }, currentExecution: () => execution,
-    currentDirectory: id => store.sessions.get(id)!.workingDirectory!, bash: processes.bash });
+    currentDirectory: id => { directoryReads++; return store.sessions.get(id)!.workingDirectory!; }, bash: processes.bash });
   const tool = managedBashTool('session', primary, port);
   const mount = () => projects.updateProject(project.projectId, { directories: [primary, extra] });
   const unmount = () => projects.updateProject(project.projectId, { directories: [primary] });
   return { root, primary, extra, other, store, logs, project, projects, processes, supervisors, port, tool, mount, unmount,
     setExecution: (value: string | null) => { execution = value; }, setRun: (value: TaskRun | null) => { run = value; },
+    directoryReads: () => directoryReads,
     invoke: (call: string, cwd?: string, mode: 'foreground' | 'background' = 'foreground', command = 'probe') => tool.execute(call, { command, mode, ...(cwd ? { cwd } : {}) }, undefined, undefined, undefined as never),
     close: async () => { await processes.close(); store.close(); await rm(root, { recursive: true, force: true }); } };
 }
@@ -185,6 +187,25 @@ test('附目录进程的轮次/会话停止、取消、恢复及父子目录占�
     await assert.rejects(pending, /aborted/);
     assert.ok(f.processes.list().every(item => ['exited', 'failed'].includes(item.state)));
   } finally { await f.close(); }
+});
+
+test('归档准入不准备目录，准备期间原 cwd 消失则失败，不补建或启动', async () => {
+  const archived = await fixture();
+  try {
+    archived.store.sessions.archive('session', new Date().toISOString());
+    assert.throws(() => archived.port.execute('session', archived.primary, 'archived', { command: 'probe' }, undefined, () => {}), /已归档/);
+    assert.equal(archived.directoryReads(), 0);
+    assert.equal(archived.store.managedProcesses.all().length, 0);
+  } finally { await archived.close(); }
+  const missing = await fixture();
+  try {
+    const pending = missing.port.execute('session', missing.primary, 'missing', { command: 'probe' }, undefined, () => {});
+    rmSync(missing.primary, { recursive: true });
+    const result = await pending;
+    assert.equal(result.process.state, 'failed');
+    assert.equal(missing.supervisors.launches.length, 0);
+    await assert.rejects(stat(missing.primary), /ENOENT/);
+  } finally { await missing.close(); }
 });
 
 test('隔离任务保持原执行器、归属和 cwd；准备期间停止或 Run 变化拒绝', async () => {
