@@ -1,6 +1,6 @@
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
-import { TERMINAL_LIMITS, type TerminalSize } from '@multivac/contracts';
+import { TERMINAL_LIMITS, TERMINAL_THEME, type TerminalSize } from '@multivac/contracts';
 
 /** 所有依赖私有字段的访问集中在这里，升级须复验解析边界、UTF-8 和光标。 */
 function internals(term: headless.Terminal) {
@@ -31,12 +31,20 @@ export class TerminalScreen {
   onResize: (size: TerminalSize, sequence: number) => void = () => {};
   onNotification: () => void = () => {};
   constructor(size: TerminalSize, private readonly flow: { pause(): void; resume(): void }) {
-    this.terminal = new headless.Terminal({ ...size, allowProposedApi: true, scrollback: TERMINAL_LIMITS.scrollback });
+    this.terminal = new headless.Terminal({ ...size, allowProposedApi: true, scrollback: TERMINAL_LIMITS.scrollback, theme: { ...TERMINAL_THEME } });
     this.terminal.loadAddon(this.serializer);
     internals(this.terminal);
     // xterm 的流式解析器区分独立 BEL 与 OSC 终止符，跨块通知不另造解析器。
     this.terminal.onBell(() => this.onNotification());
     for (const id of [9, 777]) this.terminal.parser.registerOscHandler(id, () => { this.onNotification(); return true; });
+    // headless 不应答颜色查询；按共用配色应答前景、背景与光标色，CLI 据此识别浅色背景。应答经 onData 写回 PTY。
+    for (const [id, color] of [[10, TERMINAL_THEME.foreground], [11, TERMINAL_THEME.background], [12, TERMINAL_THEME.cursor]] as const) {
+      this.terminal.parser.registerOscHandler(id, data => {
+        if (data !== '?') return false;
+        this.terminal.input(`\x1b]${id};${xtermColor(color)}\x1b\\`, false);
+        return true;
+      });
+    }
   }
   output(data: Buffer): void {
     if (this.disposed) return;
@@ -93,4 +101,9 @@ export class TerminalScreen {
     for (const waiter of this.waiters) { clearTimeout(waiter.timer); waiter.reject(new Error('终端画面已释放。')); }
     this.waiters.clear(); this.terminal.dispose();
   }
+}
+
+/** #rrggbb 转为 xterm 颜色应答格式 rgb:rrrr/gggg/bbbb。 */
+function xtermColor(hex: string): string {
+  return `rgb:${[1, 3, 5].map(index => hex.slice(index, index + 2).repeat(2)).join('/')}`;
 }

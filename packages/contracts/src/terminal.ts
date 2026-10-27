@@ -4,7 +4,17 @@ import { ProjectIdSchema } from './project.js';
 export const TERMINAL_LIMITS = {
   minCols: 10, maxCols: 240, minRows: 4, maxRows: 100,
   scrollback: 1000, frameBytes: 16 * 1024, pauseBytes: 256 * 1024,
+  // 单窗口未确认输出上限：超过后暂停向该窗口发送，等它追上再补发当前画面，控制渲染延迟。
   resumeBytes: 64 * 1024, unacknowledgedBytes: 256 * 1024, snapshotTimeoutMillis: 2500,
+} as const;
+/**
+ * 终端配色（浅色）：网页画面与服务端权威画面共用。服务端据此应答 CLI 的前景/背景色查询，
+ * CLI 才会按浅色背景选择配色；两处必须一致。
+ */
+export const TERMINAL_THEME = {
+  background: '#ffffff', foreground: '#1b2023', cursor: '#1b2023', cursorAccent: '#ffffff', selectionBackground: '#cfdae6',
+  black: '#24292f', red: '#cf222e', green: '#116329', yellow: '#7d4e00', blue: '#0969da', magenta: '#8250df', cyan: '#1b7c83', white: '#6e7781',
+  brightBlack: '#57606a', brightRed: '#a40e26', brightGreen: '#1a7f37', brightYellow: '#633c01', brightBlue: '#218bff', brightMagenta: '#a475f9', brightCyan: '#3192aa', brightWhite: '#8c959f',
 } as const;
 export const TERMINAL_BODY_LIMIT_BYTES = 32 * 1024;
 export const TERMINAL_TITLE_MAX_LENGTH = 80;
@@ -15,6 +25,7 @@ const Argv = Type.Array(TextArgument, { maxItems: 64 });
 const Title = Type.String({ minLength: 1, maxLength: TERMINAL_TITLE_MAX_LENGTH, pattern: '\\S' });
 const Watermark = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 const NullableText = Type.Union([Type.String({ minLength: 1 }), Type.Null()]);
+const Uuid = Type.String({ pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' });
 
 /** 预设决定启动图标；不依据前台程序更新身份。argv 始终逐项保存，不能拼成未转义的 shell 文本。 */
 export const TerminalPresetSchema = Type.Union([
@@ -68,6 +79,12 @@ export const ProjectTerminalSchema = Type.Object({
   createdAt: Timestamp, instanceStartedAt: Timestamp, lastActivityAt: Timestamp,
   closedAt: Type.Union([Timestamp, Type.Null()]),
   unread: Type.Boolean(), notificationCount: Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+  /**
+   * coding agent 的会话 ID，重开时据此接回同一会话；只是元数据，不读取会话内容。
+   * Claude Code 由 Multivac 生成并以 --session-id 传入；Codex 由 Multivac 管理的 app-server 创建后取得。
+   * 其他预设与自带会话参数的命令为 null（旧记录可缺省）。
+   */
+  agentSessionId: Type.Optional(Type.Union([Uuid, Type.Null()])),
 }, { additionalProperties: false });
 export type ProjectTerminal = Type.Static<typeof ProjectTerminalSchema>;
 export const TerminalResponseSchema = Type.Object({ terminal: ProjectTerminalSchema }, { additionalProperties: false });
@@ -86,7 +103,8 @@ export const GetTerminalSchema = Type.Object({}, { additionalProperties: false }
 export const RenameTerminalSchema = Type.Object({ title: Title }, { additionalProperties: false });
 export const EndTerminalSchema = Type.Object({ instanceId: Id }, { additionalProperties: false });
 export const CloseTerminalSchema = Type.Object({ instanceId: Id, confirmRunning: Type.Boolean() }, { additionalProperties: false });
-export const ReopenTerminalSchema = Type.Object({ instanceId: Id, size: TerminalSizeSchema }, { additionalProperties: false });
+/** resume：接回记录的 coding agent 会话（缺省）；new：开始新会话。不跟踪会话的终端忽略该项。 */
+export const ReopenTerminalSchema = Type.Object({ instanceId: Id, size: TerminalSizeSchema, mode: Type.Optional(Type.Union([Type.Literal('resume'), Type.Literal('new')])) }, { additionalProperties: false });
 export const ReadTerminalSchema = Type.Object({ instanceId: Id }, { additionalProperties: false });
 
 /** HTTP/upgrade 通过本机守卫后才能读取列表或附着。每条客户端消息还必须绑定当前连接及进程实例。 */
@@ -118,4 +136,16 @@ export function terminalExitedSuccessfully(exit: TerminalExit): boolean {
 }
 export function terminalIsActive(status: TerminalStatus): boolean {
   return !['exited', 'failed'].includes(status);
+}
+
+/** 用户参数已自行指定会话（恢复、继续、指定 ID、分叉或非交互输出）时，Multivac 不再注入或跟踪会话 ID。 */
+const CLAUDE_SESSION_FLAGS = new Set(['--resume', '-r', '--continue', '-c', '--session-id', '--fork-session', '--print', '-p']);
+/** Codex 参数中出现子命令（恢复、分叉、非交互执行、管理命令等）时不跟踪会话。 */
+const CODEX_SUBCOMMANDS = new Set(['resume', 'fork', 'exec', 'e', 'review', 'apply', 'a', 'login', 'logout', 'mcp', 'mcp-server', 'app-server', 'completion', 'sandbox', 'debug', 'cloud', 'features', 'agents', 'archive', 'unarchive', 'delete', 'queue', 'remote-control', 'migrate-rollouts', 'help']);
+
+/** 是否由 Multivac 跟踪这个终端里 coding agent 的会话 ID，以便重开时接回同一会话。 */
+export function agentSessionTrackable(preset: TerminalPreset): boolean {
+  if (preset.kind === 'claude') return !preset.argv.some(arg => CLAUDE_SESSION_FLAGS.has(arg.split('=')[0]!));
+  if (preset.kind === 'codex') return !preset.argv.some(arg => CODEX_SUBCOMMANDS.has(arg));
+  return false;
 }

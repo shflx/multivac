@@ -3,8 +3,9 @@ import { promisify } from 'node:util';
 import * as pty from 'node-pty';
 import type { TerminalPreset, TerminalSize } from '@multivac/contracts';
 const execute = promisify(execFile);
+/** COLORFGBG 声明浅色背景（前景 0、背景 15），供不查询终端颜色的程序选择配色。 */
 export function terminalEnvironment(source: NodeJS.ProcessEnv): Record<string, string> {
-  return Object.fromEntries(Object.entries({ ...source, TERM: 'xterm-256color', COLORTERM: 'truecolor' })
+  return Object.fromEntries(Object.entries({ ...source, TERM: 'xterm-256color', COLORTERM: 'truecolor', COLORFGBG: '0;15' })
     .filter((entry): entry is [string, string] => entry[1] !== undefined &&
       !/^(MULTIVAC_|PI_|CODEX_HOME$|NODE_OPTIONS$|NODE_PATH$|GOOGLE_APPLICATION_CREDENTIALS$|AWS_ACCESS_KEY_ID$|AWS_SECRET_ACCESS_KEY$|AWS_SESSION_TOKEN$)|(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD)$/i.test(entry[0])));
 }
@@ -44,6 +45,11 @@ export class TerminalProcess {
       cwd: directory, ...size, name: 'xterm-256color', env: terminalEnvironment(process.env), encoding: null,
     });
     this.sessionId = this.pty.pid;
+    // 根进程退出后 PTY 写入会以 EIO 失败（例如退出前后到达的输入或终端查询应答），直接丢弃。
+    const write = this.pty.write.bind(this.pty);
+    const resize = this.pty.resize.bind(this.pty);
+    this.pty.write = (data: string | Buffer) => { if (!this.rootExited) write(data); };
+    this.pty.resize = (cols: number, rows: number) => { if (!this.rootExited) resize(cols, rows); };
     this.listeners = [this.pty.onData(data => this.onOutput(Buffer.isBuffer(data) ? data : Buffer.from(data))), this.pty.onExit(exit => {
       this.rootExited = true; this.exit = exit; this.onExit(exit);
     })];
