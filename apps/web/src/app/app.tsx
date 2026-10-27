@@ -447,6 +447,12 @@ export function App() {
       openManagementWithSelection(target.page, target.selection);
       return;
     }
+    if (target.kind === 'terminal') {
+      // 终端占用栏位只在本窗口生效：切到所属项目后，由工作区放进指定的栏或单独查看。
+      void enterWorkspace({ workspaceId: target.workspaceId, sessionId: null, layout: 'keep' })
+        .then(() => terminals.reveal(target.workspaceId, target.terminalId, target.slot === null ? null : target.slot - 1));
+      return;
+    }
     void enterWorkspace({
       workspaceId: target.workspaceId,
       sessionId: workspaceVisible ? null : target.sessionId,

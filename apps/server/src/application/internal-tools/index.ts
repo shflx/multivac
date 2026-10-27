@@ -1,3 +1,4 @@
+import { openTerminalTool } from './terminal-tools.js';
 import { readSessionHistoryTool, readSessionMessageTool } from './session-transcript-tools.js';
 import { MCP_MANAGEMENT_TOOLS } from './mcp-management-tools.js';
 import { MCP_EXECUTION_TOOLS } from './mcp-tools.js';
@@ -69,6 +70,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   restoreSessionTool,
   switchWorkspaceTool,
   openSessionTool,
+  openTerminalTool,
   setParallelCountTool,
   setViewModeTool,
   openManagementPageTool,

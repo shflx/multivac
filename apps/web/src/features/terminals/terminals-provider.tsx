@@ -31,6 +31,9 @@ interface TerminalContextValue {
   unplace(workspaceId: string, target: string | number): void;
   /** 本窗口最近新建的终端；工作区据此把它放进并排的第一栏。 */
   created: { workspaceId: string; terminalId: string; sequence: number } | null;
+  /** 请求显示终端（Multivac 应用户要求打开时）：slot 为并排第几栏（从 0 起），null 时单独查看。 */
+  reveal(workspaceId: string, terminalId: string, slot: number | null): void;
+  revealed: { workspaceId: string; terminalId: string; slot: number | null; sequence: number; at: number } | null;
 }
 
 const Context = createContext<TerminalContextValue | null>(null);
@@ -58,6 +61,7 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
   const [selected, select] = useState<TerminalContextValue['selected']>(rememberedTerminalSelection);
   const [columns, setColumns] = useState<Record<string, TerminalColumns>>(rememberedColumns);
   const [created, setCreated] = useState<TerminalContextValue['created']>(null);
+  const [revealed, setRevealed] = useState<TerminalContextValue['revealed']>(null);
   const [creating, setCreating] = useState<{ project: Project; kind: TerminalPreset['kind']; error?: string } | null>(null);
 
   useEffect(() => {
@@ -79,6 +83,10 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
     } catch (error) { if (version === sequence.current) setError(error instanceof Error ? error.message : '终端列表读取失败。'); }
   }, [available, workspaces]);
   useEffect(() => { void refresh(); }, [refresh]);
+  const reveal = useCallback((workspaceId: string, terminalId: string, slot: number | null) => {
+    // 终端由服务端新建时本窗口的列表可能还没有它，先刷新再显示。
+    void refresh().finally(() => setRevealed(current => ({ workspaceId, terminalId, slot, sequence: (current?.sequence ?? 0) + 1, at: Date.now() })));
+  }, [refresh]);
   useWorkbenchEvents(event => { if (event.type === 'terminal.changed' || event.type === 'workbench.connected') void refresh(); });
 
   const opened = useCallback((record: ProjectTerminal) => {
@@ -112,7 +120,7 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
     return kept.length === entries.length ? current : { ...current, [workspaceId]: Object.fromEntries(kept) };
   }), []);
 
-  return <Context.Provider value={{ available, terminals, error, selected, select, create, refresh, columnsOf, place, placeFirst, unplace, created }}>
+  return <Context.Provider value={{ available, terminals, error, selected, select, create, refresh, columnsOf, place, placeFirst, unplace, created, reveal, revealed }}>
     {children}
     {creating && <TerminalCreation project={creating.project} initialKind={creating.kind} initialError={creating.error ?? ''} onCancel={() => setCreating(null)} onCreated={record => { opened(record); setCreating(null); }} />}
   </Context.Provider>;

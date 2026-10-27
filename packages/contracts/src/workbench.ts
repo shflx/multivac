@@ -154,6 +154,16 @@ export const WindowNavigationTargetSchema = Type.Union([
     },
     { additionalProperties: false },
   ),
+  // 打开项目终端：slot 为并排第几栏（从 1 起），null 时单独查看。终端占用栏位只在窗口本地生效，由发起窗口自行放置。
+  Type.Object(
+    {
+      kind: Type.Literal('terminal'),
+      workspaceId: Type.String({ minLength: 1, maxLength: 128 }),
+      terminalId: Type.String({ minLength: 1, maxLength: 128 }),
+      slot: Type.Union([Type.Integer({ minimum: 1, maximum: 4 }), Type.Null()]),
+    },
+    { additionalProperties: false },
+  ),
 ]);
 export type WindowNavigationTarget = Type.Static<typeof WindowNavigationTargetSchema>;
 
