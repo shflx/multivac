@@ -59,6 +59,10 @@ export async function openCreationDialog(page: Page): Promise<void> {
   if (!await rail.isVisible()) await page.keyboard.press('ControlOrMeta+B');
   await expect(rail).toBeVisible();
   await rail.locator('.rail-folder.active').getByRole('button', { name: /新建会话/ }).click();
+  // 项目工作区可同时新建终端：按钮先展开新建菜单，再选会话。
+  const menu = page.getByRole('menu', { name: '新建' });
+  await expect(menu.or(page.getByRole('dialog', { name: '创建新会话' }))).toBeVisible();
+  if (await menu.isVisible()) await menu.getByRole('menuitem', { name: /^会话/ }).click();
 }
 
 export const workspaceRail = (page: Page) => page.getByRole('complementary', { name: '工作区会话导航', includeHidden: true });

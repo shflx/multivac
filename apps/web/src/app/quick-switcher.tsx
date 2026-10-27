@@ -1,4 +1,6 @@
-import { MessageSquare, Search, X, ListTodo, type LucideIcon } from 'lucide-react';
+import { MessageSquare, Search, SquareTerminal, X, ListTodo, type LucideIcon } from 'lucide-react';
+import { useTerminals } from '../features/terminals/terminals-provider.js';
+import { PRESET_LABELS } from '../features/terminals/terminal-presentation.js';
 import { useTasks } from '../features/tasks/tasks-provider.js';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { useWorkspaceSessions, useWorkspaces } from '../features/workspace/workspace-sessions-provider.js';
@@ -24,9 +26,12 @@ const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = { skills: ['Skill', '�
   archive: ['归档', '恢复', '会话'], projects: ['目录', '项目'], agents: ['智能体', '执行配置', '指令', 'agent'], models: ['API Key', '模型', '协议', '推理'], preferences: ['最近', '偏好', '临时目录'],
 };
 
-export function QuickSwitcher({ management, page, view, onSession, onPage, onClose, onTask }: {
+export function QuickSwitcher({ management, page, view, onSession, onTerminal, onPage, onClose, onTask }: {
   management: boolean; page: ManagementPageId; view: WorkspaceViewReport | null;
-  onSession: (workspaceId: string, sessionId: string) => void; onPage: (id: ManagementPageId) => void; onClose: () => void;
+  onSession: (workspaceId: string, sessionId: string) => void;
+  /** 打开项目终端（终端所属项目的工作区即项目 id）。 */
+  onTerminal?: (workspaceId: string, terminalId: string) => void;
+  onPage: (id: ManagementPageId) => void; onClose: () => void;
   onTask?: (id: string) => void;
 }) {
   const { tasks, store, selected } = useTasks();
@@ -52,8 +57,19 @@ export function QuickSwitcher({ management, page, view, onSession, onPage, onClo
       run: () => onSession(session.workspaceId, session.sessionId),
     };
   }));
+  // 未关闭的项目终端与会话一起列出，可按 claude、codex、终端搜索；Multivac 不读取终端内容。
+  const { terminals, selected: selectedTerminal } = useTerminals();
+  const terminalItems: JumpItem[] = management || !onTerminal ? [] : groups.flatMap((group) => terminals
+    .filter((terminal) => terminal.projectId === group.project?.projectId && !terminal.closedAt)
+    .map((terminal) => ({
+      id: `terminal:${terminal.terminalId}`, label: terminal.title, hint: group.name, detail: PRESET_LABELS[terminal.preset.kind],
+      group: group.name, groupId: group.workspaceId, icon: SquareTerminal, activity: Date.parse(terminal.lastActivityAt),
+      current: view?.workspaceId === group.workspaceId && selectedTerminal?.terminalId === terminal.terminalId,
+      keywords: ['终端', PRESET_LABELS[terminal.preset.kind], terminal.preset.kind, group.name],
+      run: () => onTerminal(group.workspaceId, terminal.terminalId),
+    })));
   const taskItems: JumpItem[] = onTask ? tasks.map((task) => ({ id: `task:${task.taskId}`, label: task.title, hint: '任务', detail: task.reason, group: '任务', groupId: 'tasks', current: management && page === 'tasks' && selected === task.taskId, icon: ListTodo, keywords: ['任务', task.goal], run: () => onTask(task.taskId) })) : [];
-  return <QuickPalette items={[...items, ...taskItems]} recent={management ? [] : recentJumpItems(items)} title={management ? '跳到页面' : '跳到会话'} scope={management ? '管理' : '工作区'} error={loadError} onClose={onClose} />;
+  return <QuickPalette items={[...items, ...terminalItems, ...taskItems]} recent={management ? [] : recentJumpItems([...items, ...terminalItems])} title={management ? '跳到页面' : '跳到会话'} scope={management ? '管理' : '工作区'} error={loadError} onClose={onClose} />;
 }
 
 function Highlight({ text, query }: { text: string; query: string }) {

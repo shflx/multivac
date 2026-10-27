@@ -117,6 +117,7 @@ export function WorkspaceView({
   // 工作区与工作会话列表在应用内只有一份，其他界面的改名、归档、恢复在这里即时可见。
   const terminals = useTerminals();
   const selectedTerminal = terminals.selected?.workspaceId === workspaceId ? terminals.terminals.find(item => item.terminalId === terminals.selected?.terminalId) : undefined;
+  const terminalColumns = terminals.columnsOf(workspaceId);
   const workspaceSessions = useWorkspaceSessions();
   const { ensureLoaded, upsert } = workspaceSessions;
   const { workspaces, ensureLoaded: ensureWorkspacesLoaded } = useWorkspaces();
@@ -221,8 +222,43 @@ export function WorkspaceView({
   // 补位的结果一经呈现就固定下来（与保存到服务端的一致），之后别处新建或恢复的会话只补进空栏，不挤动正在显示的会话。
   // 否则本窗口按未补位的栏位重新补位，顺序与读取了已保存现场的窗口不同，各自保存时互相冲突。
   const filledKey = parallelIds.filter((id) => !storedSlots.includes(id)).join('\n');
-  const visibleIds = viewMode === 'parallel' ? parallelIds : currentId ? [currentId] : [];
-  const titleOf = (id: string) => sessions?.find((session) => session.sessionId === id)?.title ?? '';
+  // 并排各栏实际显示的对象：放进栏位的终端占住那一栏（只在本窗口），会话按栏位顺序填入其余各栏。
+  // 终端不写入工作区现场，现场仍只记录会话。
+  // 会话之后仍有空栏时，按新建顺序（新的在前）自动放入本项目未关闭的终端，与会话自动补位一致。
+  const projectId = workspaces?.find((item) => item.workspaceId === workspaceId)?.project?.projectId;
+  const liveTerminals = projectId ? terminals.terminals.filter((item) => item.projectId === projectId && !item.closedAt) : [];
+  const columnKeys: string[] = [];
+  {
+    const placedIds = new Set(Object.entries(terminalColumns).filter(([column]) => Number(column) < parallelCount).map(([, id]) => id));
+    const pendingSessions = [...parallelIds];
+    const spareTerminals = liveTerminals.filter((item) => !placedIds.has(item.terminalId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((item) => terminalKey(item.terminalId));
+    for (let column = 0; column < parallelCount; column += 1) {
+      const terminalId = terminalColumns[column];
+      const placed = terminalId && liveTerminals.some((item) => item.terminalId === terminalId) && !columnKeys.includes(terminalKey(terminalId));
+      if (placed) columnKeys.push(terminalKey(terminalId));
+      else if (pendingSessions.length) columnKeys.push(pendingSessions.shift()!);
+      else if (spareTerminals.length) columnKeys.push(spareTerminals.shift()!);
+    }
+  }
+  // 选中的终端在并排栏位中且处于并排时只是选中；否则单独查看它。
+  const terminalFocused = Boolean(selectedTerminal) && !(viewMode === 'parallel' && columnKeys.includes(terminalKey(selectedTerminal!.terminalId)));
+  const visibleIds = terminalFocused ? [terminalKey(selectedTerminal!.terminalId)] : viewMode === 'parallel' ? columnKeys : currentId ? [currentId] : [];
+  const terminalShown = visibleIds.some(isTerminalKey);
+  // 选中的终端正在显示时它是当前对象，会话不再显示为当前。
+  const currentTerminalId = selectedTerminal && visibleIds.includes(terminalKey(selectedTerminal.terminalId)) ? selectedTerminal.terminalId : null;
+
+  // 并排时新建的终端放进第一栏，原有各栏依次后移；聚焦时单独查看它。
+  const handledCreatedRef = useRef(terminals.created?.sequence ?? 0);
+  useEffect(() => {
+    const created = terminals.created;
+    if (!created || created.sequence === handledCreatedRef.current) return;
+    handledCreatedRef.current = created.sequence;
+    if (created.workspaceId === workspaceId && viewMode === 'parallel') terminals.placeFirst(workspaceId, created.terminalId);
+  }, [terminals.created, workspaceId, viewMode]);
+  const titleOf = (id: string) => isTerminalKey(id)
+    ? terminals.terminals.find((item) => terminalKey(item.terminalId) === id)?.title ?? '终端'
+    : sessions?.find((session) => session.sessionId === id)?.title ?? '';
   const sessionOf = (id: string) => sessions?.find((session) => session.sessionId === id);
   // 栈式路径沿全部工作区的父会话链取名称：父会话归入了别的项目时注明它所在的工作区。
   const everySession = workspaceSessions.sessions ?? [];
@@ -387,15 +423,15 @@ export function WorkspaceView({
 
   const currentTitle = currentId ? titleOf(currentId) : '';
   useEffect(() => {
-    onFocusChange?.(!selectedTerminal && currentId ? { sessionId: currentId, title: currentTitle } : null);
-  }, [currentId, currentTitle, onFocusChange, selectedTerminal]);
+    onFocusChange?.(!currentTerminalId && !terminalFocused && currentId ? { sessionId: currentId, title: currentTitle } : null);
+  }, [currentId, currentTitle, onFocusChange, terminalFocused, currentTerminalId]);
 
-  // 界面呈现的现场按内容比较，内容不变时不重复通知。
-  const viewReportJson = sceneLoaded && !selectedTerminal
+  // 界面呈现的现场按内容比较，内容不变时不重复通知。终端不进入 Multivac 的视图上下文：显示终端时不报告栏位。
+  const viewReportJson = sceneLoaded && !terminalShown
     ? JSON.stringify({ parallelCount, viewMode, slots: parallelIds, focusedSessionId: currentId })
     : null;
   useEffect(() => {
-    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null, reading: !selectedTerminal && viewMode === 'focus' && readingFocus?.sessionId === currentId ? readingFocus : null });
+    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null, reading: !terminalShown && viewMode === 'focus' && readingFocus?.sessionId === currentId ? readingFocus : null });
   }, [workspaceId, viewReportJson, onViewChange, viewMode, readingFocus, currentId]);
 
   /**
@@ -429,7 +465,7 @@ export function WorkspaceView({
       // focus：界面上的“在工作区打开”，聚焦查看它；keep：现场已由 Multivac 在服务端排好（随推送应用），只交出输入焦点。
       if (openRequest.layout === 'focus') focusSession(sessionId);
       else if (openRequest.layout === 'navigate') {
-        if (viewMode === 'parallel' && parallelIds.includes(sessionId)) setFocusedId(sessionId);
+        if (viewMode === 'parallel' && columnKeys.includes(sessionId)) setFocusedId(sessionId);
         else focusSession(sessionId);
       }
       openFocusCountRef.current += 1;
@@ -447,17 +483,31 @@ export function WorkspaceView({
    */
   function assignSlot(id: string, slot: number): void {
     onCloseOverlay();
-    applyScene(assignSlotInScene(scene, id, slot));
+    terminals.select(null);
+    // 栏号按实际显示计：占住这一栏的终端让出位置；会话在现场中的位置不计终端所在的栏。
+    const terminalsBefore = columnKeys.slice(0, slot).filter(isTerminalKey).length;
+    terminals.unplace(workspaceId, slot);
+    applyScene(assignSlotInScene(scene, id, slot - terminalsBefore));
+  }
+
+  /** 把终端放进第 slot + 1 栏（只在本窗口）：聚焦时切回并排。 */
+  function assignTerminal(terminalId: string, slot: number): void {
+    onCloseOverlay();
+    terminals.place(workspaceId, terminalId, slot);
+    if (viewMode === 'focus') applyScene(switchViewModeInScene(scene, 'parallel'));
   }
 
   /** 调整并排数：多出的会话退出显示但不关闭，当前会话始终保留在显示中。 */
   function changeParallelCount(count: number): void {
     onChooseLayout(count);
+    terminals.select(null);
+    for (const column of Object.keys(terminalColumns).map(Number)) if (column >= count) terminals.unplace(workspaceId, column);
     applyScene(resizeParallelInScene(scene, count));
   }
 
   /** 回到并排时，当前会话若不在并排位则改为聚焦并排的第一栏。 */
   function switchViewMode(mode: ViewMode): void {
+    if (mode === 'parallel') terminals.select(null);
     onChooseLayout(mode === 'parallel' ? parallelCount : 1);
     applyScene(switchViewModeInScene(scene, mode));
   }
@@ -558,26 +608,26 @@ export function WorkspaceView({
   // 切换现场时保留侧边栏的 DOM；绘制前更新导航，点击过程不再重建容器或回写滚动位置。
   useLayoutEffect(() => {
     railControllerRef.current?.update({
-      workspaces: workspaces ?? [], recentDays, clock: now, workspaceId, slots: parallelIds,
-      currentId, parallelCount,
+      workspaces: workspaces ?? [], recentDays, clock: now, workspaceId, slots: columnKeys,
+      currentId: currentTerminalId ? null : currentId, parallelCount,
       onSwitch: onSwitchWorkspace,
       onOpen: (target, id) => {
         terminals.select(null);
         onCloseOverlay();
         if (everySession.find(session => session.sessionId === id)?.taskId || target !== workspaceId) onOpenSession?.(target, id);
-        else if (viewMode === 'parallel' && parallelIds.includes(id)) setFocusedId(id);
+        else if (viewMode === 'parallel' && columnKeys.includes(id)) setFocusedId(id);
         else focusSession(id);
       },
       onCreate: (id) => { setCreationWorkspaceId(id); setCreating(true); },
-      onAssign: assignSlot, onMove: setMoving,
+      onAssign: assignSlot, onAssignTerminal: assignTerminal, onMove: setMoving,
       children: (
         <div className="rail-view" role="group" aria-label="布局">
-          <span className="rail-layout-label">{viewMode === 'focus' ? '聚焦' : `并排 ${parallelCount} 栏`}</span>
+          <span className="rail-layout-label">{viewMode === 'focus' || terminalFocused ? '聚焦' : `并排 ${parallelCount} 栏`}</span>
           <div className="rail-layout" role="radiogroup" aria-label="工作区布局">
-            <button type="button" role="radio" title="聚焦：只看当前会话" aria-label="聚焦：只看当前会话" aria-checked={viewMode === 'focus'} disabled={!currentId} onClick={() => switchViewMode('focus')}><Maximize2 /></button>
+            <button type="button" role="radio" title="聚焦：只看当前会话" aria-label="聚焦：只看当前会话" aria-checked={viewMode === 'focus' || terminalFocused} disabled={!currentId} onClick={() => switchViewMode('focus')}><Maximize2 /></button>
             {WORKSPACE_PARALLEL_OPTIONS.map((count) => {
               const Icon = count === 2 ? Columns2 : count === 3 ? Columns3 : Columns4;
-              return <button type="button" role="radio" key={count} title={`并排 ${count} 栏`} aria-label={`并排 ${count} 栏`} aria-checked={viewMode === 'parallel' && count === parallelCount} onClick={() => count === parallelCount ? switchViewMode('parallel') : changeParallelCount(count)}><Icon /></button>;
+              return <button type="button" role="radio" key={count} title={`并排 ${count} 栏`} aria-label={`并排 ${count} 栏`} aria-checked={viewMode === 'parallel' && !terminalFocused && count === parallelCount} onClick={() => count === parallelCount ? switchViewMode('parallel') : changeParallelCount(count)}><Icon /></button>;
             })}
           </div>
         </div>
@@ -612,7 +662,7 @@ export function WorkspaceView({
         </div>
       )}
 
-      {selectedTerminal ? <Suspense fallback={<p>正在加载终端…</p>}><LazyTerminalView record={selectedTerminal} visible={active} /></Suspense> : sessions === null || !sceneLoaded ? (
+      {!terminalFocused && (sessions === null || !sceneLoaded) ? (
         <div className="workspace-empty" aria-live="polite">
           {loadError ? (
             <>
@@ -648,7 +698,24 @@ export function WorkspaceView({
             const { [visibleIds.length]: _previous, ...rest } = current;
             return next ? { ...rest, [visibleIds.length]: next } : rest;
           })}
-          renderPanel={(id) => (
+          renderPanel={(id) => isTerminalKey(id) ? (() => {
+            const record = terminals.terminals.find((item) => terminalKey(item.terminalId) === id);
+            return record ? (
+              <Suspense key={id} fallback={<div className="workspace-empty"><LoaderCircle className="spin" aria-hidden="true" /><p>正在加载终端</p></div>}>
+                <LazyTerminalView
+                  record={record}
+                  visible={active}
+                  current={record.terminalId === currentTerminalId}
+                  onActivate={() => { if (terminals.selected?.terminalId !== record.terminalId) terminals.select({ workspaceId, terminalId: record.terminalId }); }}
+                  focused={terminalFocused}
+                  slotLabel={!terminalFocused && viewMode === 'parallel' ? `第 ${columnKeys.indexOf(id) + 1} 栏` : ''}
+                  onFocus={() => terminals.select({ workspaceId, terminalId: record.terminalId })}
+                  onReturnToParallel={() => switchViewMode('parallel')}
+                  onClosed={() => { terminals.unplace(workspaceId, record.terminalId); terminals.select(null); }}
+                />
+              </Suspense>
+            ) : null;
+          })() : (
             <ConversationPanel
               key={id}
               sessionId={id}
@@ -657,13 +724,13 @@ export function WorkspaceView({
               title={titleOf(id)}
               workingDirectory={sessionOf(id)?.workingDirectory ?? null}
               visible={active}
-              current={id === currentId}
+              current={id === currentId && !currentTerminalId}
               claimFocus={id !== remoteCurrentId}
               {...(openedFocus?.sessionId === id ? { focusRequest: openedFocus.request } : {})}
               focused={viewMode === 'focus'}
-              slotLabel={viewMode === 'parallel' && parallelIds.includes(id) ? `第 ${parallelIds.indexOf(id) + 1} 栏` : ''}
+              slotLabel={viewMode === 'parallel' && columnKeys.includes(id) ? `第 ${columnKeys.indexOf(id) + 1} 栏` : ''}
               collapseComposer={viewMode === 'parallel' && id !== currentId}
-              onActivate={() => setFocusedId(id)}
+              onActivate={() => { if (terminals.selected) terminals.select(null); setFocusedId(id); }}
               onFocusMode={() => {
                 setFocusedId(id);
                 setViewMode('focus');
@@ -708,6 +775,15 @@ export function WorkspaceView({
       )}
     </>
   );
+}
+
+/** 并排栏位中终端的标识，与会话 id 区分。 */
+function terminalKey(terminalId: string): string {
+  return `terminal:${terminalId}`;
+}
+
+function isTerminalKey(key: string): boolean {
+  return key.startsWith('terminal:');
 }
 
 /** 子会话标题取选中内容的开头；过长时截断。 */

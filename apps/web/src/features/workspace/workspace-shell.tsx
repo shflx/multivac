@@ -1,4 +1,3 @@
-import { TerminalsProvider } from '../terminals/terminals-provider.js';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { AssistantQuote, WorkspaceScene } from '@multivac/contracts';
@@ -49,7 +48,7 @@ export interface WorkspaceOpenRequest {
  * 离开的工作区先保存现场，进入的工作区读回自己的现场（本页已打开过的直接用本页记下的最新现场）。
  * 侧栏与全局 Multivac 不随工作区变化。
  */
-export function WorkspaceShell(props: WorkspaceShellProps) { return <TerminalsProvider><WorkspaceShellContent {...props} /></TerminalsProvider>; }
+export function WorkspaceShell(props: WorkspaceShellProps) { return <WorkspaceShellContent {...props} />; }
 
 function WorkspaceShellContent({
   active, onManageModels, openRequest = null, onFocusChange, onHandToMultivac, onViewChange, railToggleRef, onRailVisibleChange,

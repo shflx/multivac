@@ -1,4 +1,5 @@
 import { rememberedTerminalSelection } from '../features/terminals/terminal-selection.js';
+import { useTerminals } from '../features/terminals/terminals-provider.js';
 import { DailyQuote } from './daily-quote.js';
 import { InboxDrawer, InboxView } from '../features/tasks/inbox-view.js';
 import { InboxButton } from '../features/tasks/inbox-button.js';
@@ -121,6 +122,7 @@ export function App() {
   const railToggleRef = useRef<(() => void) | null>(null);
   const [railVisible, setRailVisible] = useState(false);
   const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
+  const terminals = useTerminals();
   const [panelSwitcherOpen, setPanelSwitcherOpen] = useState(false);
   // 从设置 · 归档页在工作区打开的会话及其所在的工作区；id 递增表示一次新的打开。
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState<WorkspaceOpenRequest | null>(null);
@@ -655,6 +657,7 @@ export function App() {
             <QuickSwitcher management={showManagement} page={currentPage} view={workspaceView}
               onTask={(id) => void openTask(id)}
               onSession={(workspaceId, sessionId) => void enterWorkspace({ workspaceId, sessionId, layout: 'navigate' })}
+              onTerminal={(workspaceId, terminalId) => void enterWorkspace({ workspaceId, sessionId: null, layout: 'keep' }).then(() => terminals.select({ workspaceId, terminalId }))}
               onPage={(page) => void openManagementPage(page)} onClose={() => setQuickSwitcherOpen(false)} />
           )}
           {panelSwitcherOpen && !narrow && (
