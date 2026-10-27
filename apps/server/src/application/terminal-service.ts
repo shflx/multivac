@@ -3,7 +3,7 @@ import { statSync } from 'node:fs';
 import { terminalIsActive, type CreateTerminal, type Project, type ProjectTerminal, type TerminalExit, type TerminalSize } from '@multivac/contracts';
 import { assertTerminalOperation, selectTerminalDirectory, type TerminalRepository } from '../modules/terminals/terminal-record.js';
 import { TerminalScreen } from '../modules/terminals/terminal-screen.js';
-import { TerminalProcess } from '../runtime/executors/terminal-process.js';
+import type { TerminalProcess, TerminalProcessFactory } from '../modules/terminals/terminal-process.js';
 import type { WorkbenchEvents } from './workbench-events.js';
 export class TerminalError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -24,7 +24,7 @@ export class TerminalService {
   private closing = false;
   get hasActivity(): boolean { return this.runtimes.size > 0; }
   private unsubscribe: () => void;
-  constructor(readonly repository: TerminalRepository, private readonly project: (id: string) => Project, private readonly events: WorkbenchEvents) {
+  constructor(readonly repository: TerminalRepository, private readonly project: (id: string) => Project, private readonly events: WorkbenchEvents, private readonly createProcess: TerminalProcessFactory) {
     repository.endInterrupted(new Date().toISOString());
     this.unsubscribe = events.subscribe(event => {
       if (event.type !== 'workspace.changed' || !event.workspace.project) return;
@@ -69,7 +69,7 @@ export class TerminalService {
     try {
       let process: TerminalProcess | undefined;
       const screen = new TerminalScreen(size, { pause: () => process?.pty.pause(), resume: () => process?.pty.resume() });
-      try { process = new TerminalProcess(record.directory, record.preset, size); }
+      try { process = this.createProcess(record.directory, record.preset, size); }
       catch (error) { screen.dispose(); throw error; }
       const runtime: TerminalRuntime = { terminalId: record.terminalId, process, screen, owner: null, listeners: new Set() };
       this.runtimes.set(record.instanceId, runtime);

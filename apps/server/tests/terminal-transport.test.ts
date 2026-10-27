@@ -4,6 +4,8 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { nativeTerminalProcess } from '../src/runtime/executors/process-runtime.js';
 import { WebSocket } from 'ws';
 import headless from '@xterm/headless';
 import { Check } from 'typebox/value';
@@ -33,11 +35,11 @@ async function windowFor(url: string, origin: string, autoAck = true) {
   return { socket, messages, send, get data() { return data; }, get snapshot() { return snapshot; }, get connectionId() { return connectionId; } };
 }
 test('真实HTTP/WS：来源拒绝、刷新快照、多窗口接管、慢窗口隔离、结束及重开', { skip: process.platform !== 'darwin' || process.arch !== 'arm64', timeout: 30000 }, async () => {
-  const root = mkdtempSync(join(process.cwd(), 'artifacts/terminal-integration-'));
+  const root = mkdtempSync(join(tmpdir(), 'multivac-terminal-integration-'));
   const store = new SqliteAssistantStore(join(root, 'metadata.sqlite'));
   const created = store.projects.create({ projectId: 'terminal-test', name: '终端集成', directories: [{ kind: 'mounted', path: root }], defaultConstraints: '', createdAt: new Date().toISOString() });
   const events = new WorkbenchEvents(); const eventBodies: string[] = []; events.subscribe(event => eventBodies.push(JSON.stringify(event)));
-  const service = new TerminalService(store.terminals, () => created.project, events);
+  const service = new TerminalService(store.terminals, () => created.project, events, nativeTerminalProcess);
   const access = new RemoteAccess({ enabled: false, token: '', origin: '', host: '127.0.0.1' });
   const route = createTerminalRoutes(service);
   const server = createServer((request, response) => { if (guardTerminalHttp(request, response, access)) void route(request, response); });

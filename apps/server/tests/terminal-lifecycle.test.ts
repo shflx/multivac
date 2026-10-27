@@ -2,17 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { nativeTerminalProcess } from '../src/runtime/executors/process-runtime.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { TerminalService } from '../src/application/terminal-service.js';
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 const size = { cols: 80, rows: 24 };
 async function until(check: () => boolean) { const start = Date.now(); while (!check()) { if (Date.now() - start > 8000) throw new Error('终端状态未收敛'); await new Promise(resolve => setTimeout(resolve, 20)); } }
 function fixture() {
-  const root = mkdtempSync(join(process.cwd(), 'artifacts/terminal-lifecycle-'));
+  const root = mkdtempSync(join(tmpdir(), 'multivac-terminal-lifecycle-'));
   const directories = ['a', 'b'].map(name => { const path = join(root, name); mkdirSync(path); return { kind: 'mounted' as const, path }; });
   const store = new SqliteAssistantStore(join(root, 'metadata.sqlite'));
   const project = store.projects.create({ projectId: 'lifecycle', name: '生命周期', directories, defaultConstraints: '', createdAt: new Date().toISOString() }).project;
-  const events = new WorkbenchEvents(); const service = new TerminalService(store.terminals, id => store.projects.get(id)!, events);
+  const events = new WorkbenchEvents(); const service = new TerminalService(store.terminals, id => store.projects.get(id)!, events, nativeTerminalProcess);
   return { root, project, store, service, events, async close() { await service.close(); store.close(); rmSync(root, { recursive: true, force: true }); } };
 }
 test('生命周期：目录卸载只停止受影响终端，原目录不可用时拒绝重开，正常服务退出先收尾', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' }, async () => {
@@ -61,7 +63,7 @@ test('生命周期：重启只改遗留元数据，新实例无旧画面；反�
     const closed = f.service.list(f.project.projectId, true)[0]!;
     const interrupted = { ...closed, instanceId: 'interrupted', status: 'starting' as const, closedAt: null };
     assert.equal(f.store.terminals.replace(interrupted, closed.instanceId), true);
-    const restarted = new TerminalService(f.store.terminals, id => f.store.projects.get(id)!, f.events);
+    const restarted = new TerminalService(f.store.terminals, id => f.store.projects.get(id)!, f.events, nativeTerminalProcess);
     try {
       assert.equal(restarted.get(closed.terminalId).lastExit?.reason, 'multivac-restarted');
       assert.equal(restarted.runtime(closed.terminalId), undefined);
