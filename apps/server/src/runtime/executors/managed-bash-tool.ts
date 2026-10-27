@@ -1,13 +1,9 @@
 import { Type } from 'typebox';
 import { createBashToolDefinition, type ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { BashInput, IsolatedBashExecution } from '../../application/bash-process-service.js';
-import type { ManagedProcess } from '@multivac/contracts';
+import type { BashExecutionPort, IsolatedBashExecution } from '../../modules/processes/bash-execution.js';
 import type { NativeTaskTools } from './native-task-tools.js';
 
-export interface BashExecutionPort {
-  execute(sessionId: string, directory: string, toolCallId: string, input: BashInput, signal: AbortSignal | undefined,
-    onData: (data: Buffer) => void, isolated?: IsolatedBashExecution): Promise<{ process: ManagedProcess; exitCode: number | null }>;
-}
+export type { BashExecutionPort } from '../../modules/processes/bash-execution.js';
 const Parameters = Type.Object({
   command: Type.String({ minLength: 1 }),
   cwd: Type.Optional(Type.String({ minLength: 1, description: '本次执行目录，省略时使用会话原工作目录。普通工作会话可选择原目录或当前已确认项目主/附目录及合法子目录；相对路径基于会话原目录。隔离任务不支持此参数。' })),
