@@ -1,6 +1,7 @@
+import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Project, ProjectTerminal } from '@multivac/contracts';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
@@ -25,8 +26,7 @@ test('终端：只接受当前项目登记目录；关闭确认及重新打开�
 });
 
 test('终端：SQLite持久化预设和元数据，重开后旧实例不能覆盖新实例', () => {
-  mkdirSync('artifacts', { recursive: true });
-  const root = mkdtempSync(join(process.cwd(), 'artifacts/terminal-storage-'));
+  const root = mkdtempSync(join(tmpdir(), 'multivac-terminal-storage-'));
   const path = join(root, 'metadata.sqlite');
   let store = new SqliteAssistantStore(path);
   try {
