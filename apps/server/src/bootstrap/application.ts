@@ -445,6 +445,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         workbenchEvents.publishToWindow(windowId, { type: 'window.navigate', origin, target }),
       isOpen: (windowId) => workbenchEvents.hasWindow(windowId),
     },
+    // 终端服务在后面装配；工具调用发生在启动完成之后。
+    terminals: { open: (input) => terminals.open(input) },
   };
   // 示例提议（给会话改名）只在测试控制开启时（E2E 服务与测试）注册，用来验证确认卡机制；正式环境没有它。
   const exampleProposals = environment.MULTIVAC_E2E_CONTROL === '1';

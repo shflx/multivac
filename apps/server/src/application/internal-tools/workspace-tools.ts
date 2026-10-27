@@ -60,7 +60,7 @@ const OptionalWorkspaceId = Type.Optional(WorkspaceIdParameter(
 const EXPLICIT_ONLY = '只在用户明确要求时调用，不要为了展示结果主动切换。';
 
 /** 工作区页面在发起窗口中是否切换过去了，没有时是什么原因。 */
-type Delivery = 'shown' | 'narrow' | 'no-window' | 'elsewhere';
+export type Delivery = 'shown' | 'narrow' | 'no-window' | 'elsewhere';
 
 /** 没有在发起窗口中生效时，回执与正文里的说明。 */
 function deliveryNote(delivery: Delivery, sceneChanged: boolean): string | null {
@@ -86,12 +86,12 @@ function deliveryContent(delivery: Delivery): string | null {
  * 把导航指令推给发起窗口：发送时处于窄屏不推送；窗口已没有连接时推不到。
  * 送达后记下发起窗口切换后的界面，本轮后续的工具以它为当前视图。
  */
-function navigateOrigin(context: InternalToolCallContext, target: WindowNavigationTarget): Delivery {
+export function navigateOrigin(context: InternalToolCallContext, target: WindowNavigationTarget): Delivery {
   const { originWindowId, originView, services, origin } = context;
   if (originView?.narrow) return 'narrow';
   if (!originWindowId || !services.windows.navigate(originWindowId, target, origin)) return 'no-window';
   const base: CurrentViewSnapshot = originView ?? { panel: 'home', narrow: false, workspace: null, management: null };
-  context.noteOriginView(target.kind === 'workspace'
+  context.noteOriginView(target.kind === 'workspace' || target.kind === 'terminal'
     ? { ...base, panel: 'workspace', workspace: { workspaceId: target.workspaceId, scene: null }, management: null }
     : { ...base, panel: 'management', management: { page: target.page, selection: target.selection } });
   return 'shown';

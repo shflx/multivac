@@ -9,6 +9,7 @@ import {
   AssistantToolResultSchema,
   GLOBAL_ASSISTANT_SESSION_ID,
   WorkbenchEventSchema,
+  type CreateTerminal,
   type CurrentViewSnapshot,
   type WorkbenchEvent,
 } from '@multivac/contracts';
@@ -97,9 +98,20 @@ async function setup(root: string) {
   const setTurn = (windowId: string | null, view: CurrentViewSnapshot | null, commandId = 'turn-1') => {
     turn = { commandId, windowId, view };
   };
+  // 假的终端服务：记录启动请求，不启动真实进程。
+  const launched: CreateTerminal[] = [];
+  const terminals: NonNullable<InternalToolServices['terminals']> = {
+    open: async (input) => {
+      launched.push(input);
+      const now = '2026-09-30T01:00:00.000Z';
+      return { terminalId: `t-${launched.length}`, instanceId: `i-${launched.length}`, projectId: input.projectId, title: input.title ?? input.preset.kind,
+        directory: '/tmp/project', preset: input.preset, status: 'running', lastExit: null, createdAt: now, instanceStartedAt: now, lastActivityAt: now,
+        closedAt: null, unread: false, notificationCount: 0, agentSessionId: null };
+    },
+  };
   const service = new InternalToolService({
     tools: MULTIVAC_INTERNAL_TOOLS,
-    services: testToolServices({ projects, sessions, transcripts: { readMessages: () => [] }, windows }),
+    services: testToolServices({ projects, sessions, transcripts: { readMessages: () => [] }, windows, terminals }),
     calls: store.internalToolCalls,
     currentTurn: () => turn && {
       ...turn,
@@ -135,7 +147,7 @@ async function setup(root: string) {
     return ids;
   };
   return {
-    store, sessions, projects, events, open, received, ok, failed, create, setTurn,
+    store, sessions, projects, events, open, received, ok, failed, create, setTurn, launched,
     view: () => turn?.view ?? null,
     scene: (workspaceId = 'default') => sessions.getScene(workspaceId),
   };
@@ -414,5 +426,38 @@ test('账本重放：同一调用再次到达只返回原结果，不再改现�
     assert.deepEqual(replayed, first);
     assert.equal(scene().revision, revision);
     assert.equal(received('window-a').length, count);
+  });
+});
+
+test('open_terminal：固定预设启动并在发起窗口打开（可放进第 N 栏）；远程对话、窄屏、超出并排数与超过每轮上限时不启动', async () => {
+  await withWorkspaceTools(async ({ projects, open, received, ok, failed, setTurn, launched }) => {
+    const project = projects.createProject({ name: '终端项目' }).project;
+    open('window-a');
+    open('window-b');
+
+    // 远程对话不携带当前视图：不启动。
+    setTurn(null, null);
+    assert.match(await failed('open_terminal', { projectId: project.projectId, preset: 'codex' }), /远程对话/u);
+    assert.equal(launched.length, 0);
+
+    setTurn('window-a', view('workspace', 'default', true));
+    assert.match(await failed('open_terminal', { projectId: project.projectId, preset: 'codex' }), /窄屏/u);
+
+    setTurn('window-a', view('workspace', 'default'));
+    // 只能用固定预设，不能带命令。
+    assert.match(await failed('open_terminal', { projectId: project.projectId, preset: 'custom' }), /preset/u);
+    assert.match(await failed('open_terminal', { projectId: project.projectId, preset: 'codex', slot: 3 }), /没有第 3 栏/u);
+
+    await ok('open_terminal', { projectId: project.projectId, preset: 'codex', title: '修复导航', slot: 2 });
+    assert.deepEqual(launched.at(-1), { projectId: project.projectId, preset: { kind: 'codex', argv: [] }, title: '修复导航', size: { cols: 80, rows: 24 } });
+    // 导航只推给发起窗口，由窗口自行把终端放进第 2 栏。
+    assert.deepEqual(navigations(received('window-a')).at(-1), { kind: 'terminal', workspaceId: project.projectId, terminalId: 't-1', slot: 2 });
+    assert.equal(navigations(received('window-b')).length, 0);
+
+    await ok('open_terminal', { projectId: project.projectId, preset: 'blank' });
+    assert.deepEqual(navigations(received('window-a')).at(-1), { kind: 'terminal', workspaceId: project.projectId, terminalId: 't-2', slot: null });
+    await ok('open_terminal', { projectId: project.projectId, preset: 'claude' });
+    assert.match(await failed('open_terminal', { projectId: project.projectId, preset: 'claude' }), /达到上限/u);
+    assert.equal(launched.length, 3);
   });
 });

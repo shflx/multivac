@@ -94,6 +94,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   restore_session: { displayName: '恢复会话', keyArgument: { argument: 'sessionId', action: '恢复会话' } },
   switch_workspace: { displayName: '切换工作区', keyArgument: { argument: 'workspaceId', action: '切到工作区' } },
   open_session: { displayName: '在工作区打开会话', keyArgument: { argument: 'sessionId', action: '在工作区打开' } },
+  open_terminal: { displayName: '启动终端', keyArgument: { argument: 'preset', action: '启动终端' } },
   set_parallel_count: { displayName: '调整并排数', keyArgument: { argument: 'count', action: '并排数调为' } },
   set_view_mode: { displayName: '切换并排 / 聚焦' },
   open_management_page: { displayName: '打开管理页' },
@@ -180,10 +181,10 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
   },
   {
     label: '工作区与会话',
-    purpose: '查询和整理工作区与会话，切换视图，打开管理页面。',
+    purpose: '查询和整理工作区与会话，切换视图，按固定预设启动项目终端，打开管理页面。',
     tools: [
       'list_workspaces', 'switch_workspace', 'list_sessions', 'get_session', 'get_current_view', 'read_session_recent', 'read_session_history', 'read_session_message',
-      'create_session', 'rename_session', 'archive_session', 'restore_session', 'open_session', 'set_view_mode',
+      'create_session', 'rename_session', 'archive_session', 'restore_session', 'open_session', 'open_terminal', 'set_view_mode',
       'open_management_page',
     ],
   },

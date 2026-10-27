@@ -248,6 +248,18 @@ export function WorkspaceView({
   // 选中的终端正在显示时它是当前对象，会话不再显示为当前。
   const currentTerminalId = selectedTerminal && visibleIds.includes(terminalKey(selectedTerminal.terminalId)) ? selectedTerminal.terminalId : null;
 
+  // Multivac 应用户要求打开终端：给出栏位时放进该栏并切回并排，否则单独查看。
+  // 切换工作区时视图会重建，请求可能早于本视图挂载；只处理最近 10 秒内、尚未处理的请求。
+  const handledRevealRef = useRef(0);
+  useEffect(() => {
+    const revealed = terminals.revealed;
+    if (!revealed || revealed.sequence === handledRevealRef.current || revealed.workspaceId !== workspaceId || !sceneLoaded) return;
+    if (Date.now() - revealed.at > 10_000) return;
+    handledRevealRef.current = revealed.sequence;
+    terminals.select({ workspaceId, terminalId: revealed.terminalId });
+    if (revealed.slot !== null) assignTerminal(revealed.terminalId, revealed.slot);
+  }, [terminals.revealed, workspaceId, sceneLoaded]);
+
   // 并排时新建的终端放进第一栏，原有各栏依次后移；聚焦时单独查看它。
   const handledCreatedRef = useRef(terminals.created?.sequence ?? 0);
   useEffect(() => {

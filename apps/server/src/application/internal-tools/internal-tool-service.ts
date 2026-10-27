@@ -82,6 +82,8 @@ export interface InternalToolServices {
   transcripts: Pick<SessionTranscriptReader, 'readMessages'> & Partial<Pick<SessionTranscriptReader, 'readSnapshot'>>;
   /** 切换发起窗口的界面（只推给这个窗口的导航指令）。 */
   windows: WindowNavigator;
+  /** 项目终端：只能以固定预设启动，不提供读取画面或输入的能力。 */
+  terminals?: { open(input: import('@multivac/contracts').CreateTerminal): Promise<import('@multivac/contracts').ProjectTerminal> };
 }
 
 /**
