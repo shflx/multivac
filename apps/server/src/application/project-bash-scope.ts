@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { GLOBAL_ASSISTANT_SESSION_ID, type WorkingDirectory } from '@multivac/contracts';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 import { projectFileScope } from './project-file-scope.js';
@@ -15,6 +15,7 @@ export interface BashDirectoryPlan {
 export function projectBashScope(dependencies: Parameters<typeof projectFileScope>[0]) {
   const projectDirectories = projectFileScope(dependencies);
   return (sessionId: string, runtimeDirectory: WorkingDirectory, requestedCwd?: string): BashDirectoryPlan => {
+    if (!isAbsolute(runtimeDirectory.path)) throw new Error('会话工作目录不是有效的绝对路径。');
     if (requestedCwd !== undefined && (typeof requestedCwd !== 'string' || !requestedCwd.trim() || requestedCwd.includes('\0'))) {
       throw new Error('bash cwd 必须是有效的目录路径。');
     }

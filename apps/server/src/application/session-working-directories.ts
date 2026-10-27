@@ -137,6 +137,14 @@ export class SessionWorkingDirectories {
     } catch {
       throw unavailable('无法创建工作目录');
     }
+    this.validate(directory);
+  }
+
+  /** 命令启动前只读核对目录，不补建准备期间被删除的目录。 */
+  validate(directory: WorkingDirectory): void {
+    const unavailable = (reason: string) => new WorkingDirectoryUnavailableError(reason, directory.path);
+    if (!isAbsolute(directory.path)) throw unavailable('工作目录不是绝对路径');
+    if (isPathWithin(resolve(this.dataDir), resolve(directory.path))) throw unavailable('工作目录位于内部数据目录之下');
     let isDirectory: boolean;
     try {
       isDirectory = statSync(directory.path).isDirectory();
