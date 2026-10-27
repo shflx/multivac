@@ -9,6 +9,7 @@ import { GLOBAL_ASSISTANT_SESSION_ID, type WorkingDirectory } from '@multivac/co
 import { withFileMutationQueue, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { setImmediate as nextTick } from 'node:timers/promises';
 import { projectFileScope } from '../src/application/project-file-scope.js';
+import { projectBashScope } from '../src/application/project-bash-scope.js';
 import { ProjectService } from '../src/application/project-service.js';
 import { SessionWorkingDirectories } from '../src/application/session-working-directories.js';
 import { ToolAuthorizationService } from '../src/application/tool-authorization-service.js';
@@ -37,7 +38,9 @@ async function fixture() {
   };
   const old = addSession('old');
   const tasks = new Set<string>();
-  const scope = projectFileScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, isTaskSession: id => tasks.has(id) });
+  const scopeDependencies = { sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, isTaskSession: (id: string) => tasks.has(id) };
+  const scope = projectFileScope(scopeDependencies);
+  const bashScope = projectBashScope(scopeDependencies);
   const authorization = new ToolAuthorizationService({
     repository: store.toolAuthorizations, eventStream: new AssistantEventStream(), currentCommandId: () => null,
     projectOf: id => store.workspaces.get(store.sessions.get(id)?.workspaceId ?? '')?.project?.projectId ?? null,
@@ -60,7 +63,7 @@ async function fixture() {
   };
   const mount = () => projects.updateProject(a.projectId, { directories: [paths.primary!, paths.extra!] });
   const unmount = () => projects.updateProject(a.projectId, { directories: [paths.primary!] });
-  return { root, paths, store, projects, a, b, old, addSession, tasks, scope, toolsFor, invoke, mount, unmount, authorization,
+  return { root, paths, store, projects, a, b, old, addSession, tasks, scope, bashScope, toolsFor, invoke, mount, unmount, authorization,
     approve: (value: typeof approval) => { approval = value; },
     cleanup: async () => { authorization.dispose(); store.close(); await rm(root, { recursive: true, force: true }); },
   };
@@ -119,6 +122,7 @@ test('卸载只移除挂载来源：既有 cwd 和真实记住的独立授权仍
     await f.invoke(tools, 'write', file, { content: 'independent' });
     const grant = f.authorization.listGrants()[0]!;
     assert.equal(grant.scope, 'session');
+    assert.throws(() => f.bashScope('old', f.old.workingDirectory!, f.paths.extra!), /当前已确认/);
     f.approve('deny');
     f.mount();
     f.addSession('cwd-extra', { kind: 'project-mounted', path: f.paths.extra! });
@@ -126,6 +130,8 @@ test('卸载只移除挂载来源：既有 cwd 和真实记住的独立授权仍
     f.unmount();
     await f.invoke(tools, 'edit', file, { edits: [{ oldText: 'independent', newText: 'grant survived' }] });
     assert.equal(f.authorization.list('old').at(-1)!.approval?.source, 'grant');
+    assert.throws(() => f.bashScope('old', f.old.workingDirectory!, f.paths.extra!), /当前已确认/);
+    assert.equal(f.bashScope('cwd-extra', f.store.sessions.get('cwd-extra')!.workingDirectory!).directory, f.paths.extra);
     await f.invoke(cwdTools, 'read', file);
     assert.equal(f.authorization.list('cwd-extra').length, 0);
     f.authorization.revokeGrant(grant.grantId);

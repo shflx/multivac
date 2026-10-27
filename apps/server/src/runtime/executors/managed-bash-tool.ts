@@ -23,10 +23,15 @@ export function managedBashTool(sessionId: string, directory: string, processes:
     signal: options.signal, timeoutMs: Math.min(options.timeoutMs ?? 60000, 60000), onData: options.onData, onSpawn: options.onSpawn, fenced: true,
   }) : undefined;
   return {
-    name: 'bash', label: 'bash', description: '在当前会话工作目录执行 bash，所有执行均登记。mode 默认 foreground，等待命令结果；持续服务使用 background，返回 processId，可查询日志和停止。后台直接填写持续运行的命令，由管理器保持运行。timeout 为秒，可选：前台限制运行时间，后台只限制启动等待；任务自身时限和额度仍有效。',
+    name: 'bash', label: 'bash', description: (native
+      ? '在任务独立目录按原隔离规则执行 bash，不支持 cwd 参数。'
+      : '执行 bash，cwd 可选，默认会话原工作目录；普通工作会话可指定当前已确认项目主/附目录及合法子目录。启动前动态核对真实目录和当前范围。cwd 只决定本次启动位置，不改会话目录，不提供文件系统隔离；文件独立授权不授予执行目录许可，全局 Multivac 仍只用原目录。') +
+      '所有执行均登记。mode 默认 foreground，等待命令结果；持续服务使用 background，返回 processId，可查询日志和停止。后台直接填写持续运行的命令，由管理器保持运行。timeout 为秒，可选：前台限制运行时间，后台只限制启动等待；任务自身时限和额度仍有效。',
     promptSnippet: '执行并管理 bash 命令，支持前台与后台模式。',
     promptGuidelines: ['普通命令默认前台。用户要求启动并保持服务时选择 mode=background；使用返回的 processId 查询日志和停止。切换会话和一轮回答结束不停止后台进程。',
-      'background 的 timeout 只限制启动等待，不限制服务寿命。返回 processId 只证明进程启动；确认服务可用时还须核对实际访问和进程状态。'],
+      'background 的 timeout 只限制启动等待，不限制服务寿命。返回 processId 只证明进程启动；确认服务可用时还须核对实际访问和进程状态。',
+      native ? '隔离任务不支持 cwd 参数，文件、网络、凭据及派生进程边界保持原规则。'
+        : '指定 cwd 时使用当前允许的目录，相对路径基于会话原目录。挂载变化在后续启动生效，不需重建工作会话；不要用 bash 绕开文件访问规则。'],
     parameters: Parameters,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       if (native && params.cwd !== undefined) throw new Error('隔离任务 bash 不支持指定 cwd，沿用任务原目录。');

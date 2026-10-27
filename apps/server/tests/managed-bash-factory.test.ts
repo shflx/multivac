@@ -34,7 +34,8 @@ test('创建与恢复共用 factory 的 bash 覆盖保留工具集合，阅读�
     assert.deepEqual(captured[0]!.customTools?.map(tool => tool.name), ['read', 'edit', 'write', 'bash']);
     const bash = captured[0]!.customTools!.find(tool => tool.name === 'bash')!;
     const parameters = bash.parameters as ReturnType<typeof Type.Object>;
-    assert.ok(parameters.properties.mode); assert.match(bash.description, /background/);
+    assert.ok(parameters.properties.mode); assert.ok(parameters.properties.cwd);
+    assert.match(bash.description, /background/); assert.match(bash.description, /不改会话目录，不提供文件系统隔离/);
     await factory.create({ cwd, agentDir, sessionDir: join(root, 'reading'), config: { ...config, readingOnly: true }, assistantSessionId: 'reading-session', bashProcesses });
     assert.deepEqual(captured[1]!.tools, []); assert.equal(captured[1]!.customTools, undefined);
   } finally { await rm(root, { recursive: true, force: true }); }

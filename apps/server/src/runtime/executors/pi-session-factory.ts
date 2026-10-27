@@ -632,6 +632,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         retry: input.config.retry,
         compaction: input.config.compaction,
         readingOnly: input.config.readingOnly,
+        taskIsolation: input.taskIsolation,
         // 目录边界以本次传入的会话工作目录为准，创建与恢复都经过这里。
         toolBoundary,
         ...(input.internalTools ? { internalTools: input.internalTools.specs } : {}),

@@ -108,7 +108,7 @@ export type CoordinatorPathToolName = 'read' | 'edit' | 'write';
 
 /**
  * 文件工具超出 cwd 和当前项目文件范围时发出的授权请求，有效独立授权仍由授权服务判定；
- * bash 以工作目录为 cwd 执行，不做命令分级，也不产生请求。
+ * bash 默认使用会话 cwd，单次可选目录由启动入口按当前范围校验；不做命令分级，也不产生范围外执行授权请求。
  */
 export interface CoordinatorToolAuthorizationRequest {
   assistantSessionId: string;
