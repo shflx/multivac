@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Check as CheckSchema } from 'typebox/value';
 import { agentSessionTrackable, TerminalServerMessageSchema, terminalIsActive, TERMINAL_LIMITS, TERMINAL_THEME, type ProjectTerminal, type TerminalClientMessage, type TerminalSize } from '@multivac/contracts';
-import { Columns2, Expand, LoaderCircle, Maximize2, MoreHorizontal, Power, RefreshCw, RotateCcw, Shrink, X } from 'lucide-react';
+import { Columns2, Expand, LoaderCircle, Maximize2, MoreHorizontal, Power, RotateCcw, Shrink, X } from 'lucide-react';
 import { terminalAction } from '../../data/terminal-api.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { useTerminals } from './terminals-provider.js';
@@ -58,7 +58,6 @@ export function TerminalView({ record, visible, current, slotLabel = '', focused
   const [owner, setOwner] = useState(false);
   const [trimmed, setTrimmed] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
-  const [reconnect, setReconnect] = useState(0);
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -200,7 +199,7 @@ export function TerminalView({ record, visible, current, slotLabel = '', focused
     const visibility = () => { if (document.visibilityState === 'visible') { read(); resize(); } };
     window.addEventListener('focus', visibility); document.addEventListener('visibilitychange', visibility);
     return () => { disposed = true; focusTerminal.current = () => {}; window.clearTimeout(start); window.clearTimeout(timer); closeSocket(socket); term.textarea?.removeEventListener('focus', focused); for (const name of intentEvents) hostElement.removeEventListener(name, intent, { capture: true }); input.dispose(); observer.disconnect(); term.dispose(); window.removeEventListener('focus', visibility); document.removeEventListener('visibilitychange', visibility); };
-  }, [record.terminalId, record.instanceId, detached, reconnect]);
+  }, [record.terminalId, record.instanceId, detached]);
 
   useEffect(() => {
     if (visible && record.closedAt === null && (record.unread || record.notificationCount)) void terminalAction(record.terminalId, 'read', { instanceId: record.instanceId }).then(refresh).catch(() => {});
@@ -275,7 +274,6 @@ export function TerminalView({ record, visible, current, slotLabel = '', focused
           <button type="button" ref={menuTrigger} className="icon-button" aria-label={`「${record.title}」的更多操作`} title="更多操作" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)}><MoreHorizontal aria-hidden="true" /></button>
           {menuOpen && <div className="session-menu-list" role="menu" aria-label={`「${record.title}」的更多操作`} ref={menuList}>
             {!fullscreen && <button type="button" role="menuitem" onClick={run(() => void root.current?.requestFullscreen())}><Expand aria-hidden="true" />终端全屏</button>}
-            {!detached && <button type="button" role="menuitem" onClick={run(() => setReconnect(value => value + 1))}><RefreshCw aria-hidden="true" />重新接回画面</button>}
             {running && <button type="button" role="menuitem" disabled={busy} onClick={run(() => void action('end'))}><Power aria-hidden="true" />结束进程</button>}
             {!record.closedAt && <button type="button" role="menuitem" disabled={busy} onClick={run(close)}><X aria-hidden="true" />关闭终端</button>}
           </div>}
