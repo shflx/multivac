@@ -112,7 +112,11 @@ test('双应用和真实Vite代理：独立会话、模型设置、工作文件�
       server: { ...loaded.config.server, middlewareMode: true, hmr: false },
     });
     proxy = createServer(vite.middlewares); const proxyPort = await listen(proxy);
-    assert.equal((await http(proxyPort, '/api/assistant/page-state')).body.draft, 'development-only');
+    // 未登记的随机代理端口应被拒绝；用明确登记的开发入口 Host/Origin 验证真实 Vite 代理。
+    assert.equal((await http(proxyPort, '/api/assistant/page-state')).status, 403);
+    const throughDevelopmentEntry = await http(proxyPort, '/api/assistant/page-state', 'GET', undefined, { host: '127.0.0.1:5173', origin: 'http://127.0.0.1:5173' });
+    assert.equal(throughDevelopmentEntry.status, 200);
+    assert.equal(throughDevelopmentEntry.body.draft, 'development-only');
     assert.equal((await remote(prodPort, '/api/access/login', prod.remoteAccess.settings().token)).status, 200);
     assert.equal((await remote(devPort, '/api/access/login', dev.remoteAccess.settings().token)).status, 200);
     assert.equal(jar.size, 2);
