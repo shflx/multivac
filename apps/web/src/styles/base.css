@@ -5148,6 +5148,12 @@ svg {
   line-height: 1.6;
 }
 
+/* WebKit 的长目录选项也必须在选择框内裁剪，不能成为卡片的横向滚动内容。 */
+.terminal-creation-fields select {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .confirm-card-fields dd:not(:has(input, select)) {
   padding-top: 7px;
 }
