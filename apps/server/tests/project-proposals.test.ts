@@ -311,7 +311,7 @@ test('挂载 / 卸载 / 设主目录：与设置 · 项目同一套校验与说�
     assert.equal(mounted.status, 'executed');
     assert.deepEqual(directoriesOf(), [first, second]);
     assert.deepEqual(mounted.outcome?.receipt?.actions, [{ kind: 'open-project', projectId: project.projectId }]);
-    assert.match(mounted.outcome!.receipt!.detail, /挂载、卸载和会话归属变化对后续文件调用生效/u);
+    assert.match(mounted.outcome!.receipt!.detail, /挂载、卸载和会话归属变化对后续文件及 bash 调用生效/u);
     assert.match(mounted.outcome!.receipt!.detail, /调整主目录不会迁移已有会话的工作目录/u);
 
     // 目录在提出之后被别的项目挂载：确认时过期，不挂载。

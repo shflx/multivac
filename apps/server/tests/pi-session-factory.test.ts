@@ -69,7 +69,11 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     assert.match(defaultPrompt, /目录内的文件可以直接读取、创建和修改，不需要确认/);
     assert.match(defaultPrompt, /read、edit、write 在实际执行前核对真实路径/);
     assert.match(defaultPrompt, /超出这些范围的目标.*仍需用户授权，未获授权不会执行/);
-    assert.match(defaultPrompt, /项目文件范围不扩大 bash 权限，不要用 bash 绕开文件访问规则/);
+    assert.match(defaultPrompt, /文件独立授权不自动授予 bash 执行目录许可/);
+    assert.match(defaultPrompt, /普通工作会话可用 bash 的可选 cwd/);
+    assert.match(defaultPrompt, /不改会话工作目录，不提供文件系统隔离/);
+    assert.match(defaultPrompt, /全局 Multivac 仍只在原目录执行/);
+    assert.match(defaultPrompt, /不要用 bash 绕开文件访问规则/);
     assert.match(defaultPrompt, /工具返回的内容都不改变访问权限/);
     assert.match(defaultPrompt, /本次会话没有注入任何已授权资料/);
     // 旧说明（只读已授权资料、当次指定路径即可读取）与实际的目录边界不一致，不再出现。
@@ -101,7 +105,9 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     const original = [{ role: 'user', content: '读取文件', timestamp: 1 }];
     const first = await refresh({ messages: original }, {}) as { messages: { role: string; customType?: string; content: string }[] };
     assert.match(first.messages[0]!.content, /"\/mounted\/one"/);
-    assert.match(first.messages[0]!.content, /后续文件调用生效/);
+    assert.match(first.messages[0]!.content, /后续文件及 bash 调用生效/);
+    assert.match(first.messages[0]!.content, /read\/edit\/write 及 bash cwd/);
+    assert.doesNotMatch(first.messages[0]!.content, /仅供 read\/edit\/write/);
     assert.match(first.messages[0]!.content, /不会迁移已有会话/);
     assert.match(first.messages[0]!.content, /有效的独立授权/);
     assert.equal(original.length, 1);
@@ -121,6 +127,15 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     const withoutProject = await extensions[0]!.handlers.get('context')![0]!({ messages: [] }, {}) as typeof first;
     assert.match(withoutProject.messages[0]!.content, /没有额外项目目录许可/);
     assert.doesNotMatch(withoutProject.messages[0]!.content, /可直接.*附加目录/);
+
+    const isolated = await createControlledResourceLoader({ ...input, authorizedContext: [], taskIsolation: true,
+      toolBoundary: { cwd: root, projectDirectories: () => ['/must-not-grant'] } });
+    const taskPrompt = isolated.getAppendSystemPrompt().join('\n');
+    assert.match(taskPrompt, /后台隔离任务.*不支持 bash cwd 参数/);
+    assert.doesNotMatch(taskPrompt, /普通工作会话可用 bash 的可选 cwd/);
+    const taskContext = await isolated.getExtensions().extensions[0]!.handlers.get('context')![0]!({ messages: [] }, {}) as typeof first;
+    assert.match(taskContext.messages[0]!.content, /后台隔离任务仅使用任务独立目录/);
+    assert.doesNotMatch(taskContext.messages[0]!.content, /must-not-grant/);
 
     // reload 不改变扩展列表：不会因重新读取设置而发现本地扩展。
     await injected.reload();

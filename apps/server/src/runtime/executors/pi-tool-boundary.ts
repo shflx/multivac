@@ -27,7 +27,7 @@ import type { CoordinatorToolName } from './pi-session-factory.js';
 /**
  * 每个开放工具的目录边界规则：
  * - target-path：按目标路径判定，工作目录内直接执行，目录外转为授权请求；
- * - working-directory：以会话工作目录为 cwd 执行，不做命令分级（bash 越出目录的影响是已知风险）。
+ * - working-directory：这里只核对工具可用性，bash 启动入口另按当前会话/项目校验 cwd；不做 shell 命令分级或文件系统隔离。
  * Record 覆盖 COORDINATOR_TOOL_ALLOWLIST 的全部工具：新开放的工具必须先在这里声明规则，
  * 运行时遇到未声明的工具一律拦截。
  */
