@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process';
+import type { TerminalProcessFactory } from '../../modules/terminals/terminal-process.js';
+import { TerminalProcess } from './terminal-process.js';
 import type { ProcessSupervisors, TaskIsolation } from '../../modules/processes/process-runtime.js';
 import { BASH_PROCESS_SUPERVISOR } from './bash-process-supervisor.js';
 import { MANAGED_SUPERVISOR } from './managed-process-supervisor.js';
@@ -21,3 +23,6 @@ export const nodeProcessSupervisors: ProcessSupervisors = {
   managed: () => spawn(process.execPath, ['-e', MANAGED_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', OPENSSL_CONF: '/dev/null' } }),
   bash: () => spawn(process.execPath, ['-e', BASH_PROCESS_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin' } }),
 };
+
+/** 项目终端与任务监护共用装配入口，运行语义仍由各自实现负责。 */
+export const nativeTerminalProcess: TerminalProcessFactory = (directory, preset, size) => new TerminalProcess(directory, preset, size);
