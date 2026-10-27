@@ -311,6 +311,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     currentDirectory: id => {
       const directory = sessionRegistry.get(id)?.workingDirectory;
       if (!directory) throw new Error('会话没有有效的工作目录记录。');
+      workingDirectories.validate(directory);
       return directory;
     },
     bash: { execute: (...args) => managedProcesses.bash.execute(...args) },

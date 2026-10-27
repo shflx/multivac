@@ -137,5 +137,7 @@ test('全局和隔离任务不获得项目或子目录执行能力，任务身�
       assert.throws(() => f.scope(kind, cwd, 'child'), /原工作目录/);
     }
     assert.throws(() => f.scope('missing', f.old), /目录已变化/);
+    const relative = f.add('relative', { kind: 'project-mounted', path: 'relative' });
+    assert.throws(() => f.scope('relative', relative, f.extra), /绝对路径/);
   } finally { await f.close(); }
 });

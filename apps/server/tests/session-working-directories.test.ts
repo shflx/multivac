@@ -164,6 +164,26 @@ test('新建会话遇到重名目录时追加序号，已记录但目录已不�
   }
 });
 
+test('命令启动只读目录校验保留绝对路径与内部数据保护，不补建缺失目录', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-work-execution-check-'));
+  const dataDir = testDataDir(root);
+  const store = new SqliteAssistantStore(join(dataDir, 'multivac.sqlite'));
+  try {
+    const paths = resolveMultivacWorkPaths(testWorkRoot(root), dataDir);
+    const directories = new SessionWorkingDirectories(paths, store.sessions, dataDir);
+    const missing = { kind: 'session-temp' as const, path: join(paths.sessionsDir, 'missing') };
+    assert.throws(() => directories.validate(missing), /不存在/);
+    assert.equal(existsSync(missing.path), false);
+    directories.prepare(missing);
+    directories.validate(missing);
+    assert.throws(() => directories.validate({ ...missing, path: 'relative' }), /绝对路径/);
+    assert.throws(() => directories.validate({ ...missing, path: dataDir }), /内部数据目录/);
+    const link = join(paths.sessionsDir, 'link-to-data');
+    symlinkSync(dataDir, link);
+    assert.throws(() => directories.validate({ ...missing, path: link }), /内部数据目录/);
+  } finally { store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('运行时启动前从记录取工作目录：补回被删除或只记录了路径的目录，拒绝缺失记录与内部数据目录', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-work-runtime-'));
   const dataDir = testDataDir(root);
