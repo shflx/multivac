@@ -2,7 +2,9 @@ import { BashProcessService } from './bash-process-service.js';
 import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
-import { join, relative, isAbsolute } from 'node:path';
+import { join, relative, isAbsolute, resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { isPathWithin } from '../modules/sessions/working-directory.js';
 import { promisify } from 'node:util';
 import { ProcessStopSchema, type ProcessStop, type ManagedProcess } from '@multivac/contracts';
 import { Check } from 'typebox/value';
@@ -82,7 +84,13 @@ export class ManagedProcessService {
     } finally { this.observing = false; finished(); }
   }
   hasDirectoryLease(directory: string): boolean {
-    return this.repository.active().some((record) => record.directory === directory);
+    const forms = (path: string) => {
+      try { return [resolve(path), realpathSync.native(path)]; }
+      catch { return [resolve(path)]; } // 恢复中的失效目录仍保留字面占用。
+    };
+    const targets = forms(directory);
+    return this.repository.active().some(record => forms(record.directory).some(used =>
+      targets.some(target => isPathWithin(target, used) || isPathWithin(used, target))));
   }
   get activeCount(): number { return this.live.size + this.starting.size + this.bash.activeCount + Number(this.observing); }
   stopObservation(): void { this.closing = true; this.bash.beginClose(); }

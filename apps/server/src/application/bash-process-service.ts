@@ -10,7 +10,7 @@ import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { readProcessLog } from './process-log.js';
 
-export interface BashInput { command: string; mode?: 'foreground' | 'background'; timeout?: number; name?: string }
+export interface BashInput { command: string; cwd?: string; mode?: 'foreground' | 'background'; timeout?: number; name?: string }
 export interface BashSource { sessionId: string; executionId: string; directory: string; taskId?: string; runId?: string }
 /** 任务使用原有受限执行器；普通工作会话使用独立进程组。 */
 export type IsolatedBashExecution = (command: string, options: { signal: AbortSignal; timeoutMs?: number; onData: (data: Buffer) => void; onSpawn: (pid: number) => void }) => Promise<{ code: number | null; output: Buffer }>;
@@ -43,7 +43,7 @@ export class BashProcessService {
     }
   }
   async execute(source: BashSource, toolCallId: string, input: BashInput, signal: AbortSignal | undefined,
-    onData: (data: Buffer) => void, isolated?: IsolatedBashExecution): Promise<{ process: ManagedProcess; exitCode: number | null }> {
+    onData: (data: Buffer) => void, isolated?: IsolatedBashExecution, validateBeforeStart?: () => void): Promise<{ process: ManagedProcess; exitCode: number | null }> {
     if (!input.command.trim() || input.command.length > 100000 || (input.timeout !== undefined && (!Number.isFinite(input.timeout) || input.timeout <= 0 || input.timeout > 2147483))) throw new Error('bash 命令或超时参数无效。');
     this.allowed(source);
     if (signal?.aborted) throw new Error('aborted');
@@ -61,7 +61,7 @@ export class BashProcessService {
           state: 'starting', requiredWhileRunning: !!source.taskId, startedAt: null, endedAt: null, port: null, exitCode: null, reason: '正在启动 bash 执行。' } };
       this.repository.save(record); this.changed();
       // 登记与 live 安装之间不让出执行权，取消和重复调用始终能看到启动意图。
-      this.launch(record, input, source, isolated);
+      this.launch(record, input, source, isolated, validateBeforeStart);
     }
     const id = record.public.processId;
     const live = this.live.get(id);
@@ -94,7 +94,7 @@ export class BashProcessService {
       return { process: this.repository.get(id)!.public, exitCode };
     } finally { signal?.removeEventListener('abort', abort); live.outputs.delete(onData); }
   }
-  private launch(record: ManagedProcessRecord, input: BashInput, source: BashSource, isolated?: IsolatedBashExecution) {
+  private launch(record: ManagedProcessRecord, input: BashInput, source: BashSource, isolated?: IsolatedBashExecution, validateBeforeStart?: () => void) {
     const id = record.public.processId;
     let ready!: () => void, exited!: (code: number | null) => void, closed!: () => void;
     const controller = new AbortController();
@@ -114,6 +114,9 @@ export class BashProcessService {
       if (controller.signal.aborted) throw new Error('启动已取消。');
       if (isolated) {
         await writeFile(this.paths(id).log, '', { mode: 0o600, flag: 'wx' });
+        this.allowed(source);
+        if (controller.signal.aborted) throw new Error('启动已取消。');
+        validateBeforeStart?.();
         let writes = Promise.resolve();
         let result: { code: number | null } = { code: null };
         let failed = false; let failureReason = '任务 bash 执行失败。';
@@ -128,6 +131,8 @@ export class BashProcessService {
       }
       const env: NodeJS.ProcessEnv = {};
       for (const key of ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER', 'LOGNAME', 'TERM']) if (process.env[key]) env[key] = process.env[key];
+      // 完成所有异步准备后按最新事实复核，随后使用已钉住的真实目录启动。
+      validateBeforeStart?.();
       child = this.supervisors.bash();
       let protocol = '';
       child.stdout.on('data', (chunk: Buffer) => {
