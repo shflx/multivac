@@ -1,4 +1,5 @@
 import { projectFileScope } from '../application/project-file-scope.js';
+import { sessionBashExecution } from '../application/session-bash-execution.js';
 import { TerminalService } from '../application/terminal-service.js';
 import { WebSettingsService } from '../application/web-settings-service.js';
 import { createNamedWebProvider, createWebProvider } from './web-provider.js';
@@ -302,15 +303,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ...(toolAuthorizationTimeoutMs === undefined ? {} : { timeoutMs: toolAuthorizationTimeoutMs }),
   });
   toolAuthorization.invalidateOnStartup();
-  const bashProcesses: BashExecutionPort = { execute: (sessionId, directory, toolCallId, input, signal, onData, isolated) => {
-      const executionId = sessionRuntimes.get(sessionId)?.commands.currentPromptCommandId();
-      if (!executionId) throw new Error('当前没有可登记的会话执行。');
-      const record = sessionId === GLOBAL_ASSISTANT_SESSION_ID ? null : sessionRegistry.get(sessionId);
-      if (record?.archivedAt || workingDirectories.resolveForRuntime(sessionId).path !== directory) throw new Error('会话执行目录已变化。');
-      const run = store.taskRuns.bySession(sessionId);
-      if (run && (!isolated || run.stopIntent || run.stopConfirmed)) throw new Error('任务执行边界已失效。');
-      return managedProcesses.bash.execute({ sessionId, executionId, directory, ...(run ? { taskId: run.taskId, runId: run.runId } : {}) }, toolCallId, input, signal, onData, isolated);
-    } };
+  const bashProcesses: BashExecutionPort = sessionBashExecution({
+    sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
+    isTaskSession: id => !!store.taskRuns.bySession(id), runs: store.taskRuns,
+    currentExecution: id => sessionRuntimes.get(id)?.commands.currentPromptCommandId(),
+    currentDirectory: id => workingDirectories.resolveForRuntime(id),
+    bash: { execute: (...args) => managedProcesses.bash.execute(...args) },
+  });
   // 执行器（harness）按启动配置选择；适配器、模型目录与访问后端都由它提供。用量记账在下方创建，调用时才转发。
   const harnessContext: HarnessContext = {
     environment, instance, paths, bashProcesses, executionDiagnostics,

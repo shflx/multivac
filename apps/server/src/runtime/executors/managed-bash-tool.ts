@@ -9,7 +9,9 @@ export interface BashExecutionPort {
     onData: (data: Buffer) => void, isolated?: IsolatedBashExecution): Promise<{ process: ManagedProcess; exitCode: number | null }>;
 }
 const Parameters = Type.Object({
-  command: Type.String({ minLength: 1 }), timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 2147483,
+  command: Type.String({ minLength: 1 }),
+  cwd: Type.Optional(Type.String({ minLength: 1, description: '本次执行目录，省略时使用会话原工作目录。普通工作会话可选择原目录或当前已确认项目主/附目录及合法子目录；相对路径基于会话原目录。隔离任务不支持此参数。' })),
+  timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 2147483,
     description: '秒。foreground 限制命令运行时间；background 仅限制等待进程启动的时间，启动后不因该参数自动结束。任务仍受自身执行时限和额度限制。' })),
   mode: Type.Optional(Type.Union([Type.Literal('foreground'), Type.Literal('background')])),
   name: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
@@ -27,6 +29,7 @@ export function managedBashTool(sessionId: string, directory: string, processes:
       'background 的 timeout 只限制启动等待，不限制服务寿命。返回 processId 只证明进程启动；确认服务可用时还须核对实际访问和进程状态。'],
     parameters: Parameters,
     async execute(toolCallId, params, signal, onUpdate, ctx) {
+      if (native && params.cwd !== undefined) throw new Error('隔离任务 bash 不支持指定 cwd，沿用任务原目录。');
       if (params.mode === 'background') {
         const result = await processes.execute(sessionId, directory, toolCallId, params, signal, () => {}, isolated);
         if (result.process.state === 'failed') throw new Error(result.process.reason);
