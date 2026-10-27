@@ -22,13 +22,14 @@ export function resizeColumns(widths: readonly number[], index: number, delta: n
 }
 
 /**
- * 网格列定义：未调整过为等宽；保存的列宽按比例铺满，总和超出可用宽度时按像素排布并横向滚动。
+ * 网格列定义：未调整过为等宽；保存的列宽按比例铺满可用宽度，窗口或侧栏变化时随之缩放。
+ * 只有各栏最小宽度合计都放不下时，才按保存的像素排布并横向滚动（此时拖动分隔线只加宽左侧一栏）。
  * 每栏都不小于最小宽度。
  */
 export function gridColumns(count: number, widths: readonly number[] | undefined, available: number): string {
   if (!widths || widths.length !== count) return Array.from({ length: count }, () => `minmax(${MIN_PANE_WIDTH}px, 1fr)`).join(' ');
-  const total = widths.reduce((sum, width) => sum + width, 0) + widths.length - 1;
-  return total > available
+  const minimum = count * MIN_PANE_WIDTH + count - 1;
+  return minimum > available
     ? widths.map((width) => `${Math.max(MIN_PANE_WIDTH, Math.round(width))}px`).join(' ')
     : widths.map((width) => `minmax(${MIN_PANE_WIDTH}px, ${width}fr)`).join(' ');
 }

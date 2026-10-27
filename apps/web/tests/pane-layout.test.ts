@@ -24,10 +24,12 @@ test('已横向滚动时只调整左侧一栏，右侧各栏平移，且不小�
   assert.deepEqual(resizeColumns([400, 320], 0, -200, true), [MIN_PANE_WIDTH, 320]);
 });
 
-test('列定义：未调整为等宽；放得下按比例铺满，放不下按像素排布', () => {
+test('列定义：未调整为等宽；最小宽度放得下时按比例铺满，放不下才按像素排布', () => {
   assert.equal(gridColumns(3, undefined, 1200), 'minmax(320px, 1fr) minmax(320px, 1fr) minmax(320px, 1fr)');
   assert.equal(gridColumns(2, [600, 400], 1200), 'minmax(320px, 600fr) minmax(320px, 400fr)');
-  assert.equal(gridColumns(2, [900, 400], 1200), '900px 400px');
+  // 保存时窗口更宽：总和超出但最小宽度放得下，仍按比例缩放铺满，不横向溢出。
+  assert.equal(gridColumns(2, [900, 400], 1200), 'minmax(320px, 900fr) minmax(320px, 400fr)');
+  assert.equal(gridColumns(4, [900, 400, 400, 400], 1200), '900px 400px 400px 400px');
   // 保存的列宽与栏数不一致（例如并排数刚调整）时回到等宽。
   assert.equal(gridColumns(2, [300, 300, 300], 1200), 'minmax(320px, 1fr) minmax(320px, 1fr)');
   assert.equal(pairPercent(undefined, 0), 50);
