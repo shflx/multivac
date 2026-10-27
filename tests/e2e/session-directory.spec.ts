@@ -64,7 +64,7 @@ async function switchWorkspace(page: Page, name: string): Promise<void> {
 async function expectDirectory(scope: Locator, kind: keyof typeof RULES, path: string, name: string): Promise<void> {
   const trigger = directoryTrigger(scope);
   await expect(trigger).toHaveAccessibleName(`工作目录：${kind} ${path}`);
-  await expect(trigger).toHaveText(`${kind} · ${name}`);
+  await expect(trigger).toHaveText(name);
   await expect(trigger).toHaveAttribute('title', `${kind} ${path}\n${RULES[kind]}`);
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   // 放得下时目录名完整显示，不被省略。
@@ -100,7 +100,7 @@ test.afterEach(() => {
   rmSync(mountedRoot, { recursive: true, force: true });
 });
 
-test('默认工作区的会话：标题栏显示“临时目录 · 目录名”，长目录名中间截断；说明写明完整路径与规则，键盘可达、可收起，不挡住其他操作', async ({ page, request }) => {
+test('默认工作区的会话：标题栏只显示目录名，长目录名中间截断；说明写明完整路径与规则，键盘可达、可收起，不挡住其他操作', async ({ page, request }) => {
   await openPanel(page, 'workspace');
   const title = '梳理导航结构与会话标题栏的目录显示方案';
   await createSession(page, title);
@@ -113,7 +113,7 @@ test('默认工作区的会话：标题栏显示“临时目录 · 目录名”�
   const current = panel(page, title);
   const trigger = directoryTrigger(current);
   await expect(trigger).toHaveAccessibleName(`工作目录：临时目录 ${path}`);
-  const shown = (await current.locator('.session-directory-name').textContent())!.replace(/^ · /, '');
+  const shown = (await current.locator('.session-directory-name').textContent())!;
   expect(name.length).toBeGreaterThan(28);
   expect(Array.from(shown)).toHaveLength(28);
   expect(shown.startsWith(name.slice(0, 11))).toBe(true);
@@ -163,7 +163,7 @@ test('默认工作区的会话：标题栏显示“临时目录 · 目录名”�
   await expect(directoryTrigger(panel(page, title))).toHaveAccessibleName(`工作目录：临时目录 ${path}`);
 });
 
-test('项目托管目录与挂载目录的会话：标题栏显示各自的类型、目录名与规则；全局 Multivac 不显示', async ({ page, request }) => {
+test('项目托管目录与挂载目录的会话：标题栏只显示目录名，说明保留类型与规则；全局 Multivac 不显示', async ({ page, request }) => {
   const research = await createProject(request, '技术研究');
   await createProject(request, 'Multivac 开发', mountedRoot);
   const managedPath = research.project.directories[0]!.path;
@@ -187,7 +187,7 @@ test('项目托管目录与挂载目录的会话：标题栏显示各自的类�
   await setWorkspaceMode(page, 'parallel');
   await expect(page.locator('.conversation-panel')).toHaveCount(2);
   for (const title of ['修复恢复问题', '补充测试']) {
-    await expect(directoryTrigger(panel(page, title))).toHaveText(`挂载目录 · ${basename(mountedRoot)}`);
+    await expect(directoryTrigger(panel(page, title))).toHaveText(basename(mountedRoot));
   }
 
   // 按原型，全局 Multivac（工作区侧栏与首页）不显示工作目录。
@@ -231,7 +231,7 @@ test('并排窄栏：工作目录与栏位标签、栈式路径、返回父会�
   await expect(child.locator('.conversation-path')).toContainText(parentTitle);
   await expect(child.getByRole('button', { name: '返回父会话' })).toBeVisible();
   await expect(child.locator('.slot-tag')).toBeVisible();
-  await expect(directoryTrigger(child)).toContainText('临时目录 · ');
+  await expect(directoryTrigger(child)).not.toContainText('临时目录');
 
   // 每个标题栏都不横向溢出；工作目录按钮不越过右侧工具区。
   const headers = page.locator('.conversation-header');

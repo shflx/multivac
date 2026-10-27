@@ -4656,11 +4656,7 @@ svg {
   height: 12px;
 }
 
-.session-directory-kind {
-  flex: 0 0 auto;
-}
-
-/* 目录名已按字符数中间截断；栏位再窄时末尾省略，类型始终可见。 */
+/* 目录名已按字符数中间截断；栏位再窄时末尾省略。 */
 .session-directory-name {
   min-width: 0;
   overflow: hidden;

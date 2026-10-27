@@ -11,7 +11,7 @@ import {
 } from './working-directory.js';
 
 /**
- * 会话标题栏里的工作目录（按原型）：一行显示“类型 · 目录名”，目录名过长时中间截断。
+ * 会话标题栏里的工作目录：一行只显示目录名（类型放在悬停提示与展开说明中），目录名过长时中间截断。
  *
  * 悬停时浏览器提示给出类型、完整路径与规则；点击（或键盘 Enter / 空格）展开说明，
  * 写明类型、完整路径（可选中复制）与本地写规则，下面是“本会话已允许 N 项”，点开可以查看和撤销。
@@ -59,11 +59,7 @@ export function SessionDirectory({ sessionId, directory }: { sessionId: string; 
         onClick={() => setOpen((value) => !value)}
       >
         <FolderOpen aria-hidden="true" />
-        <span className="session-directory-kind">{kind.label}</span>
-        <span className="session-directory-name">
-          {' · '}
-          {truncateMiddle(workingDirectoryName(directory.path), DIRECTORY_NAME_MAX_LENGTH)}
-        </span>
+        <span className="session-directory-name">{truncateMiddle(workingDirectoryName(directory.path), DIRECTORY_NAME_MAX_LENGTH)}</span>
         <ChevronDown aria-hidden="true" />
       </button>
       {open && (
