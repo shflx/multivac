@@ -65,3 +65,26 @@ test('真实shell：新建、echo、改名、刷新、第二窗口、断网输�
   await view(second).getByRole('button', { name: '结束进程' }).click(); await expect(view(second)).toContainText('用户结束');
   await second.close();
 });
+
+test('终端创建卡：长目录不撑出卡片，自定义参数错误保留输入且可切换预设保存', async ({ page, request }, info) => {
+  test.skip(process.platform !== 'darwin' || process.arch !== 'arm64');
+  await resetE2eState(request);
+  const name = '用于检查终端创建卡长目录和自定义命令输入的项目';
+  const created = await request.post(`${fakeApiRoot}/api/projects`, { data: { name } }); expect(created.status()).toBe(201);
+  await page.setViewportSize({ width: 1280, height: 720 }); await page.goto('/');
+  await expect(page.getByRole('button', { name: '快捷键', exact: true })).toBeVisible();
+  await openPanel(page, 'workspace'); await ensureWorkspaceRail(page);
+  await page.getByRole('button', { name: `在「${name}」新建会话`, exact: true }).click();
+  await page.getByRole('group', { name: '新建工作区对象' }).getByRole('button', { name: '自定义命令…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: `在「${name}」新建终端` });
+  await dialog.getByLabel('终端程序').fill('/bin/sh'); await dialog.getByLabel('终端参数').fill('broken');
+  await dialog.getByRole('switch', { name: '保存为命令预设' }).click();
+  await expect(dialog.getByRole('switch', { name: '保存为命令预设' })).toBeChecked();
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await dialog.getByRole('button', { name: '启动终端' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('参数必须是 JSON 字符串数组。');
+  await expect(dialog.getByLabel('终端参数')).toHaveValue('broken');
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('terminal-create-invalid-argv.png') });
+  await page.keyboard.press('Escape'); await expect(dialog).toBeHidden();
+});

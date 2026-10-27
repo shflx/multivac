@@ -62,7 +62,8 @@ function TerminalCreation({ project, initialKind, onCancel, onCreated }: { proje
   async function submit() {
     setBusy(true); setError('');
     try {
-      const parsed: unknown = JSON.parse(argv);
+      let parsed: unknown;
+      try { parsed = JSON.parse(argv); } catch { throw new Error('参数必须是 JSON 字符串数组。'); }
       if (!Array.isArray(parsed) || parsed.some(item => typeof item !== 'string')) throw new Error('参数必须是 JSON 字符串数组。');
       const preset: TerminalPreset = kind === 'blank' ? { kind } : kind === 'custom' ? { kind, executable, argv: parsed } : { kind, argv: parsed };
       if (savePreset && preset.kind === 'custom') await updatePreferences({ terminalCommandPresets: [...(preferences?.terminalCommandPresets ?? []), { presetId: crypto.randomUUID(), title: executable.slice(0, 80), command: preset }] });
@@ -72,18 +73,20 @@ function TerminalCreation({ project, initialKind, onCancel, onCreated }: { proje
     finally { setBusy(false); }
   }
   return <ConfirmCard title={`在「${project.name}」新建终端`} confirmLabel="启动终端" busy={busy} error={error} onConfirm={() => void submit()} onCancel={onCancel}>
-    <label>终端预设<select aria-label="终端预设" value={kind} onChange={event => { setKind(event.target.value as TerminalPreset['kind']); setArgv('[]'); }}>
-      <option value="blank">空白 shell</option><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="custom">自定义命令</option>
-    </select></label>
-    <label>项目目录<select aria-label="终端目录" value={directory} onChange={event => setDirectory(event.target.value)}>{project.directories.map((dir, index) => <option key={dir.path} value={dir.path}>{index === 0 ? '主目录 · ' : ''}{dir.path}</option>)}</select></label>
-    {kind === 'custom' && <>
-      {!!preferences?.terminalCommandPresets?.length && <label>已保存命令<select aria-label="已保存命令" defaultValue="" onChange={event => {
-        const preset = preferences?.terminalCommandPresets?.find(item => item.presetId === event.target.value); if (preset) { setExecutable(preset.command.executable); setArgv(JSON.stringify(preset.command.argv)); }
-      }}><option value="">选择命令…</option>{preferences.terminalCommandPresets!.map(preset => <option key={preset.presetId} value={preset.presetId}>{preset.title}</option>)}</select></label>}
-      <label>程序<input aria-label="终端程序" value={executable} onChange={event => setExecutable(event.target.value)} placeholder="例如 npm" /></label>
-      <label><input type="checkbox" checked={savePreset} onChange={event => setSavePreset(event.target.checked)} />保存为命令预设</label>
-    </>}
-    {kind !== 'blank' && <label>参数（JSON 字符串数组）<input aria-label="终端参数" value={argv} onChange={event => setArgv(event.target.value)} placeholder={'["run", "dev"]'} /></label>}
-    <p>外部程序，Multivac 不管控。项目目录仅决定启动位置，不提供文件访问隔离；同目录并发修改可能冲突。</p>
+    <dl className="confirm-card-fields terminal-creation-fields">
+      <div><dt>预设</dt><dd><select aria-label="终端预设" value={kind} onChange={event => { setKind(event.target.value as TerminalPreset['kind']); setArgv('[]'); }}>
+        <option value="blank">空白 shell</option><option value="claude">Claude Code</option><option value="codex">Codex</option><option value="custom">自定义命令</option>
+      </select></dd></div>
+      <div><dt>目录</dt><dd><select aria-label="终端目录" title={directory} value={directory} onChange={event => setDirectory(event.target.value)}>{project.directories.map((dir, index) => <option key={dir.path} value={dir.path}>{index === 0 ? '主目录 · ' : ''}{dir.path}</option>)}</select></dd></div>
+      {kind === 'custom' && <>
+        {!!preferences?.terminalCommandPresets?.length && <div><dt>已保存</dt><dd><select aria-label="已保存命令" defaultValue="" onChange={event => {
+          const preset = preferences?.terminalCommandPresets?.find(item => item.presetId === event.target.value); if (preset) { setExecutable(preset.command.executable); setArgv(JSON.stringify(preset.command.argv)); }
+        }}><option value="">选择命令…</option>{preferences.terminalCommandPresets!.map(preset => <option key={preset.presetId} value={preset.presetId}>{preset.title}</option>)}</select></dd></div>}
+        <div><dt>程序</dt><dd><input aria-label="终端程序" value={executable} onChange={event => setExecutable(event.target.value)} placeholder="例如 npm" /></dd></div>
+      </>}
+      {kind !== 'blank' && <div><dt>参数</dt><dd><input aria-label="终端参数" value={argv} onChange={event => setArgv(event.target.value)} placeholder={'["run", "dev"]'} /><small>填写 JSON 字符串数组，例如 ["run", "dev"]。</small></dd></div>}
+      {kind === 'custom' && <div><dt>保存</dt><dd><div className="checkbox-row"><button type="button" role="switch" className="preference-switch" aria-label="保存为命令预设" aria-checked={savePreset} onClick={() => setSavePreset(value => !value)}><span /></button><span>保存为命令预设</span></div></dd></div>}
+      <div><dt>边界</dt><dd>外部程序，Multivac 不管控。项目目录仅决定启动位置，不提供文件访问隔离；同目录并发修改可能冲突。</dd></div>
+    </dl>
   </ConfirmCard>;
 }
