@@ -15,11 +15,13 @@ export function sessionBashExecution(dependencies: Parameters<typeof projectBash
   return { execute: (sessionId, runtimePath, toolCallId, input, signal, onData, isolated) => {
     const executionId = dependencies.currentExecution(sessionId);
     if (!executionId) throw new Error('当前没有可登记的会话执行。');
+    if (dependencies.sessions.get(sessionId)?.archivedAt) throw new Error('会话已归档，未启动命令。');
     const runtimeDirectory = dependencies.currentDirectory(sessionId);
     if (runtimeDirectory.path !== runtimePath) throw new Error('会话执行目录已变化。');
     const run = dependencies.runs.bySession(sessionId);
     const validateExecution = () => {
       if (dependencies.currentExecution(sessionId) !== executionId) throw new Error('会话执行轮次已变化。');
+      if (dependencies.sessions.get(sessionId)?.archivedAt) throw new Error('会话已归档，未启动命令。');
       const current = dependencies.currentDirectory(sessionId);
       if (current.path !== runtimeDirectory.path || current.kind !== runtimeDirectory.kind) throw new Error('会话执行目录已变化。');
       const currentRun = dependencies.runs.bySession(sessionId);
