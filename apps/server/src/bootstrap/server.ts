@@ -1,5 +1,6 @@
 import { createTerminalRoutes, attachTerminalWebSockets } from '../adapters/http/terminal-routes.js';
 import type { TerminalService } from '../application/terminal-service.js';
+import type { SessionContextManagementService } from '../application/session-context-management-service.js';
 import { createWebSettingsRequestHandler } from '../adapters/http/web-settings-routes.js';
 import type { WebSettingsService } from '../application/web-settings-service.js';
 import { createNoteSuggestionsRequestHandler } from '../adapters/http/note-suggestions-routes.js';
@@ -138,6 +139,7 @@ export interface MultivacHttpServerOptions {
   modelSettingsService?: ModelSettingsService;
   modelAccessService?: ModelAccessService;
   selectionService?: SessionModelSelectionService;
+  contextService?: SessionContextManagementService | undefined;
   /** 工作区与项目接口；两者同时提供时开放。 */
   workspaceSessionService?: WorkspaceSessionService;
   sessionFiles?: SessionFilesService;

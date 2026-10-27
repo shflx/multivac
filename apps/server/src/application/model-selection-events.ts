@@ -11,6 +11,7 @@ const lifecycleEvents = new Set([
 /** 覆盖所有会话；只通知重读，运行门禁仍由真实命令和 Pi 状态判定。 */
 export function subscribeModelSelectionLifecycle(stream: AssistantEventStream, events: WorkbenchEventPublisher): () => void {
   return stream.subscribe(event => {
+    if (event.type === 'assistant.tool.started' || event.type === 'assistant.tool.ended') events.publish({ type: 'session-context.changed', sessionId: event.assistantSessionId });
     if (lifecycleEvents.has(event.type)) events.publish({ type: 'model-selection.changed', sessionId: event.assistantSessionId });
   });
 }

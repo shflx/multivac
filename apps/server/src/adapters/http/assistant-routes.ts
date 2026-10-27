@@ -1,3 +1,5 @@
+import type { SessionContextManagementService } from '../../application/session-context-management-service.js';
+import { CompactSessionContextSchema } from '@multivac/contracts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { isRemoteRequest, remoteBodyAllowed } from './remote-policy.js';
 import {
@@ -214,6 +216,7 @@ function toolExecutionPathId(pathname: string): string | null {
 export interface AssistantSessionHandlers {
   service: AssistantSessionService;
   commandService: AssistantTurnCommandService;
+  contextService?: SessionContextManagementService | undefined;
   selectionService?: SessionModelSelectionService | undefined;
 }
 
@@ -223,6 +226,7 @@ export interface AssistantRoutesOptions {
   commandService: AssistantTurnCommandService;
   /** 补漏读取按会话读取事件仓库；事件推送由全局事件流负责（`event-stream-routes.ts`）。 */
   eventRepository: AssistantEventRepository;
+  contextService?: SessionContextManagementService | undefined;
   selectionService?: SessionModelSelectionService;
   /** 按会话 id 取得会话服务；会话不存在或已归档时抛出 NOT_FOUND。 */
   resolveSession?: ((sessionId: string) => AssistantSessionHandlers) | undefined;
@@ -250,6 +254,25 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
       const { path } = route;
       const session = resolveSession(route.sessionId);
       const selectionService = session.selectionService;
+      if (path === '/context' || path.startsWith('/context/')) {
+        const context = session.contextService;
+        if (!context) return writeError(response, 404, 'NOT_FOUND', '此宿主没有上下文管理入口。');
+        if (request.method === 'GET' && path === '/context') return writeJson(response, 200, context.get());
+        const match = /^\/context\/operations\/([A-Za-z0-9._:-]{1,128})$/u.exec(path);
+        if (request.method === 'GET' && match) {
+          const operation = context.getOperation(match[1]!);
+          return operation ? writeJson(response, 200, operation) : writeError(response, 404, 'NOT_FOUND', '原压缩操作尚无记录。');
+        }
+        if (request.method === 'POST' && path === '/context/compact') {
+          if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) return writeError(response, 415, 'INVALID_REQUEST', '压缩命令必须使用 application/json。');
+          const body = await readJsonBody(request, pageStateBodyLimitBytes);
+          if (!Check(CompactSessionContextSchema, body)) return writeError(response, 400, 'INVALID_REQUEST', '压缩命令无效。');
+          const result = await context.compact(body);
+          return writeJson(response, result.status === 'running' ? 202 : 200, result);
+        }
+        return writeError(response, 404, 'NOT_FOUND', '上下文管理接口不存在。');
+      }
+
       if (selectionService && path.startsWith('/model-selection')) {
         if (request.method === 'GET' && path === '/model-selection') {
           return writeJson(response, 200, await selectionService.getOptions());

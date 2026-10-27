@@ -1,3 +1,5 @@
+import { readPiContext, PI_COMPACTION_UNAVAILABLE } from './pi-context-snapshot.js';
+import type { CoordinatorContextManagementPort } from '../../modules/sessions/coordinator-adapter.js';
 import { createPiSkills, type PiSkills } from './pi-skills.js';
 import type { SkillSource } from '../../modules/skills/skill-source.js';
 import { randomUUID } from 'node:crypto';
@@ -172,10 +174,21 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   readonly harness = PI_HARNESS;
   readonly capabilities = {
     turnExecution: true, imageInput: true, steering: true, toolStopProof: true, skills: true,
-    // 原生接口存在不代表应用能力已可用：查询端口未接入，压缩写盘失败需要先完成一致性核对。
-    contextSnapshot: false, nativeCompaction: false,
+    // 查询只读；原生压缩写盘失败的一致性尚未通过，因此保留执行门禁。
+    contextSnapshot: true, nativeCompaction: false,
   } as const;
   private taskMode: ((sessionId: string) => 'workspace' | 'native-isolated' | null) | undefined;
+  readonly contextManagement: CoordinatorContextManagementPort = {
+    readContext: (sessionId) => {
+      const active = this.sessions.get(sessionId);
+      if (!active) return this.sessionNotActive();
+      try { return ok(readPiContext(sessionId, active.session, active.modelConfig, this.now())); }
+      catch { return failure({ code: 'SESSION_OPEN_FAILED', message: '上下文统计暂不可读取。' }); }
+    },
+    compactContext: async () => failure({ code: 'INVALID_CONFIGURATION', message: PI_COMPACTION_UNAVAILABLE }),
+    reconcileCompaction: ({ operation }) => ok({ ...operation, status: 'reconciliation-required', commitState: 'unknown',
+      error: { code: 'COMPACTION_RECONCILIATION_REQUIRED', message: '无法证明原操作的提交及停止状态，保持待核对；不会自动重发。' } }),
+  };
   private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
   private readonly bashProcesses: BashExecutionPort | undefined;
   private readonly taskProtectedPaths: readonly string[];

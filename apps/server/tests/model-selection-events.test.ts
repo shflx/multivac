@@ -6,11 +6,12 @@ import { AssistantEventStream } from '../src/application/assistant-event-stream.
 import { WorkbenchEvents } from '../src/application/workbench-events.js';
 import { subscribeModelSelectionLifecycle } from '../src/application/model-selection-events.js';
 
-test('生命周期通知覆盖全局与工作会话，排除增量和工具事件，解除订阅后停止发布', () => {
+test('生命周期通知覆盖全局与工作会话，工具仅通知上下文，排除增量事件，解除订阅后停止发布', () => {
   const stream = new AssistantEventStream();
   const workbench = new WorkbenchEvents();
   const changes: unknown[] = [];
-  workbench.subscribe(event => { assert.ok(Check(WorkbenchEventSchema, event)); changes.push(event); });
+  const contextChanges: unknown[] = [];
+  workbench.subscribe(event => { assert.ok(Check(WorkbenchEventSchema, event)); if (event.type === 'session-context.changed') contextChanges.push(event); else changes.push(event); });
   const stop = subscribeModelSelectionLifecycle(stream, workbench);
   let cursor = 0;
   const emit = (sessionId: string, type: string) => stream.publish({
@@ -27,6 +28,7 @@ test('生命周期通知覆盖全局与工作会话，排除增量和工具事�
       'assistant.message.delta', 'assistant.thinking.delta', 'assistant.queue.updated']) emit(sessionId, type);
   }
   assert.equal(changes.length, lifecycle.length * 2);
+  assert.equal(contextChanges.length, 4);
   assert.equal((changes[0] as { sessionId: string }).sessionId, 'global-coordinator');
   assert.equal((changes.at(-1) as { sessionId: string }).sessionId, 'work-session');
   stop(); emit('work-session', 'assistant.run.succeeded');

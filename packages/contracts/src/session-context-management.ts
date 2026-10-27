@@ -1,10 +1,12 @@
+import { Type } from 'typebox';
 import type { CoordinatorModelSource } from './coordinator-runtime.js';
 
 /** 统计所属模型；不包含凭据、端点、提示正文或执行器专用类型。 */
 export interface ContextModelIdentity {
   provider: string;
   modelId: string;
-  source: CoordinatorModelSource;
+  /** 历史请求未保存配置来源时保留 null，不套用当前 profile。 */
+  source: CoordinatorModelSource | null;
   protocol: string | null;
   profileId: string | null;
 }
@@ -112,3 +114,45 @@ export interface ContextCompactionOperation {
   after: ContextSnapshot | null;
   error: ContextCompactionError | null;
 }
+
+/** API 边界使用同一语义验证未知值；不可用 token 必须为 null。 */
+const NullableText = Type.Union([Type.String(), Type.Null()]);
+const Count = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
+const Model = Type.Object({ provider: Type.String(), modelId: Type.String(), source: Type.Union([Type.Enum(['base', 'controlled']), Type.Null()]),
+  protocol: NullableText, profileId: NullableText }, { additionalProperties: false });
+const CoverageItem = Type.Object({ status: Type.Enum(['included', 'excluded', 'partial', 'unknown']), explanation: Type.String() }, { additionalProperties: false });
+const SnapshotBase = {
+  sessionId: Type.String(), revision: Type.String(), model: Type.Union([Model, Type.Null()]),
+  contextWindow: Type.Union([Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }), Type.Null()]),
+  observedAt: Type.String(), measuredAt: NullableText, stale: Type.Boolean(), staleReason: NullableText,
+  coverage: Type.Object({ systemPrompt: CoverageItem, toolDefinitions: CoverageItem, summary: CoverageItem, toolResults: CoverageItem, attachments: CoverageItem }, { additionalProperties: false }),
+};
+export const ContextSnapshotSchema = Type.Union([
+  Type.Object({ ...SnapshotBase, source: Type.Enum(['current-estimate', 'last-request-input']), tokens: Count, basis: Type.String(), unavailableReason: Type.Null() }, { additionalProperties: false }),
+  Type.Object({ ...SnapshotBase, source: Type.Literal('unavailable'), tokens: Type.Null(), basis: Type.Null(), unavailableReason: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+]);
+export const ContextCompactionOperationSchema = Type.Object({
+  operationId: Type.String(), sessionId: Type.String(), model: Type.Union([Model, Type.Null()]),
+  status: Type.Enum(['running', 'succeeded', 'failed', 'cancelled', 'no-content', 'unavailable', 'reconciliation-required']),
+  startedAt: Type.String(), updatedAt: Type.String(), finishedAt: NullableText,
+  commitState: Type.Enum(['not-committed', 'committed', 'unknown']), runtimeCommitRef: NullableText,
+  before: ContextSnapshotSchema, after: Type.Union([ContextSnapshotSchema, Type.Null()]),
+  error: Type.Union([Type.Object({ code: Type.String(), message: Type.String() }, { additionalProperties: false }), Type.Null()]),
+}, { additionalProperties: false });
+export const SessionContextResponseSchema = Type.Object({
+  state: Type.Object({ sessionId: Type.String(), revision: Type.String(), current: ContextSnapshotSchema,
+    lastRequest: Type.Union([ContextSnapshotSchema, Type.Null()]),
+    compaction: Type.Union([
+      Type.Object({ available: Type.Literal(true), model: Model, reason: Type.Null() }, { additionalProperties: false }),
+      Type.Object({ available: Type.Literal(false), model: Type.Union([Model, Type.Null()]), reason: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+    ]),
+  }, { additionalProperties: false }),
+  operation: Type.Union([ContextCompactionOperationSchema, Type.Null()]),
+}, { additionalProperties: false });
+export interface SessionContextResponse { state: SessionContextState; operation: ContextCompactionOperation | null }
+export const CompactSessionContextSchema = Type.Object({
+  operationId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }),
+  sessionId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }),
+  revision: Type.String({ minLength: 1, maxLength: 128 }),
+}, { additionalProperties: false });
+export type CompactSessionContext = Type.Static<typeof CompactSessionContextSchema>;

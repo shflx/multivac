@@ -1,3 +1,5 @@
+import { SessionContextManagementService } from './session-context-management-service.js';
+import type { ContextCompactionRepository } from '../modules/sessions/context-compaction.js';
 import type { ImageService } from './image-service.js';
 import type {
   AssistantContextRef, CoordinatorModelConfig, CoordinatorRuntimeConfig, CoordinatorSessionContext, CoordinatorSkill, WorkingDirectory,
@@ -30,6 +32,7 @@ import { sameSessionModelConfig } from '../modules/sessions/session-model-select
 
 /** 所有会话共享的依赖：同一个 Pi 适配器、SQLite 仓储、公共事件流与模型配置。 */
 export interface AssistantSessionRuntimeDependencies {
+  contextCompactions?: ContextCompactionRepository;
   stopExecution?: (sessionId: string, executionId: string) => Promise<void>;
   images?: ImageService;
   onModelSelectionChanged?: (sessionId: string) => void;
@@ -46,6 +49,7 @@ export interface AssistantSessionRuntimeDependencies {
 }
 
 export interface AssistantSessionRuntimeOptions {
+  supportsContextManagement?: () => boolean;
   prepareText?: (text: string, commandId: string) => { text: string; skill?: CoordinatorSkill };
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
   authorizeSend?: (command: import('@multivac/contracts').SendAssistantMessageCommand) => void;
@@ -86,6 +90,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
   readonly session: AssistantSessionService;
   readonly commands: AssistantTurnCommandService;
   readonly selection: SessionModelSelectionService;
+  readonly context: SessionContextManagementService | undefined;
   private readonly projector: AssistantEventProjector;
   private readonly lock = new AssistantOperationLock();
 
@@ -123,10 +128,18 @@ export class AssistantSessionRuntime implements SessionRuntime {
         this.projector.start();
       },
     });
+    this.context = dependencies.contextCompactions ? new SessionContextManagementService({
+      sessionId: options.sessionId, adapter: dependencies.adapter, repository: dependencies.contextCompactions,
+      bindings: dependencies.bindingRepository, lock, supported: options.supportsContextManagement ?? (() => options.kind === 'coordinator'),
+      isRunning: () => this.commands.isRunning(), onChanged: () => dependencies.onModelSelectionChanged?.(options.sessionId),
+    }) : undefined;
     this.commands = new AssistantTurnCommandService({
       ...(options.resolveBookQuote ? { resolveBookQuote: options.resolveBookQuote } : {}),
       ...(dependencies.images ? { images: dependencies.images } : {}),
-      ...(options.authorizeSend ? { authorizeSend: options.authorizeSend } : {}),
+      authorizeSend: (command) => {
+        if (this.context?.blocksExecution()) throw new AssistantSessionServiceError('COMMAND_STATE_MISMATCH', '上下文压缩正在执行或待核对，暂不能发送。');
+        options.authorizeSend?.(command);
+      },
       ...(options.resolveMcpQuote ? { resolveMcpQuote: options.resolveMcpQuote } : {}),
       ...(options.assertMcpQuoteForDispatch ? { assertMcpQuoteForDispatch: options.assertMcpQuoteForDispatch } : {}),
       ...(options.resolveFileQuote ? { resolveFileQuote: options.resolveFileQuote } : {}),
@@ -187,7 +200,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       ...(dependencies.modelAccessService ? { access: dependencies.modelAccessService } : {}),
       lock,
       sessionId: options.sessionId,
-      isRunning: () => this.commands.isRunning(),
+      isRunning: () => this.commands.isRunning() || Boolean(this.context?.blocksExecution()),
       ...(dependencies.onModelSelectionChanged ? { onChanged: dependencies.onModelSelectionChanged } : {}),
     });
     this.projector = new AssistantEventProjector({
@@ -205,7 +218,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
   }
 
   isRunning(): boolean {
-    return this.commands.isRunning();
+    return this.commands.isRunning() || Boolean(this.context?.blocksExecution());
   }
 
   /**

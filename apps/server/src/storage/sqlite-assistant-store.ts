@@ -1,3 +1,4 @@
+import { CONTEXT_COMPACTION_MIGRATION, SqliteContextCompactionRepository } from './sqlite-context-compaction-repository.js';
 import { SqliteNoteSuggestionsRepository, NOTE_SUGGESTIONS_MIGRATION } from './sqlite-note-suggestions-repository.js';
 import { SqliteNoteAssistantRepository, NOTE_ASSISTANT_MIGRATION } from './sqlite-note-assistant-repository.js';
 import { SqliteNotesRepository, NOTES_MIGRATION, NOTE_DELETION_MIGRATION } from './sqlite-notes-repository.js';
@@ -325,6 +326,7 @@ const MIGRATIONS = [
   NOTE_IMAGES_MIGRATION,
   PROJECT_RESOURCE_MIGRATION,
   TERMINAL_MIGRATION,
+  CONTEXT_COMPACTION_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -396,6 +398,7 @@ export class SqliteAssistantStore {
   readonly projects: SqliteProjectRepository;
   /** 会话选模意图、命令与已对账的绑定模型。 */
   readonly selections: SqliteSessionSelectionRepository;
+  readonly contextCompactions: SqliteContextCompactionRepository;
   readonly humanRequests: SqliteHumanRequestRepository;
   readonly inbox: SqliteInboxRepository;
   readonly reminders: SqliteReminderRepository;
@@ -435,6 +438,7 @@ export class SqliteAssistantStore {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.backupBeforeMigration(databasePath);
       this.migrate();
+      this.contextCompactions = new SqliteContextCompactionRepository(this.database);
       this.projects = new SqliteProjectRepository(this.database, (workspaceId) => this.workspaces.get(workspaceId));
       this.selections = new SqliteSessionSelectionRepository(this.database, () => this.now());
       this.sessions = new SqliteSessionRegistryRepository(this.database);
