@@ -226,7 +226,8 @@ test('设置 · 项目：改名、挂载与卸载目录、切换主目录、默�
   await switcherMenu(page).getByRole('button', { name: /^技术研究/ }).click();
   await openSwitcherFooter(page, '项目设置');
   await expect(detail(page).getByRole('heading', { name: '技术研究' })).toBeVisible();
-  await expect(detail(page)).toContainText('普通项目工作会话可直接读取、编辑和写入当前已确认的主目录及附加目录；挂载、卸载和会话归属变化对后续文件调用生效。主目录用于新建会话的默认工作目录；调整主目录不会迁移已有会话的工作目录。');
+  await expect(detail(page)).toContainText('普通项目工作会话可直接读取、编辑和写入当前已确认的主目录、附加目录及合法子目录，也可用 bash 的 cwd 指定本次执行目录；挂载、卸载和会话归属变化对后续文件及 bash 调用生效。');
+  await expect(detail(page)).toContainText('调整主目录不会迁移已有会话的工作目录。bash 省略 cwd 时仍在原会话目录执行，指定 cwd 只改变本次启动位置，不提供文件系统隔离。');
 
   // 改名：Esc 放弃，Enter 保存；同名工作区随之改名。
   await detail(page).getByRole('button', { name: '改名' }).click();

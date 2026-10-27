@@ -196,9 +196,9 @@ test('挂载、设主目录、卸载：卡上是与设置 · 项目相同的说�
   await expect(mount.locator('.directory-rule code')).toHaveText(docs);
   await expect(mount.locator('.directory-rule strong')).toHaveText('挂载目录');
   await expect(field(mount, '执行')).toHaveText('普通项目工作会话可直接读取、编辑和写入这个目录，无需重复授权。');
-  await expect(field(mount, '说明')).toContainText('挂载、卸载和会话归属变化对后续文件调用生效');
+  await expect(field(mount, '说明')).toContainText('也可用 bash 的 cwd 指定本次执行目录；挂载、卸载和会话归属变化对后续文件及 bash 调用生效');
   await expect(field(mount, '说明')).toContainText('调整主目录不会迁移已有会话的工作目录');
-  await expect(field(mount, '说明')).toContainText('隔离任务及全局 Multivac 维持原范围');
+  await expect(field(mount, '说明')).toContainText('后台隔离任务、全局 Multivac、书伴和笔记助手维持原范围；文件独立授权不授予 bash 执行目录许可');
   expect(await directoriesOf()).toEqual([app]);
   await mount.getByRole('button', { name: '挂载' }).click();
   await expect(mount).toHaveAttribute('data-status', 'executed');
