@@ -125,7 +125,7 @@ import { FileModelAccessStore } from '../storage/file-model-access-store.js';
 import { createFakeHarness } from '../runtime/executors/fake-harness.js';
 import type { HarnessContext } from '../runtime/executors/harness.js';
 import { createHarness, selectedHarness } from '../runtime/executors/harness-registry.js';
-import { nativeTaskIsolation, nodeProcessSupervisors, nativeTerminalProcess } from '../runtime/executors/process-runtime.js';
+import { nativeTaskIsolation, nodeProcessSupervisors, nativeTerminalProcess, nativeCodexThreads } from '../runtime/executors/process-runtime.js';
 import { resolveMultivacDataPaths } from '../storage/data-paths.js';
 import { resolveMultivacWorkPaths } from '../modules/sessions/work-paths.js';
 import { DirectoryTrash, systemTrash } from '../storage/trash.js';
@@ -741,7 +741,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     dataDir: paths.dataDir,
     events: workbenchEvents,
   });
-  const terminals = new TerminalService(store.terminals, id => projectService.getProject(id), workbenchEvents, nativeTerminalProcess);
+  // Codex 会话由 Multivac 管理的 app-server 创建，终端里的 Codex 按会话 ID 以 --remote 接入。
+  const terminals = new TerminalService(store.terminals, id => projectService.getProject(id), workbenchEvents, nativeTerminalProcess, nativeCodexThreads());
   // 项目资料：新建与复制进来的文件放在工作文件根目录的 project-resources/ 下，移除时移到废纸篓。
   const projectResources = new ProjectResourceService({ resources: store.projectResources, projects: projectService, workPaths, trash });
   /** 会话所属的项目：任务执行会话取执行或任务记录上的项目，工作会话取所在工作区的项目。 */

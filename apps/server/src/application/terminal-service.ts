@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
-import { terminalIsActive, type CreateTerminal, type Project, type ProjectTerminal, type TerminalExit, type TerminalSize } from '@multivac/contracts';
+import { agentSessionTrackable, terminalIsActive, type CreateTerminal, type Project, type ProjectTerminal, type TerminalPreset, type TerminalExit, type TerminalSize } from '@multivac/contracts';
 import { assertTerminalOperation, selectTerminalDirectory, type TerminalRepository } from '../modules/terminals/terminal-record.js';
 import { TerminalScreen } from '../modules/terminals/terminal-screen.js';
+import type { CodexThreads } from '../modules/terminals/codex-threads.js';
 import type { TerminalProcess, TerminalProcessFactory } from '../modules/terminals/terminal-process.js';
 import type { WorkbenchEvents } from './workbench-events.js';
 export class TerminalError extends Error {
@@ -18,13 +19,22 @@ export interface TerminalRuntime {
   endReason?: TerminalExit['reason'];
   stopping?: Promise<ProjectTerminal> | undefined;
   metadataTimer?: ReturnType<typeof setTimeout> | undefined;
+  /** 最近一次有窗口查看（发来 read）的时间；查看中的终端不标记未读。 */
+  lastReadAt?: number;
 }
+
+/** 有窗口在查看的判定窗口，与活动时间的最小更新间隔。 */
+const VIEWING_MILLIS = 2000;
+const ACTIVITY_MILLIS = 5000;
 export class TerminalService {
   private runtimes = new Map<string, TerminalRuntime>();
   private closing = false;
   get hasActivity(): boolean { return this.runtimes.size > 0; }
   private unsubscribe: () => void;
-  constructor(readonly repository: TerminalRepository, private readonly project: (id: string) => Project, private readonly events: WorkbenchEvents, private readonly createProcess: TerminalProcessFactory) {
+  /** 当前 Codex app-server 的终端连接地址；不可用时为 null，Codex 以普通方式启动。 */
+  private codexEndpoint: string | null = null;
+  /** codexThreads 缺省时不跟踪 Codex 会话（Claude Code 的会话 ID 由 Multivac 生成，不依赖它）。 */
+  constructor(readonly repository: TerminalRepository, private readonly project: (id: string) => Project, private readonly events: WorkbenchEvents, private readonly createProcess: TerminalProcessFactory, private readonly codexThreads?: CodexThreads) {
     repository.endInterrupted(new Date().toISOString());
     this.unsubscribe = events.subscribe(event => {
       if (event.type !== 'workspace.changed' || !event.workspace.project) return;
@@ -55,21 +65,61 @@ export class TerminalService {
     }
     throw new TerminalError(400, '终端目录不存在或不是目录。');
   }
-  create(input: CreateTerminal): ProjectTerminal {
+  /** 新建终端（入口）：Codex 先在 app-server 中创建并命名会话，取得 ID 后再启动；app-server 不可用时以普通方式启动。 */
+  async open(input: CreateTerminal): Promise<ProjectTerminal> {
+    if (input.preset.kind === 'codex' && agentSessionTrackable(input.preset) && this.codexThreads) {
+      const directory = this.directory(input.projectId, input.directory);
+      const sessionId = await this.codexSession(directory, terminalTitle(input));
+      return this.create(input, sessionId ?? undefined);
+    }
+    return this.create(input);
+  }
+  /** 新建终端；codexSessionId 为已在 app-server 中创建的 Codex 会话。 */
+  create(input: CreateTerminal, codexSessionId?: string): ProjectTerminal {
     if (this.closing) throw new TerminalError(409, '终端服务正在退出。');
     const directory = this.directory(input.projectId, input.directory);
     const now = new Date().toISOString();
+    const agentSessionId = !agentSessionTrackable(input.preset) ? null : input.preset.kind === 'claude' ? randomUUID() : codexSessionId ?? null;
     const record: ProjectTerminal = { terminalId: randomUUID(), instanceId: randomUUID(), projectId: input.projectId, directory, preset: input.preset,
-      title: input.title ?? (input.preset.kind === 'blank' ? '终端' : input.preset.kind === 'custom' ? input.preset.executable : input.preset.kind),
-      status: 'starting', lastExit: null, createdAt: now, instanceStartedAt: now, lastActivityAt: now, closedAt: null, unread: false, notificationCount: 0 };
-    record.title = record.title.trim().slice(0, 80);
-    this.repository.insert(record); return this.start(record, input.size);
+      title: terminalTitle(input), status: 'starting', lastExit: null, createdAt: now, instanceStartedAt: now, lastActivityAt: now, closedAt: null,
+      unread: false, notificationCount: 0, agentSessionId };
+    this.repository.insert(record); return this.start(record, input.size, 'new');
   }
-  private start(record: ProjectTerminal, size: TerminalSize): ProjectTerminal {
+  /** 确保 app-server 可用并按需创建会话；失败时返回 null（退回普通启动，不跟踪会话）。 */
+  private async codexSession(directory: string, title: string, existing?: string | null): Promise<string | null> {
+    if (!this.codexThreads) return null;
+    try {
+      this.codexEndpoint = await this.codexThreads.endpoint();
+      return existing ?? await this.codexThreads.createThread(directory, title);
+    } catch {
+      this.codexEndpoint = null;
+      return null;
+    }
+  }
+  /**
+   * 实际启动用的命令与追加环境：保存的预设不变。
+   * - Claude Code：按会话 ID 追加 --session-id（新会话）或 --resume（接回）；没有 ID 的旧终端接回时用 --continue。
+   * - Codex：会话已在 Multivac 管理的 app-server 中创建，用 `resume <id> --remote <地址>` 接入；
+   *   app-server 不可用时，有 ID 则用 `resume <id>` 由 Codex 自行接回，没有 ID 则开始新会话。
+   *   不加 -c、--profile、--no-daemon 等参数：它们会让 Codex 在终端进程内运行服务，部分用户配置下收到输入即空转。
+   * 会话内容由 CLI 自己保存，Multivac 只记 ID。
+   */
+  private launch(record: ProjectTerminal, session: 'new' | 'resume'): TerminalPreset {
+    const { preset } = record;
+    if (!agentSessionTrackable(preset)) return preset;
+    if (preset.kind === 'claude') {
+      const sessionArgs = record.agentSessionId ? [session === 'resume' ? '--resume' : '--session-id', record.agentSessionId] : session === 'resume' ? ['--continue'] : [];
+      return { ...preset, argv: [...sessionArgs, ...preset.argv] };
+    }
+    if (preset.kind !== 'codex' || !record.agentSessionId) return preset;
+    const remote = this.codexEndpoint ? ['--remote', this.codexEndpoint] : [];
+    return { ...preset, argv: ['resume', record.agentSessionId, ...remote, ...preset.argv] };
+  }
+  private start(record: ProjectTerminal, size: TerminalSize, session: 'new' | 'resume'): ProjectTerminal {
     try {
       let process: TerminalProcess | undefined;
       const screen = new TerminalScreen(size, { pause: () => process?.pty.pause(), resume: () => process?.pty.resume() });
-      try { process = this.createProcess(record.directory, record.preset, size); }
+      try { process = this.createProcess(record.directory, this.launch(record, session), size); }
       catch (error) { screen.dispose(); throw error; }
       const runtime: TerminalRuntime = { terminalId: record.terminalId, process, screen, owner: null, listeners: new Set() };
       this.runtimes.set(record.instanceId, runtime);
@@ -81,7 +131,13 @@ export class TerminalService {
         if (!runtime.metadataTimer) runtime.metadataTimer = setTimeout(() => {
           runtime.metadataTimer = undefined;
           const current = this.get(record.terminalId);
-          if (current.instanceId === record.instanceId) this.save({ ...current, unread: true, lastActivityAt: new Date().toISOString() });
+          if (current.instanceId !== record.instanceId) return;
+          // 持续刷新的 CLI 会不断产生输出：查看中的终端不标未读，活动时间限频，状态不变时不发布事件，避免侧栏反复刷新。
+          const now = Date.now();
+          const unread = current.unread || now - (runtime.lastReadAt ?? 0) > VIEWING_MILLIS;
+          if (unread !== current.unread || now - Date.parse(current.lastActivityAt) > ACTIVITY_MILLIS) {
+            this.save({ ...current, unread, lastActivityAt: new Date(now).toISOString() });
+          }
         }, 250);
       };
       screen.onNotification = () => {
@@ -102,7 +158,12 @@ export class TerminalService {
     }
   }
   rename(id: string, title: string) { return this.save({ ...this.get(id), title }); }
-  read(id: string, instance: string) { const record = this.get(id); this.assert(record, instance, 'read'); if (!record.unread && !record.notificationCount) return record; return this.save({ ...record, unread: false, notificationCount: 0 }); }
+  read(id: string, instance: string) {
+    const record = this.get(id); this.assert(record, instance, 'read');
+    const runtime = this.runtimes.get(instance); if (runtime) runtime.lastReadAt = Date.now();
+    if (!record.unread && !record.notificationCount) return record;
+    return this.save({ ...record, unread: false, notificationCount: 0 });
+  }
   private assert(record: ProjectTerminal, instance: string, action: 'end' | 'read' | 'reopen' | 'close', confirm = false) {
     try { assertTerminalOperation(record, instance, action, confirm); } catch (error) { throw new TerminalError(409, (error as Error).message); }
   }
@@ -136,14 +197,31 @@ export class TerminalService {
     if (terminalIsActive(record.status)) throw new TerminalError(409, '尚未证实进程结束，终端保持打开。');
     this.release(instance); return this.save({ ...record, closedAt: new Date().toISOString() });
   }
-  reopen(id: string, instance: string, size: TerminalSize) {
+  /** 重开（入口）：Codex 先确保 app-server 可用，新会话时在其中创建会话，再按 ID 接入。 */
+  async reopenTerminal(id: string, instance: string, size: TerminalSize, mode: 'resume' | 'new' = 'resume'): Promise<ProjectTerminal> {
+    const record = this.get(id);
+    if (record.preset.kind === 'codex' && agentSessionTrackable(record.preset) && this.codexThreads) {
+      this.assert(record, instance, 'reopen');
+      const sessionId = await this.codexSession(this.directory(record.projectId, record.directory), record.title, mode === 'resume' ? record.agentSessionId ?? null : null);
+      return this.reopen(id, instance, size, mode, sessionId ?? undefined);
+    }
+    return this.reopen(id, instance, size, mode);
+  }
+  /** 重开：用原目录与原命令创建新实例；coding agent 默认接回记录的会话，new 时开始新会话。 */
+  reopen(id: string, instance: string, size: TerminalSize, mode: 'resume' | 'new' = 'resume', codexSessionId?: string) {
     if (this.closing) throw new TerminalError(409, '终端服务正在退出。');
     const record = this.get(id); this.assert(record, instance, 'reopen'); this.directory(record.projectId, record.directory);
     this.release(instance);
     const now = new Date().toISOString();
-    const next = { ...record, instanceId: randomUUID(), status: 'starting' as const, closedAt: null, instanceStartedAt: now, lastActivityAt: now, unread: false, notificationCount: 0 };
+    const trackable = agentSessionTrackable(record.preset);
+    const resume = mode === 'resume' && trackable;
+    // 新会话：Claude Code 换新 ID；Codex 使用刚在 app-server 中创建的会话（不可用时为空，开始未跟踪的新会话）。
+    const agentSessionId = !trackable ? null
+      : record.preset.kind === 'claude' ? (resume ? record.agentSessionId ?? null : randomUUID())
+        : codexSessionId ?? (resume ? record.agentSessionId ?? null : null);
+    const next = { ...record, instanceId: randomUUID(), status: 'starting' as const, closedAt: null, instanceStartedAt: now, lastActivityAt: now, unread: false, notificationCount: 0, agentSessionId };
     if (!this.repository.replace(next, instance)) throw new TerminalError(409, '终端实例已变更。');
-    return this.start(next, size);
+    return this.start(next, size, resume ? 'resume' : 'new');
   }
   private release(instance: string) {
     const runtime = this.runtimes.get(instance); if (!runtime) return;
@@ -158,7 +236,7 @@ export class TerminalService {
   }
   async resetForTest(): Promise<void> { await this.stopRuntimes('project-removed'); }
   async close(): Promise<void> {
-    this.closing = true; this.unsubscribe(); await this.stopRuntimes('service-shutdown');
+    this.closing = true; this.unsubscribe(); await this.stopRuntimes('service-shutdown'); await this.codexThreads?.close();
   }
   private async stopRuntimes(reason: TerminalExit['reason']): Promise<void> {
     const results = await Promise.allSettled([...this.runtimes].map(async ([instance, runtime]) => {
@@ -173,4 +251,9 @@ export class TerminalService {
     const failed = results.find(result => result.status === 'rejected');
     if (failed?.status === 'rejected') throw failed.reason;
   }
+}
+
+/** 终端名称：未指定时取预设名，最长 80 字。 */
+function terminalTitle(input: CreateTerminal): string {
+  return (input.title ?? (input.preset.kind === 'blank' ? '终端' : input.preset.kind === 'custom' ? input.preset.executable : input.preset.kind)).trim().slice(0, 80);
 }

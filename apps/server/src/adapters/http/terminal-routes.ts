@@ -27,12 +27,12 @@ export function createTerminalRoutes(service: TerminalService) {
       const [, id, action] = match;
       let value: unknown;
       if (request.method === 'POST' && id === 'list' && !action && Check(ListTerminalsSchema, body)) value = { terminals: service.list(body.projectId, body.includeClosed) };
-      else if (request.method === 'POST' && !id && Check(CreateTerminalSchema, body)) value = { terminal: service.create(body) };
+      else if (request.method === 'POST' && !id && Check(CreateTerminalSchema, body)) value = { terminal: await service.open(body) };
       else if (request.method === 'PATCH' && id && !action && Check(RenameTerminalSchema, body)) value = { terminal: service.rename(id, body.title) };
       else if (request.method === 'POST' && id && action === 'get' && Check(GetTerminalSchema, body)) value = { terminal: service.get(id) };
       else if (request.method === 'POST' && id && action === 'end' && Check(EndTerminalSchema, body)) value = { terminal: await service.end(id, body.instanceId) };
       else if (request.method === 'POST' && id && action === 'close' && Check(CloseTerminalSchema, body)) value = { terminal: await service.closeTerminal(id, body.instanceId, body.confirmRunning) };
-      else if (request.method === 'POST' && id && action === 'reopen' && Check(ReopenTerminalSchema, body)) value = { terminal: service.reopen(id, body.instanceId, body.size) };
+      else if (request.method === 'POST' && id && action === 'reopen' && Check(ReopenTerminalSchema, body)) value = { terminal: await service.reopenTerminal(id, body.instanceId, body.size, body.mode) };
       else if (request.method === 'POST' && id && action === 'read' && Check(ReadTerminalSchema, body)) value = { terminal: service.read(id, body.instanceId) };
       else throw new TerminalError(400, '终端参数无效。');
       json(response, 200, value);
@@ -81,9 +81,13 @@ export function attachTerminalWebSockets(server: Server, service: TerminalServic
       send({ type: 'error', code, message } as TerminalServerMessage); socket.close(1008, code);
       setTimeout(() => { if (socket.readyState !== WebSocket.CLOSED) socket.terminate(); }, 1000).unref();
     };
+    // 窗口渲染落后（未确认超过上限）时暂停发送输出，等它确认完已发内容后补发当前画面快照，跳过中间输出；不断开连接，输入照常。
+    let lagging = false;
+    let overflowed = false;
     const output = ({ data, from, watermark }: { data: Buffer; from: number; watermark: number }) => {
-      if (watermark <= state.sent) return;
-      if (from !== state.sent || watermark - state.acknowledged > TERMINAL_LIMITS.unacknowledgedBytes) { fail('SLOW_WINDOW', '窗口输出积压，请重新接回。'); return; }
+      if (lagging || watermark <= state.sent) return;
+      if (from !== state.sent) { fail('SLOW_WINDOW', '窗口输出不连续，请重新接回。'); return; }
+      if (watermark - state.acknowledged > TERMINAL_LIMITS.unacknowledgedBytes) { lagging = true; return; }
       for (let offset = 0; offset < data.length; offset += 8192) {
         const chunk = data.subarray(offset, offset + 8192);
         send({ type: 'output', from: from + offset, watermark: from + offset + chunk.length, data: chunk.toString('base64') } as TerminalServerMessage);
@@ -98,12 +102,13 @@ export function attachTerminalWebSockets(server: Server, service: TerminalServic
       if (event.type === 'exit') { if (!joining) send({ type: 'exit', exit: event.exit } as TerminalServerMessage); return; }
       if (joining) {
         bufferedBytes += event.type === 'output' ? event.data.length : 128;
-        if (bufferedBytes > TERMINAL_LIMITS.unacknowledgedBytes) { buffered = []; fail('SLOW_WINDOW', '接回期间输出超过上限，请重试。'); }
-        else buffered.push(event);
+        // 接回期间积压过多：丢弃积压，快照结束后转为落后状态，再补发一次画面。
+        if (bufferedBytes > TERMINAL_LIMITS.unacknowledgedBytes) { buffered = []; overflowed = true; }
+        else if (!overflowed) buffered.push(event);
       } else deliver(event);
     };
     runtime.listeners.add(listener);
-    void runtime.screen.snapshot().then(async snapshot => {
+    const attachSnapshot = () => runtime.screen.snapshot().then(async snapshot => {
       if (!state.attached) return;
       state.sent = state.acknowledged = snapshot.watermark;
       const snapshotId = randomUUID();
@@ -116,12 +121,20 @@ export function attachTerminalWebSockets(server: Server, service: TerminalServic
       if (!state.attached) return;
       send({ type: 'snapshot-end', snapshotId, watermark: snapshot.watermark } as TerminalServerMessage);
       joining = false;
-      for (const chunk of buffered) if (chunk.sequence > snapshot.sequence) deliver(chunk);
+      if (overflowed) { overflowed = false; lagging = true; }
+      else for (const chunk of buffered) if (chunk.sequence > snapshot.sequence) deliver(chunk);
       buffered = []; bufferedBytes = 0;
       const current = service.get(id);
       if (current.instanceId !== state.instanceId) { fail('STALE_INSTANCE', '终端已重新打开。'); return; }
       if (current.lastExit?.instanceId === state.instanceId) send({ type: 'exit', exit: current.lastExit } as TerminalServerMessage);
     }).catch(() => { if (state.attached) fail('SNAPSHOT_TIMEOUT', '画面尚未形成完整边界，请重试接回。'); });
+    void attachSnapshot();
+    /** 落后的窗口确认完已发送的输出后，按接回流程补发当前画面。 */
+    const resync = () => {
+      if (!lagging || joining || state.acknowledged < state.sent) return;
+      lagging = false; joining = true; buffered = []; bufferedBytes = 0;
+      void attachSnapshot();
+    };
     socket.on('message', (data, binary) => {
       const receivedBytes = Buffer.byteLength(data.toString());
       if (!state.attached || socket.readyState !== WebSocket.OPEN) return;
@@ -135,7 +148,7 @@ export function attachTerminalWebSockets(server: Server, service: TerminalServic
           if (!Check(TerminalClientMessageSchema, message)) throw new Error('消息格式无效。');
           if (service.get(id).instanceId !== state.instanceId || service.runtime(id) !== runtime) { fail('STALE_INSTANCE', '终端实例已变更。'); return; }
           assertTerminalOwner(state, message, runtime.owner);
-          if (message.type === 'ack') state.acknowledged = message.watermark;
+          if (message.type === 'ack') { state.acknowledged = message.watermark; resync(); }
           else if (message.type === 'read') service.read(id, state.instanceId);
           else if (message.type === 'input') {
             if (service.get(id).status !== 'running') throw new Error('终端进程已结束或正在停止。');

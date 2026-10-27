@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import type { TerminalProcessFactory } from '../../modules/terminals/terminal-process.js';
 import { TerminalProcess } from './terminal-process.js';
+import type { CodexThreads } from '../../modules/terminals/codex-threads.js';
+import { CodexAppServer } from './codex-app-server.js';
 import type { ProcessSupervisors, TaskIsolation } from '../../modules/processes/process-runtime.js';
 import { BASH_PROCESS_SUPERVISOR } from './bash-process-supervisor.js';
 import { MANAGED_SUPERVISOR } from './managed-process-supervisor.js';
@@ -26,3 +28,6 @@ export const nodeProcessSupervisors: ProcessSupervisors = {
 
 /** 项目终端与任务监护共用装配入口，运行语义仍由各自实现负责。 */
 export const nativeTerminalProcess: TerminalProcessFactory = (directory, preset, size) => new TerminalProcess(directory, preset, size);
+
+/** Codex 会话控制与终端进程经同一运行时入口装配。 */
+export const nativeCodexThreads = (): CodexThreads => new CodexAppServer();

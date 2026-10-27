@@ -81,7 +81,15 @@ test('真实HTTP/WS：来源拒绝、刷新快照、多窗口接管、慢窗口�
     await until(() => { const owner = lastOwner(second); return owner?.type === 'owner' && owner.ownerConnectionId === second.connectionId && owner.size.cols === 100; });
     const slow = await windowFor(url, origin, false); sockets.push(slow.socket);
     second.send({ type: 'input', data: "yes BACKPRESSURE | head -n 40000; printf '\\nFAST-WINDOW-DONE\\n'\r" });
-    await until(() => slow.socket.readyState === WebSocket.CLOSED, 10000); await until(() => second.data.includes('\r\nFAST-WINDOW-DONE\r\n'), 10000);
+    await until(() => second.data.includes('\r\nFAST-WINDOW-DONE\r\n'), 10000);
+    // 不确认的慢窗口不被断开：未确认超过上限后暂停发送；确认完已发内容后补发当前画面快照。
+    assert.equal(slow.socket.readyState, WebSocket.OPEN);
+    const slowStart = slow.messages.find(message => message.type === 'snapshot-begin')!;
+    const slowLast = slow.messages.filter(message => message.type === 'output').at(-1)!;
+    assert.ok(slowStart.type === 'snapshot-begin' && slowLast.type === 'output' && slowLast.watermark - slowStart.watermark <= 256 * 1024 + 16 * 1024);
+    slow.send({ type: 'ack', watermark: slowLast.watermark });
+    await until(() => slow.messages.filter(message => message.type === 'snapshot-end').length === 2, 10000);
+    assert.ok(slow.snapshot.includes('FAST-WINDOW-DONE'));
     assert.equal(second.socket.readyState, WebSocket.OPEN);
     assert.ok(!eventBodies.join('').includes('ECHO-VERIFIED')); assert.ok(!eventBodies.join('').includes('BACKPRESSURE'));
     const deniedClose = await post(`/api/terminals/${record.terminalId}/close`, { instanceId: record.instanceId, confirmRunning: false }); assert.equal(deniedClose.status, 409);
