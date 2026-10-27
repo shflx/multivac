@@ -577,6 +577,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     commandRepository,
     eventRepository,
     selectionRepository,
+    contextCompactions: store.contextCompactions,
     eventStream,
     modelSettingsService,
     modelAccessService,
@@ -615,6 +616,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     beforeSend: () => managedProcesses.bash.resumeSession(GLOBAL_ASSISTANT_SESSION_ID),
     prepareText: (text,commandId) => { mcp.prepare(GLOBAL_ASSISTANT_SESSION_ID, commandId); return skills.prepareInvocation(GLOBAL_ASSISTANT_SESSION_ID,text,commandId); },
     sessionId: GLOBAL_ASSISTANT_SESSION_ID,
+    supportsContextManagement: () => true,
     kind: 'coordinator',
     runtimeConfig: baseRuntimeConfig,
     resolveWorkingDirectory: workingDirectoryOf(GLOBAL_ASSISTANT_SESSION_ID),
@@ -755,6 +757,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     return new AssistantSessionRuntime(runtimeDependencies, {
       ...policy,
       sessionId: record.sessionId,
+      supportsContextManagement: () => !record.host && !store.taskRuns.bySession(record.sessionId),
       kind: 'work',
       beforeSend: () => managedProcesses.bash.resumeSession(record.sessionId),
       resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
@@ -855,8 +858,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 跨会话引用：任一会话都可以引用工作区中其他会话已落入可读历史的消息。
   const resolveQuoteSource = createQuoteSourceResolver(sessionAccess);
   const resolveSession = (sessionId: string) => {
-    const runtime = sessionRuntimes.acquire(workspaceSessionService.resolve(sessionId));
-    return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection };
+    const record = workspaceSessionService.resolve(sessionId);
+    const runtime = sessionRuntimes.acquire(record);
+    return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection,
+      ...(!record.host && !store.taskRuns.bySession(sessionId) ? { contextService: runtime.context } : {}) };
   };
   const ready = Promise.all([modelSettingsService.initialize(), webSettingsStore])
     .then(() => service.initialize())
@@ -1142,6 +1147,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     modelSettingsService,
     modelAccessService,
     selectionService,
+    contextService: coordinator.context,
     workspaceSessionService,
     projectService,
     resolveSession,

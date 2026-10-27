@@ -96,6 +96,7 @@ export interface PiCoordinatorAgentSession {
   readonly isStreaming: boolean;
   readonly isIdle?: boolean;
   getActiveBranch(): SessionEntry[];
+  getContextUsage?(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
   prompt(text: string, options?: { images?: { type: 'image'; mimeType: string; data: string }[] }): Promise<void>;
   steer(text: string, images?: { type: 'image'; mimeType: string; data: string }[]): Promise<void>;
   followUp(text: string, images?: { type: 'image'; mimeType: string; data: string }[]): Promise<void>;
@@ -754,6 +755,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         get isIdle() { return result.session.isIdle && !result.session.isRetrying; },
         taskToolsStopped: () => lifecycle ? lifecycle.stopped : taskTools?.processesStopped ?? false,
         getActiveBranch: () => result.session.sessionManager.getBranch(),
+        getContextUsage: () => result.session.getContextUsage(),
         prompt: (text, options) => result.session.prompt(text, options),
         steer: (text, images) => result.session.steer(text, images),
         followUp: (text, images) => result.session.followUp(text, images),

@@ -1,3 +1,5 @@
+import { ContextPanel } from './context-panel.js';
+import type { SessionContext } from './session-context.js';
 import { McpSessionTools } from '../mcp/mcp-session-tools.js';
 import { ComposerAddMenu } from './composer-add-menu.js';
 import { useSkillPicker } from '../skills/skill-picker.js';
@@ -158,6 +160,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
     <SessionModelContext.Provider value={entry.model}>
       <AssistantSessionView
         session={entry.session}
+        sessionContext={entry.context}
         readCurrentView={sessionId === GLOBAL_ASSISTANT_SESSION_ID ? readCurrentView : null}
         {...props}
       />
@@ -173,9 +176,10 @@ function AssistantSessionView({
   session, active = true, variant = 'page', focusOnActivate = variant === 'page',
   collapseComposer = false, composerLabel = 'Multivac', context = null, allowAgentSelection = false, taskId = null,
   onHandToMultivac, onDrillDown, onOpenFileReference, incomingQuote = null, onIncomingQuoteHandled, focusRequest, onManageModels,
-  readCurrentView,
+  readCurrentView, sessionContext,
 }: Omit<AssistantViewProps, 'sessionId'> & {
   session: AssistantSession;
+  sessionContext: SessionContext;
   /** 读取本窗口当前视图（只有全局 Multivac 提供）；发送时读取一次，随消息带上。 */
   readCurrentView: ReturnType<typeof useCurrentView>;
 }) {
@@ -1019,6 +1023,9 @@ function AssistantSessionView({
                   </button>
                 </div>
               )}
+              {!remote && !taskId && (isCoordinator || allowAgentSelection) && <div className="context-toolbar">
+                <ContextPanel context={sessionContext} running={runBusy || submitting} />
+              </div>}
               <div className="composer-bar">
                 <div className="composer-meta">
                   <ComposerAddMenu draft={session.imageDraft} {...(allowAgentSelection && !isCoordinator && !remote ? { mcpResources: {

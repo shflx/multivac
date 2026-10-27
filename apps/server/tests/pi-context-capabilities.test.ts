@@ -1,3 +1,4 @@
+import { readPiContext } from '../src/runtime/executors/pi-context-snapshot.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -246,7 +247,73 @@ test('Pi 应用能力在失败一致性未就绪时保持关闭', async () => {
   const adapter = new PiCoordinatorAdapter({ agentDir: join(f.root, 'agent'), sessionDir: f.sessionDir });
   try {
     assert.equal(adapter.capabilities.nativeCompaction, false);
-    assert.equal(adapter.capabilities.contextSnapshot, false);
-    assert.equal('contextManagement' in adapter, false);
+    assert.equal(adapter.capabilities.contextSnapshot, true);
+    assert.equal(adapter.contextManagement.readContext('not-opened').ok, false);
+    assert.equal((await adapter.contextManagement.compactContext({ operationId: 'blocked', sessionId: 'not-opened', expectedRevision: 'none', expectedModel: { provider: 'openai', modelId: 'controlled', source: 'base', profileId: null, protocol: null } })).ok, false);
   } finally { adapter.dispose(); await f.close(); }
+});
+
+
+test('应用快照：空消息不伪装零，缓存输入完整计入，查询不调用模型', async () => {
+  const f = await fixture();
+  try {
+    const read = () => readPiContext('controlled', f.resources.session, f.config.model, '2026-10-26T00:00:00.000Z');
+    assert.equal(read().current.source, 'unavailable');
+    assert.equal(read().current.tokens, null);
+    f.seed();
+    const state = read();
+    assert.equal(state.current.source, 'current-estimate');
+    assert.equal(state.current.tokens, 19);
+    assert.equal(state.lastRequest?.source, 'last-request-input');
+    assert.equal(state.lastRequest?.tokens, 14);
+    assert.equal(state.lastRequest?.contextWindow, null, '缺少请求时窗口记录，不套当前模型目录');
+    assert.equal(state.lastRequest?.model?.source, null, '历史消息没有 profile 来源，不冒充当前选择');
+    assert.equal(f.requests, 0);
+    assert.equal(state.compaction.available, false);
+  } finally { await f.close(); }
+});
+
+test('应用快照：模型变更不套旧用量，压缩后未知，历史请求保留原模型', async () => {
+  const f = await fixture();
+  try {
+    f.seed();
+    const before = readPiContext('controlled', f.resources.session, f.config.model, '2026-10-26T00:00:00.000Z');
+    f.actual.agent.state.model = { ...f.model, id: 'another-model', contextWindow: 7777 };
+    const changed = readPiContext('controlled', f.resources.session, f.config.model, '2026-10-26T00:00:01.000Z');
+    assert.equal(changed.current.tokens, null);
+    assert.equal(changed.current.contextWindow, 7777);
+    assert.equal(changed.lastRequest?.model?.modelId, f.model.id);
+    assert.equal(changed.lastRequest?.contextWindow, null);
+    assert.equal(changed.lastRequest?.stale, true);
+    assert.notEqual(changed.revision, before.revision);
+    f.actual.agent.state.model = f.model;
+    await f.actual.compact();
+    const compacted = readPiContext('controlled', f.resources.session, f.config.model, '2026-10-26T00:00:02.000Z');
+    assert.equal(compacted.current.source, 'unavailable');
+    assert.equal(compacted.current.tokens, null);
+    assert.equal(compacted.lastRequest?.tokens, 14);
+    assert.equal(compacted.lastRequest?.stale, true);
+  } finally { await f.close(); }
+});
+
+test('应用快照：后续回复缺失输入统计或同名模型被重新配置时，不沿用旧估算', async () => {
+  for (const scenario of ['missing-usage', 'same-model-change']) {
+    const f = await fixture();
+    try {
+      f.seed();
+      if (scenario === 'missing-usage') {
+        f.actual.sessionManager.appendMessage({ role: 'assistant', content: [{ type: 'text', text: '没有输入用量的后续回复' }],
+          api: f.model.api, provider: f.model.provider, model: f.model.id, stopReason: 'stop', timestamp: Date.now(),
+          usage: { input: 0, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 5, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
+      } else {
+        f.actual.sessionManager.appendModelChange(f.model.provider, f.model.id);
+      }
+      f.actual.agent.state.messages = f.actual.sessionManager.buildSessionContext().messages;
+      const state = readPiContext('controlled', f.resources.session, f.config.model, '2026-10-26T00:00:00.000Z');
+      assert.equal(state.current.source, 'unavailable');
+      assert.equal(state.current.tokens, null);
+      assert.equal(state.lastRequest?.tokens, 14, '旧请求仍可查看，但不冒充当前占用');
+      assert.equal(state.lastRequest?.stale, true);
+    } finally { await f.close(); }
+  }
 });

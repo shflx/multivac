@@ -1,3 +1,4 @@
+import { useSessionContextController, type SessionContext } from './session-context.js';
 import {
   createContext,
   useCallback,
@@ -202,6 +203,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
 export interface AssistantSessionEntry {
   session: AssistantSession;
   model: SessionModel;
+  context: SessionContext;
 }
 
 /**
@@ -225,7 +227,7 @@ class SessionControllerStore {
 
   publish(sessionId: string, entry: AssistantSessionEntry): void {
     const current = this.entries.get(sessionId);
-    if (current?.session === entry.session && current.model === entry.model) return;
+    if (current?.session === entry.session && current.model === entry.model && current.context === entry.context) return;
     this.entries.set(sessionId, entry);
     this.emit();
   }
@@ -251,14 +253,17 @@ const AssistantSessionsContext = createContext<AssistantSessionsContextValue | n
 /** 运行单个会话的控制器并发布到集合；不渲染任何界面。 */
 function SessionHost({ sessionId, store, active }: { sessionId: string; store: SessionControllerStore; active: boolean }) {
   const model = useSessionModelController(sessionId, active);
+  const context = useSessionContextController(sessionId, active);
   const session = useAssistantSessionController(sessionId, {
     available: model.available,
-    busy: model.busy,
+    busy: model.busy || context.pending,
     loaded: model.loaded,
   });
 
+  useEffect(() => { if (active && session.status === 'ready') context.invalidate(); }, [active, session.status, session.loadGeneration, context.invalidate]);
   useLayoutEffect(() => {
-    store.publish(sessionId, { session, model });
+    store.publish(sessionId, { session, context, model: context.pending && model.data
+      ? { ...model, data: { ...model.data, running: true, disabledReason: '上下文压缩正在执行或等待核对，暂不能切换模型。' } } : model });
   });
   useLayoutEffect(() => () => store.remove(sessionId), [sessionId, store]);
   return null;
