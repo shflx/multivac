@@ -9,11 +9,10 @@ import type { ProcessSupervisors } from '../modules/processes/process-runtime.js
 import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { readProcessLog } from './process-log.js';
+import type { BashInput, IsolatedBashExecution } from '../modules/processes/bash-execution.js';
 
-export interface BashInput { command: string; cwd?: string; mode?: 'foreground' | 'background'; timeout?: number; name?: string }
+export type { BashInput, IsolatedBashExecution } from '../modules/processes/bash-execution.js';
 export interface BashSource { sessionId: string; executionId: string; directory: string; taskId?: string; runId?: string }
-/** 任务使用原有受限执行器；普通工作会话使用独立进程组。 */
-export type IsolatedBashExecution = (command: string, options: { signal: AbortSignal; timeoutMs?: number; onData: (data: Buffer) => void; onSpawn: (pid: number) => void }) => Promise<{ code: number | null; output: Buffer }>;
 interface Live {
   ready: Promise<void>; rootExited: Promise<number | null>; closed: Promise<void>;
   stop: () => void; outputs: Set<(data: Buffer) => void>; timedOut: boolean; supervisorExited?: boolean;

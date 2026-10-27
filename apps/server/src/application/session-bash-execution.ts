@@ -1,5 +1,5 @@
 import type { WorkingDirectory } from '@multivac/contracts';
-import type { BashExecutionPort } from '../runtime/executors/managed-bash-tool.js';
+import type { BashExecutionPort } from '../modules/processes/bash-execution.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
 import type { BashProcessService } from './bash-process-service.js';
 import { projectBashScope } from './project-bash-scope.js';
