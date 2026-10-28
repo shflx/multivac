@@ -10,12 +10,15 @@ import { ManagedProcessService } from '../src/application/managed-process-servic
 import { managedBashTool } from '../src/runtime/executors/managed-bash-tool.js';
 import { NativeTaskTools } from '../src/runtime/executors/native-task-tools.js';
 import { nativeTaskIsolation, nodeProcessSupervisors } from '../src/runtime/executors/process-runtime.js';
+import { BASH_PROCESS_SUPERVISOR } from '../src/runtime/executors/bash-process-supervisor.js';
+import { spawn } from 'node:child_process';
+import type { ProcessSupervisors } from '../src/modules/processes/process-runtime.js';
 
-async function fixture() {
+async function fixture(supervisors: ProcessSupervisors = nodeProcessSupervisors) {
   const root = await mkdtemp(join(tmpdir(), 'multivac-bash-'));
   const work = join(root, 'work'); await mkdir(work);
   const store = new SqliteAssistantStore(join(root, 'store.sqlite'));
-  const service = new ManagedProcessService(store.managedProcesses, join(root, 'logs'), [], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
+  const service = new ManagedProcessService(store.managedProcesses, join(root, 'logs'), [], { isolation: nativeTaskIsolation, supervisors });
   const source = { sessionId: 'session-a', executionId: 'turn-a', directory: work };
   return { root, work, store, service, source, close: async () => { await service.close(); store.close(); await rm(root, { recursive: true, force: true }); } };
 }
@@ -76,6 +79,39 @@ test('bash 启动器退出后组内子进程仍登记并可停止，停止覆盖
     assert.equal(stopped.state, 'exited');
     const receipt = JSON.parse(await readFile(join(f.root, 'logs', `${stopped.processId}.exit.json`), 'utf8'));
     assert.equal(receipt.groupStopped, true);
+  } finally { await f.close(); }
+});
+
+test('首次归属采样延迟时，快速退出的 bash 不会遗失组内后台进程', async () => {
+  // 放大首次 ps 前的窗口，稳定覆盖根 bash 已退出、组内子进程仍活着的竞态。
+  const delayedSnapshot = String.raw`
+const childProcess = require('node:child_process');
+const originalExecFileSync = childProcess.execFileSync;
+let firstSnapshot = true;
+childProcess.execFileSync = function(file, ...args) {
+  if (file === '/bin/ps' && firstSnapshot) {
+    firstSnapshot = false;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+  }
+  return originalExecFileSync(file, ...args);
+};
+`;
+  const f = await fixture({ ...nodeProcessSupervisors, bash: () => spawn(process.execPath, ['-e', delayedSnapshot + BASH_PROCESS_SUPERVISOR], {
+    stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin' },
+  }) });
+  try {
+    // 自动到期用于失败用例的兜底；正常路径仍必须由托管停止清理，而不是等待到期。
+    const command = `'${process.execPath}' -e 'require("node:fs").writeFileSync("worker.pid",String(process.pid));setTimeout(()=>{},10000)' > worker.log 2>&1 &`;
+    const result = await f.service.bash.execute(f.source, 'delayed-tree-observation', { command }, undefined, () => {});
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.process.state, 'running');
+    let worker = 0;
+    await eventually(async () => { worker = Number(await readFile(join(f.work, 'worker.pid'), 'utf8')); assert.ok(worker); });
+    assert.equal((await f.service.stop(result.process.processId)).state, 'exited');
+    const receipt = JSON.parse(await readFile(join(f.root, 'logs', `${result.process.processId}.exit.json`), 'utf8'));
+    assert.equal(receipt.treeStopped, true);
+    assert.ok(receipt.tracked.some((entry: { pid: number }) => entry.pid === worker), JSON.stringify(receipt));
+    assert.throws(() => process.kill(worker, 0), { code: 'ESRCH' });
   } finally { await f.close(); }
 });
 
