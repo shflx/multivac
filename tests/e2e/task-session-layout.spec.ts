@@ -53,6 +53,9 @@ test('查看和切换任务不改工作区现场，刷新后返回与快速跳�
   await openPanel(page, 'management');
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
   await page.getByRole('button', { name: '查看任务：独占任务甲', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: '任务详情' });
+  await inspector.getByText('范围、目录与执行信息', {exact:true}).click();
+  await expect(inspector).toContainText('与工作会话共用执行后端');
   await page.getByRole('button', { name: '打开任务会话：独占任务甲', exact: true }).click();
   await expect(taskView(page).getByRole('heading', { name: task.title, exact: true })).toBeVisible();
   await expect(workTitles(page)).toHaveCount(0);
@@ -85,7 +88,7 @@ test('只有任务会话时侧栏与主区域都显示没有会话，快速跳�
   await startTask(request, '仅有任务会话');
   await page.goto('/'); await openPanel(page, 'workspace');
   const group = page.getByRole('complementary', { name: '工作区会话导航' }).locator('.rail-group[data-workspace-id="default"]');
-  await expect(group.locator('.rail-empty')).toHaveText('还没有会话');
+  await expect(group.locator('.rail-empty')).toHaveText('还没有会话或终端');
   await expect(group.locator('.rail-item')).toHaveCount(0);
   await expect(page.locator('.workspace-empty h2')).toHaveText(/还没有会话$/u);
   await openTaskSession(page, '仅有任务会话');

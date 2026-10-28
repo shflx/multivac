@@ -27,9 +27,9 @@ export function mcpStateLabel(value: string): string {
     prepared: '等待许可', running: '正在调用', succeeded: '成功', failed: '失败', 'cancel-requested': '已请求取消', cancelled: '已取消', unknown: '结果未知',
     ready: '就绪', unconfigured: '未配置', 'login-required': '需要登录', 'refresh-required': '需要刷新', revoked: '已撤销' } as Record<string, string>)[value] ?? value;
 }
-/** 工作会话与全局对话中的 stdio 以用户身份运行；连接确认前须明确告知。 */
+/** 支持执行的会话中的 stdio 以用户身份运行；连接确认前须明确告知。 */
 export const MCP_LOCAL_PROCESS_NOTICE = '此服务将以你的身份在本机运行，可联网、可启动子进程；请只连接你信任的服务。';
-export const mcpRunsAsUser = (preview: { transport: { kind: string }; host: string }) => preview.transport.kind === 'stdio' && preview.host !== 'task';
+export const mcpRunsAsUser = (preview: { transport: { kind: string }; host: string }) => preview.transport.kind === 'stdio';
 export const MCP_EFFECTS = ['read', 'local-write', 'external-write', 'data-transfer'] as const;
 export const MCP_EFFECT_LABELS = { read: '读取', 'local-write': '本地写入', 'external-write': '外部写入', 'data-transfer': '数据外传' };
 /** 传输方式的展示名称：列表与预览中替代协议标识。 */
