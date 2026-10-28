@@ -87,6 +87,8 @@ const {chromium}=require(${JSON.stringify(playwrightModule)});
       if (app.tasks.detail(task.taskId).runs?.[0]?.stopConfirmed) break;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
+    // 停止确认先于异步成果归档；等待本轮完整收尾后再核对正式交付状态。
+    await app.taskExecution.idle();
     const detail = app.tasks.detail(task.taskId), run = detail.runs![0]!;
     const taskResults = model.takeToolResults().join('\n');
     assert.match(taskResults, /ERR_ASSERTION|Expected values/); assert.match(taskResults, /browser-http-proof/);
