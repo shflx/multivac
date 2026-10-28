@@ -1,3 +1,4 @@
+import { SqliteNoteSecurityRepository, NOTE_SECURITY_MIGRATION } from './sqlite-note-security-repository.js';
 import { CONTEXT_COMPACTION_MIGRATION, SqliteContextCompactionRepository } from './sqlite-context-compaction-repository.js';
 import { SqliteNoteSuggestionsRepository, NOTE_SUGGESTIONS_MIGRATION } from './sqlite-note-suggestions-repository.js';
 import { SqliteNoteAssistantRepository, NOTE_ASSISTANT_MIGRATION } from './sqlite-note-assistant-repository.js';
@@ -332,6 +333,7 @@ const MIGRATIONS = [
   CONTEXT_COMPACTION_MIGRATION,
   NOTIFICATION_CHANNEL_MIGRATION,
   WECHAT_BINDING_MIGRATION,
+  NOTE_SECURITY_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -411,6 +413,7 @@ export class SqliteAssistantStore {
   readonly wechatBindings: SqliteWechatBindingRepository;
   readonly artifacts: SqliteArtifactRepository;
   readonly reading: SqliteReadingRepository;
+  readonly noteSecurity: SqliteNoteSecurityRepository;
   readonly notes: SqliteNotesRepository;
   readonly noteAssistant: SqliteNoteAssistantRepository;
   readonly noteSuggestions: SqliteNoteSuggestionsRepository;
@@ -479,6 +482,7 @@ export class SqliteAssistantStore {
       this.reading = new SqliteReadingRepository(this.database);
       this.noteImages = new SqliteNoteImagesRepository(this.database);
       this.projectResources = new SqliteProjectResourceRepository(this.database);
+      this.noteSecurity = new SqliteNoteSecurityRepository(this.database);
       this.notes = new SqliteNotesRepository(this.database);
       this.noteAssistant = new SqliteNoteAssistantRepository(this.database);
       this.noteSuggestions = new SqliteNoteSuggestionsRepository(this.database);
