@@ -2,16 +2,60 @@
 .notification-channels-page > p { color: var(--muted); line-height: 1.6; }
 .notification-channel { display: grid; gap: 16px; margin-top: 16px; }
 .notification-channel .settings-row-control { flex-wrap: wrap; gap: 8px; }
-.notification-qr { display: block; margin: 16px auto; max-width: 100%; background: white; }
-.notification-note { margin: 14px 18px; color: var(--muted); font-size: var(--t-xs); line-height: 1.6; }
-.notification-code { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 16px 18px; }
-.notification-code label { display: grid; gap: 6px; }
+
+/* 卡片说明前的状态标签。 */
+.notification-status { display: inline-block; margin-right: 8px; padding: 1px 8px; border-radius: 999px; background: var(--surface-strong); color: var(--muted); font-size: var(--t-xs); font-weight: 500; }
+.notification-status[data-tone='success'] { background: var(--success-soft); color: var(--success); }
+.notification-status[data-tone='danger'] { background: var(--danger-soft); color: var(--danger); }
+/* 规则说明：气泡内左列主题、右列说明。 */
+.notification-rules { display: grid; gap: 6px; margin: 0; }
+.notification-rules > div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; }
+.notification-rules dt { color: var(--ink); font-weight: 500; }
+.notification-rules dd { margin: 0; color: var(--muted); }
+
+/* 设置步骤：左侧序号连线，当前步骤展开操作。 */
+.notification-steps { margin: 0; padding: 8px 18px 16px; list-style: none; }
+.notification-step { position: relative; display: flex; gap: 12px; padding-bottom: 18px; }
+.notification-step:last-child { padding-bottom: 0; }
+.notification-step:not(:last-child)::before { content: ''; position: absolute; top: 26px; bottom: 2px; left: 11px; width: 1px; background: var(--line); }
+.notification-step-mark { display: grid; flex: 0 0 24px; place-items: center; height: 24px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--surface); color: var(--muted); font-size: var(--t-xs); font-weight: 600; }
+.notification-step-mark svg { width: 13px; height: 13px; }
+.notification-step[data-state='current'] .notification-step-mark { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+.notification-step[data-state='done'] .notification-step-mark { border-color: var(--success-line); background: var(--success-soft); color: var(--success); }
+.notification-step-body { display: grid; flex: 1; gap: 6px; min-width: 0; padding-top: 2px; }
+.notification-step-body > strong { font-size: var(--t-sm); font-weight: 600; }
+.notification-step[data-state='todo'] .notification-step-body > strong { color: var(--faint); font-weight: 500; }
+.notification-step-body > small { color: var(--muted); font-size: var(--t-xs); line-height: 1.6; }
+.notification-step-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.notification-step code, .notification-record code { padding: 0 4px; border-radius: var(--r-sm); background: var(--surface-subtle); color: var(--ink); font-size: var(--t-xs); }
+
+.notification-qr { display: block; width: 200px; height: 200px; margin: 6px 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: white; }
+.notification-code { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-top: 4px; }
+.notification-code label { display: grid; gap: 6px; font-size: var(--t-xs); color: var(--muted); }
 .notification-code input { padding: 6px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-sm); font: inherit; }
+.notification-note { margin: 0 18px 16px; color: var(--muted); font-size: var(--t-xs); line-height: 1.6; }
+.notification-feedback { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 18px; border-top: 1px solid var(--line); font-size: var(--t-sm); }
+.notification-feedback p { margin: 0; }
+
+/* 投递状态：成功、进行中、需要关注三类颜色。 */
+.notification-test-state { font-size: var(--t-xs); color: var(--muted); }
+.notification-test-state[data-state='accepted'] { color: var(--success); }
+.notification-test-state[data-state='sending'], .notification-test-state[data-state='pending'] { color: var(--accent); }
+.notification-test-state[data-state='unknown'], .notification-test-state[data-state='waiting'] { color: var(--warn); }
+.notification-test-state[data-state='failed'] { color: var(--danger); }
+
+/* 投递记录：一行摘要，展开看编号等细节。 */
 .notification-records { padding: 0 18px; }
-.notification-record { padding: 16px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.notification-record strong { font-size: var(--t-sm); }
-.notification-record dl { display: grid; grid-template-columns: 110px minmax(0,1fr); gap: 6px 12px; font-size: var(--t-xs); line-height: 1.6; }
+.notification-empty { color: var(--muted); font-size: var(--t-sm); }
+.notification-record { border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.notification-record:last-child { border-bottom: 0; }
+.notification-record > summary { display: flex; align-items: center; gap: 10px; padding: 12px 0; font-size: var(--t-sm); cursor: pointer; list-style: none; }
+.notification-record > summary::-webkit-details-marker { display: none; }
+.notification-record > summary time { margin-left: auto; color: var(--muted); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
+.notification-record-kind { font-weight: 500; }
+.notification-record[open] { padding-bottom: 12px; }
+.notification-record dl { display: grid; grid-template-columns: 90px minmax(0,1fr); gap: 4px 12px; margin: 0; font-size: var(--t-xs); line-height: 1.6; }
 .notification-record dt { color: var(--muted); }
 .notification-record dd { margin: 0; }
-.notification-record p { color: var(--muted); font-size: var(--t-xs); }
-.notification-pagination { display: flex; justify-content: space-between; gap: 12px; padding: 16px 18px; }
+.notification-record p { margin: 0 0 8px; color: var(--muted); font-size: var(--t-xs); }
+.notification-pagination { display: flex; justify-content: space-between; gap: 12px; padding: 12px 18px 16px; }

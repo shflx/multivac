@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react';
+import { InfoTip } from './info-tip.js';
 
 interface SettingsCardProps {
   title?: string;
@@ -6,6 +7,8 @@ interface SettingsCardProps {
   description?: ReactNode;
   /** 共同规则等细节，收在“了解更多”里按需展开。 */
   details?: ReactNode;
+  /** 标题旁 ⓘ 气泡里的说明，不占正文空间；与 details 二选一。 */
+  info?: ReactNode;
   children: ReactNode;
 }
 
@@ -13,13 +16,13 @@ interface SettingsCardProps {
  * 设置卡片（按原型 SettingsCard）：白底描边卡片，可选标题与说明，里面一般是若干 SettingsRow。
  * 有标题时卡片以标题命名，读屏可按区域跳转。
  */
-export function SettingsCard({ title, description, details, children }: SettingsCardProps) {
+export function SettingsCard({ title, description, details, info, children }: SettingsCardProps) {
   const titleId = useId();
   return (
     <section className="settings-card" aria-labelledby={title ? titleId : undefined}>
       {(title || description) && (
         <header>
-          {title && <h2 id={titleId}>{title}</h2>}
+          {title && <div className="settings-card-title"><h2 id={titleId}>{title}</h2>{info && <InfoTip label={`${title}说明`}>{info}</InfoTip>}</div>}
           {description && <p>{description}</p>}
           {details && <SettingsMore>{details}</SettingsMore>}
         </header>
