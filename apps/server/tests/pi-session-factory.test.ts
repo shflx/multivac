@@ -70,7 +70,7 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     assert.match(defaultPrompt, /read、edit、write 在实际执行前核对真实路径/);
     assert.match(defaultPrompt, /超出这些范围的目标.*仍需用户授权，未获授权不会执行/);
     assert.match(defaultPrompt, /文件独立授权不自动授予 bash 执行目录许可/);
-    assert.match(defaultPrompt, /普通工作会话可用 bash 的可选 cwd/);
+    assert.match(defaultPrompt, /工作会话与共用后端的新任务可用 bash 的可选 cwd/);
     assert.match(defaultPrompt, /不改会话工作目录，不提供文件系统隔离/);
     assert.match(defaultPrompt, /全局 Multivac 仍只在原目录执行/);
     assert.match(defaultPrompt, /不要用 bash 绕开文件访问规则/);
@@ -132,7 +132,7 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
       toolBoundary: { cwd: root, projectDirectories: () => ['/must-not-grant'] } });
     const taskPrompt = isolated.getAppendSystemPrompt().join('\n');
     assert.match(taskPrompt, /后台隔离任务.*不支持 bash cwd 参数/);
-    assert.doesNotMatch(taskPrompt, /普通工作会话可用 bash 的可选 cwd/);
+    assert.doesNotMatch(taskPrompt, /工作会话与共用后端的新任务可用 bash 的可选 cwd/);
     const taskContext = await isolated.getExtensions().extensions[0]!.handlers.get('context')![0]!({ messages: [] }, {}) as typeof first;
     assert.match(taskContext.messages[0]!.content, /后台隔离任务仅使用任务独立目录/);
     assert.doesNotMatch(taskContext.messages[0]!.content, /must-not-grant/);

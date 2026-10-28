@@ -134,6 +134,7 @@ export class BashProcessService {
         this.save(id, { state: controller.signal.aborted ? 'exited' : failed || result.code !== 0 ? 'failed' : 'exited', endedAt: new Date().toISOString(), exitCode: result.code, port: null, reason: failed && !controller.signal.aborted ? failureReason : '受限任务 bash 已退出，派生进程由隔离策略禁止。' });
         exited(result.code); ready(); this.live.delete(id); closed(); return;
       }
+      validateBeforeStart?.();
       const marker = `bash-process:${id}`;
       const limits = control?.start(marker, Buffer.byteLength(input.command));
       if (control) live.settle = () => control.settle(marker);
