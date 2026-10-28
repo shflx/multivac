@@ -34,21 +34,28 @@ try{
     await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
   });
   const address=server.httpServer.address();await page.goto(`http://127.0.0.1:${address.port}/.tmp/notification-ui/index.html`);
-  const toggle=page.getByRole('switch',{name:'微信正式通知'});await toggle.waitFor();assert.equal(await toggle.isDisabled(),true);
+  // 设置完成前不出现正式通知开关；按步骤测试、确认后才出现。
+  const toggle=page.getByRole('switch',{name:'微信正式通知'});
+  const fixtureTest=page.getByRole('region',{name:'通知渠道 · fixture',exact:true}).getByRole('button',{name:'发送新编号测试'});
+  await fixtureTest.waitFor();assert.equal(await fixtureTest.isDisabled(),false);
+  await page.getByRole('button',{name:'发送新编号测试'}).first().waitFor();assert.equal(await toggle.count(),0);
   await page.getByRole('button',{name:'发送新编号测试'}).first().click();
-  await page.getByText('当前编号：multivac:unique-phone-test',{exact:true}).waitFor();
-  assert.equal(await toggle.isDisabled(),true);
+  await page.getByText('multivac:unique-phone-test',{exact:true}).first().waitFor();
+  assert.equal(await toggle.count(),0);
   await page.getByRole('button',{name:'确认手机已收到'}).first().click();await page.getByRole('dialog').waitFor();
   await page.getByRole('button',{name:'我已收到此编号',exact:true}).click();
-  await page.waitForFunction(()=>!document.querySelector('[aria-label="微信正式通知"]').disabled);
+  await toggle.waitFor();assert.equal(await toggle.isDisabled(),false);
   await toggle.click();await page.waitForFunction(()=>document.querySelector('[aria-label="微信正式通知"]').getAttribute('aria-checked')==='true');
-  assert.equal(await page.getByRole('heading',{name:'微信绑定',exact:true}).count(),1);
+  assert.equal(await page.getByRole('heading',{name:'微信通知',exact:true}).count(),1);
   assert.equal(await page.getByRole('heading',{name:'通知渠道 · fixture',exact:true}).count(),1);
   assert.deepEqual(mutations,['/wechat-self/test','/wechat-self/confirm-test','/wechat-self/enabled']);
   assert.deepEqual(errors,[]);
   await page.screenshot({path:'.tmp/notification-ui/desktop.png',fullPage:true});
   await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'微信通知说明'}).click();
+  const tip=page.getByRole('tooltip');await tip.waitFor();
+  const bounds=await tip.boundingBox();assert.ok(bounds && bounds.x>=0 && bounds.x+bounds.width<=390);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-  await page.screenshot({path:'.tmp/notification-ui/mobile.png',fullPage:true});
+  await page.screenshot({path:'.tmp/notification-ui/mobile.png',fullPage:true,animations:'disabled'});
   console.log('PASS: 真实浏览器组件验证测试→本人确认→启用门禁、通用第二渠道、桌面/窄屏，无微信API或手机实收验证。');
 }finally{await browser?.close();await server.close();}
