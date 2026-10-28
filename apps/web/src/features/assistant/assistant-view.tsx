@@ -735,7 +735,7 @@ function AssistantSessionView({
                 </div>
               )}
 
-              {!isCoordinator && <SessionTaskLink sessionId={session.sessionId} />}
+              {taskId && <SessionTaskLink sessionId={session.sessionId} />}
               {displayMessages.length === 0 && session.toolExecutions.length === 0 && session.runTraces.length === 0 &&
                 session.authorizations.length === 0 && !proposals.some((proposal) => proposal.status === 'pending') ? (
                 <div className="empty-state">

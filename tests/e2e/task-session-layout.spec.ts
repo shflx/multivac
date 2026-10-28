@@ -60,6 +60,7 @@ test('查看和切换任务不改工作区现场，刷新后返回与快速跳�
   await expect(taskView(page).getByRole('heading', { name: task.title, exact: true })).toBeVisible();
   await expect(workTitles(page)).toHaveCount(0);
   await expect(taskView(page).getByText('任务会话', { exact: true })).toBeVisible();
+  await expect(taskView(page).getByText('关联任务：')).toBeVisible();
   await taskView(page).getByRole('button', { name: '查看文件', exact: true }).click();
   await expect(taskView(page).locator('.conversation-original')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('task-view.png') });

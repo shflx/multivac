@@ -14,6 +14,8 @@ const snapshot: SessionContextResponse = { state: { sessionId: 'global-coordinat
 test.beforeEach(async ({ request }) => { await resetE2eState(request); });
 
 test('Fake 执行器下 HTTP 查询不初始化工作会话，双宿主显示不可用并拒绝主动压缩', async ({ page, request }) => {
+  const taskLookups: string[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/task-session/')) taskLookups.push(request.url()); });
   const id = crypto.randomUUID();
   expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId: id, title: '上下文验收' } })).ok()).toBe(true);
   const base = `${fakeApiRoot}/api/sessions/${id}`;
@@ -38,6 +40,7 @@ test('Fake 执行器下 HTTP 查询不初始化工作会话，双宿主显示不
   await panel.getByLabel('会话上下文', { exact: true }).click();
   await expect(panel.getByRole('button', { name: '压缩较早上下文' })).toBeDisabled();
   await expect(panel.locator('.context-panel-content')).toContainText('主动压缩不可用');
+  expect(taskLookups).toEqual([]);
   const noteId = crypto.randomUUID();
   expect((await request.post(`${fakeApiRoot}/api/notes`, { data: { id: noteId, commandId: crypto.randomUUID(), title: '排除宿主', body: '受控正文' } })).ok()).toBe(true);
   const companion = await (await request.post(`${fakeApiRoot}/api/notes/${noteId}/companion`)).json();
