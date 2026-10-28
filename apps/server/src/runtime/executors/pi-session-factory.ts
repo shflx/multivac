@@ -1,3 +1,5 @@
+import { compactPiContext } from './pi-context-compaction.js';
+import type { ContextCompactionOperation } from '@multivac/contracts';
 import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
 import type { PiSkills } from './pi-skills.js';
 import {
@@ -95,6 +97,7 @@ export interface PiCoordinatorAgentSession {
   readonly thinkingLevel: CoordinatorThinkingLevel;
   readonly isStreaming: boolean;
   readonly isIdle?: boolean;
+  compactContext?(operation: ContextCompactionOperation): Promise<ContextCompactionOperation>;
   getActiveBranch(): SessionEntry[];
   getContextUsage?(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
   prompt(text: string, options?: { images?: { type: 'image'; mimeType: string; data: string }[] }): Promise<void>;
@@ -756,6 +759,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         taskToolsStopped: () => lifecycle ? lifecycle.stopped : taskTools?.processesStopped ?? false,
         getActiveBranch: () => result.session.sessionManager.getBranch(),
         getContextUsage: () => result.session.getContextUsage(),
+        compactContext: operation => compactPiContext(result.session, operation),
         prompt: (text, options) => result.session.prompt(text, options),
         steer: (text, images) => result.session.steer(text, images),
         followUp: (text, images) => result.session.followUp(text, images),
