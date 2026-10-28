@@ -1,3 +1,5 @@
+import { createNoteSecurityRequestHandler } from '../adapters/http/note-security-routes.js';
+import type { NoteSecurityService } from '../application/note-security-service.js';
 import { createTerminalRoutes, attachTerminalWebSockets } from '../adapters/http/terminal-routes.js';
 import type { TerminalService } from '../application/terminal-service.js';
 import type { SessionContextManagementService } from '../application/session-context-management-service.js';
@@ -113,6 +115,7 @@ export interface MultivacHttpServerOptions {
   mcpResources?: import('../application/mcp-resource-service.js').McpResourceService;
   reading?: ReadingService;
   usage?: UsageStatisticsService;
+  noteSecurity?: NoteSecurityService;
   notes?: NotesService;
   noteAssistant?: NoteAssistantService;
   noteSuggestions?: NoteSuggestionsService;
@@ -174,6 +177,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
   const noteImageRoutes = options.noteImages ? createNoteImagesRequestHandler(options.noteImages) : undefined;
+  const noteSecurityRoutes = options.noteSecurity ? createNoteSecurityRequestHandler(options.noteSecurity) : undefined;
   const notesRoutes = options.notes ? createNotesRequestHandler(options.notes) : undefined;
   const mcpRoutes = options.mcpManagement ? createMcpRequestHandler(options.mcpManagement, options.mcpResources) : undefined;
   const skillRoutes = options.skills ? createSkillRequestHandler(options.skills) : undefined;
@@ -243,7 +247,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (remote) { accessError(response, 403, 'ACCESS_DENIED', '远程入口只接受同源请求。'); return; }
       response.writeHead(204, {
         'access-control-allow-methods': 'GET, POST, PUT, PATCH, OPTIONS',
-        'access-control-allow-headers': `content-type, last-event-id, if-match, ${WINDOW_ID_HEADER}`,
+        'access-control-allow-headers': `content-type, last-event-id, if-match, ${WINDOW_ID_HEADER}, x-note-access, x-note-window`,
         'access-control-max-age': '600',
       });
       response.end();
@@ -269,6 +273,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (skillRoutes && await skillRoutes(request, response)) return;
       if (mcpRoutes && await mcpRoutes(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
+      if (noteSecurityRoutes && await noteSecurityRoutes(request, response)) return;
       if (noteImageRoutes && await noteImageRoutes(request, response)) return;
       if (notesRoutes && await notesRoutes(request, response)) return;
       if (noteAssistantRoutes && await noteAssistantRoutes(request, response)) return;

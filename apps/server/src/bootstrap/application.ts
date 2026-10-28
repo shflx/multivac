@@ -1,3 +1,4 @@
+import { NoteSecurityService } from '../application/note-security-service.js';
 import { projectFileScope } from '../application/project-file-scope.js';
 import { sessionBashExecution } from '../application/session-bash-execution.js';
 import { TerminalService } from '../application/terminal-service.js';
@@ -221,6 +222,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ? new DirectoryTrash(trashDirectory)
     : systemTrash({ platform: process.platform, homeDir: homedir(), xdgDataHome: environment.XDG_DATA_HOME });
   const store = new SqliteAssistantStore(paths.databasePath);
+  const noteSecurity = new NoteSecurityService(store.noteSecurity);
   const eventStream = new AssistantEventStream();
   const preferencesService = new PreferencesService(store.preferences);
   const executionDiagnostics = new ExecutionDiagnostics(join(paths.dataDir, 'diagnostics'), sessionId => {
@@ -1145,6 +1147,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     webRoot: fileURLToPath(new URL('../../../web/dist/', import.meta.url)),
     reading: readingService,
     notes: notesService,
+    noteSecurity,
     noteImages,
     noteAssistant,
     noteSuggestions,
@@ -1221,6 +1224,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         taskExecution.dispose(); taskScheduler.dispose();
         coordinator.dispose(); sessionRuntimes.releaseAll();
         eventStream.clear(); workbenchEvents.clear(); adapter.dispose();
+        noteSecurity.close();
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
