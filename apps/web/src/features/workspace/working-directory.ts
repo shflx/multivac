@@ -6,7 +6,7 @@ import type { WorkingDirectoryKind } from '@multivac/contracts';
  * 规则只描述已经生效的行为：目录内的读写与命令自动执行；目录外的文件访问需要确认；
  * 临时目录归档后按偏好保留、到期移到废纸篓，其他类型的目录永不自动清理。
  * 保留天数随偏好变化，这里只写默认值与去处（“设置 · 偏好”），不写死当前设置。
- * worktree 为预留类型，目前不会出现。
+ * 目录类型用于组织位置；存量运行的执行方式须以其 Run 记录核对。
  */
 export const WORKING_DIRECTORY_KINDS: Record<WorkingDirectoryKind, { label: string; rule: string }> = {
   'session-temp': {
@@ -16,8 +16,8 @@ export const WORKING_DIRECTORY_KINDS: Record<WorkingDirectoryKind, { label: stri
   multivac: { label: 'Multivac 工作目录', rule: '全局 Multivac 长期使用，不会自动清理，目录内的读写与命令自动执行。' },
   'project-managed': { label: '项目托管目录', rule: '由 Multivac 托管，长期保留、不会自动清理，目录内的读写与命令自动执行。' },
   'project-mounted': { label: '挂载目录', rule: '你已有的目录，Multivac 不会清理它，目录内的读写与命令自动执行。' },
-  worktree: { label: 'worktree', rule: '任务独占 worktree。原生受限工具执行；目录外访问、网络和创建子进程会被拒绝。' },
-  'task-isolated': { label: '任务独立目录', rule: '原生受限工具执行；目录外访问、网络和创建子进程会被拒绝。' },
+  worktree: { label: 'worktree', rule: '任务默认独占 worktree，保护用户原工作树；新运行使用工作会话共用执行规则，目录不构成 shell 沙箱。' },
+  'task-isolated': { label: '任务独立目录', rule: '任务默认独立目录；新运行使用工作会话共用执行规则，保留预算与暂停取消，目录不构成 shell 沙箱。' },
 };
 
 /** 目录外的规则：与目录边界的判定一致，只有读取、修改、写入文件由程序拦截并请你确认。 */
@@ -25,7 +25,6 @@ export const OUTSIDE_WORKING_DIRECTORY_RULE = '读取、修改或写入目录外
 
 /** 一类目录的完整规则：目录内怎么执行、会不会被清理，目录外需要确认。 */
 export function workingDirectoryRule(kind: WorkingDirectoryKind): string {
-  if (kind === 'task-isolated' || kind === 'worktree') return WORKING_DIRECTORY_KINDS[kind].rule;
   return `${WORKING_DIRECTORY_KINDS[kind].rule}${OUTSIDE_WORKING_DIRECTORY_RULE}`;
 }
 
