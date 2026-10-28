@@ -1,4 +1,5 @@
-import { readPiContext, PI_COMPACTION_UNAVAILABLE } from './pi-context-snapshot.js';
+import { reconcilePiCompaction, unknownCompaction } from './pi-context-compaction.js';
+import { readPiContext } from './pi-context-snapshot.js';
 import type { CoordinatorContextManagementPort } from '../../modules/sessions/coordinator-adapter.js';
 import { createPiSkills, type PiSkills } from './pi-skills.js';
 import type { SkillSource } from '../../modules/skills/skill-source.js';
@@ -8,6 +9,7 @@ import { isAbsolute } from 'node:path';
 import { COORDINATOR_THINKING_LEVELS, assistantErrorMessage } from '@multivac/contracts';
 import { ModelSettingsServiceError } from '../../modules/model-settings/model-settings.js';
 import type {
+  ContextCompactionOperation,
   CoordinatorActionAccepted,
   CoordinatorAdapterEvent,
   CoordinatorDiagnostic,
@@ -174,8 +176,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   readonly harness = PI_HARNESS;
   readonly capabilities = {
     turnExecution: true, imageInput: true, steering: true, toolStopProof: true, skills: true,
-    // 查询只读；原生压缩写盘失败的一致性尚未通过，因此保留执行门禁。
-    contextSnapshot: true, nativeCompaction: false,
+    // 仅经持久证据核对及内存恢复的原生链路对应用开放。
+    contextSnapshot: true, nativeCompaction: true,
   } as const;
   private taskMode: ((sessionId: string) => 'workspace' | 'native-isolated' | null) | undefined;
   readonly contextManagement: CoordinatorContextManagementPort = {
@@ -185,14 +187,46 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       try { return ok(readPiContext(sessionId, active.session, active.modelConfig, this.now())); }
       catch { return failure({ code: 'SESSION_OPEN_FAILED', message: '上下文统计暂不可读取。' }); }
     },
-    compactContext: async () => failure({ code: 'INVALID_CONFIGURATION', message: PI_COMPACTION_UNAVAILABLE }),
-    reconcileCompaction: ({ operation }) => ok({ ...operation, status: 'reconciliation-required', commitState: 'unknown',
-      error: { code: 'COMPACTION_RECONCILIATION_REQUIRED', message: '无法证明原操作的提交及停止状态，保持待核对；不会自动重发。' } }),
+    compactContext: async input => {
+      const active = this.sessions.get(input.sessionId);
+      if (!active?.session.compactContext) return this.sessionNotActive();
+      const state = readPiContext(input.sessionId, active.session, active.modelConfig, this.now());
+      const selection = this.readModelSelection(input.sessionId);
+      const now = this.now();
+      const intent: ContextCompactionOperation = { operationId: input.operationId, sessionId: input.sessionId,
+        model: input.expectedModel, status: 'running', commitState: 'unknown', runtimeCommitRef: null,
+        startedAt: now, updatedAt: now, finishedAt: null, before: state.current, after: null, error: null };
+      if (this.compacting.has(input.sessionId) || this.quarantined.has(input.sessionId) || active.turnBaseSelection ||
+        !state.compaction.available || state.revision !== input.expectedRevision ||
+        JSON.stringify(state.compaction.model) !== JSON.stringify(input.expectedModel) || !selection.ok || !selection.value.durable) {
+        return ok({ ...intent, status: 'unavailable', commitState: 'not-committed', finishedAt: now,
+          error: { code: 'COMPACTION_UNAVAILABLE', message: '压缩前会话状态或持久模型已变化，未调用原生压缩。' } });
+      }
+      this.compacting.add(input.sessionId);
+      try {
+        const operation = await active.session.compactContext(intent);
+        if (operation.commitState === 'unknown') this.quarantined.add(input.sessionId);
+        return ok({ ...operation, after: operation.commitState === 'unknown' ? null
+          : readPiContext(input.sessionId, active.session, active.modelConfig, this.now()).current });
+      } catch {
+        this.quarantined.add(input.sessionId);
+        return failure({ code: 'RUNTIME_OPERATION_FAILED', message: '原生压缩结果待核对。' });
+      } finally { this.compacting.delete(input.sessionId); }
+    },
+    reconcileCompaction: ({ identity, operation }) => {
+      if (this.compacting.has(operation.sessionId) || this.quarantined.has(operation.sessionId)) return ok(unknownCompaction(operation));
+      const active = this.sessions.get(operation.sessionId);
+      if (active && (active.session.sessionId !== identity.runtimeSessionId || active.session.sessionFile !== identity.runtimeSessionRef || active.session.isIdle !== true)) return ok(unknownCompaction(operation));
+      return ok(reconcilePiCompaction(identity, operation));
+    },
   };
   private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
   private readonly bashProcesses: BashExecutionPort | undefined;
   private readonly taskProtectedPaths: readonly string[];
   private readonly sessions = new Map<string, ActivePiSession>();
+  private readonly compacting = new Set<string>();
+  /** 写盘或恢复无法证明完成时，不允许查询释放此进程内的受污染运行时。 */
+  private readonly quarantined = new Set<string>();
   private readonly persistedSelections = new Map<string, { key: string; value: CoordinatorModelState | null }>();
   private readonly agentDir: string;
   private readonly modelsPath: string | null;

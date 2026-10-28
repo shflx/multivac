@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ContextCoverage, ContextModelIdentity, ContextSnapshot, CoordinatorModelConfig, SessionContextState } from '@multivac/contracts';
 import type { PiCoordinatorAgentSession } from './pi-session-factory.js';
 
-export const PI_COMPACTION_UNAVAILABLE = '原生压缩的写盘失败一致性及持久恢复尚未验证通过，主动压缩暂不可用。';
+export const PI_COMPACTION_UNAVAILABLE = '当前运行时不支持可靠的原生压缩，或尚未空闲／模型身份无法核对。';
 
 /** 不把消息字符估算解释为完整请求计数，也不宣称提供方已计入所有提示及附件。 */
 const coverage: ContextCoverage = {
@@ -72,5 +72,7 @@ export function readPiContext(sessionId: string, session: PiCoordinatorAgentSess
       basis: 'pi-0.85.1:latest-usage-including-output+heuristic-tail', unavailableReason: null };
   }
   return { sessionId, revision, current, lastRequest,
-    compaction: { available: false, model: identity(config), reason: PI_COMPACTION_UNAVAILABLE } };
+    compaction: session.compactContext && !busy && matchesConfig
+      ? { available: true, model: identity(config), reason: null }
+      : { available: false, model: identity(config), reason: PI_COMPACTION_UNAVAILABLE } };
 }

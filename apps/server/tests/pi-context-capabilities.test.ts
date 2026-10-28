@@ -1,3 +1,8 @@
+import { AssistantOperationLock } from '../src/application/assistant-operation-lock.js';
+import { SessionContextManagementService } from '../src/application/session-context-management-service.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+import { reconcilePiCompaction } from '../src/runtime/executors/pi-context-compaction.js';
+import type { ContextCompactionOperation } from '@multivac/contracts';
 import { readPiContext } from '../src/runtime/executors/pi-context-snapshot.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
@@ -6,7 +11,7 @@ import test, { after } from 'node:test';
 import { createHash } from 'node:crypto';
 import { createAgentSession, ModelRuntime, SessionManager } from '@earendil-works/pi-coding-agent';
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
-import { DefaultPiCoordinatorSessionFactory } from '../src/runtime/executors/pi-session-factory.js';
+import { DefaultPiCoordinatorSessionFactory, type PiCoordinatorSessionResources } from '../src/runtime/executors/pi-session-factory.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import { mapPiActiveBranch } from '../src/runtime/executors/pi-message-history.js';
 import { completedItems, controlledFetch, responsesSDK, terminal } from './fixtures/responses-stream.js';
@@ -242,11 +247,11 @@ test('Pi 真实请求携带系统、工具、工具结果、资料和图片；�
   } finally { await f.close(); }
 });
 
-test('Pi 应用能力在失败一致性未就绪时保持关闭', async () => {
+test('Pi 应用能力声明原生压缩，但未打开运行时仍拒绝执行', async () => {
   const f = await fixture();
   const adapter = new PiCoordinatorAdapter({ agentDir: join(f.root, 'agent'), sessionDir: f.sessionDir });
   try {
-    assert.equal(adapter.capabilities.nativeCompaction, false);
+    assert.equal(adapter.capabilities.nativeCompaction, true);
     assert.equal(adapter.capabilities.contextSnapshot, true);
     assert.equal(adapter.contextManagement.readContext('not-opened').ok, false);
     assert.equal((await adapter.contextManagement.compactContext({ operationId: 'blocked', sessionId: 'not-opened', expectedRevision: 'none', expectedModel: { provider: 'openai', modelId: 'controlled', source: 'base', profileId: null, protocol: null } })).ok, false);
@@ -269,7 +274,7 @@ test('应用快照：空消息不伪装零，缓存输入完整计入，查询�
     assert.equal(state.lastRequest?.contextWindow, null, '缺少请求时窗口记录，不套当前模型目录');
     assert.equal(state.lastRequest?.model?.source, null, '历史消息没有 profile 来源，不冒充当前选择');
     assert.equal(f.requests, 0);
-    assert.equal(state.compaction.available, false);
+    assert.equal(state.compaction.available, true);
   } finally { await f.close(); }
 });
 
@@ -316,4 +321,259 @@ test('应用快照：后续回复缺失输入统计或同名模型被重新配�
       assert.equal(state.lastRequest?.stale, true);
     } finally { await f.close(); }
   }
+});
+
+
+// 把已创建的真实 SDK 会话交给适配器，避免为应用层联合测试另建第二份运行时。
+function fixedResources(resources: PiCoordinatorSessionResources) {
+  return { create: async () => resources, open: async () => resources, continue: async () => resources };
+}
+
+function operation(f: Awaited<ReturnType<typeof fixture>>, id = 'native-operation'): ContextCompactionOperation {
+  const state = readPiContext('controlled', f.resources.session, f.config.model, new Date().toISOString());
+  return { operationId: id, sessionId: 'controlled', model: state.compaction.model, status: 'running',
+    commitState: 'unknown', runtimeCommitRef: null, startedAt: state.current.observedAt, updatedAt: state.current.observedAt,
+    finishedAt: null, before: state.current, after: null, error: null };
+}
+const identity = (f: Awaited<ReturnType<typeof fixture>>) => ({ harness: 'pi', runtimeSessionId: f.actual.sessionId, runtimeSessionRef: f.sessionFile });
+
+test('可靠原生链路：成功有唯一提交证据，原记录可只读恢复，历史及后续对话保留', async () => {
+  const f = await fixture();
+  try {
+    f.seed();
+    const before = mapPiActiveBranch(f.actual.sessionId, f.actual.sessionManager.getBranch());
+    const op = operation(f);
+    const result = await f.resources.session.compactContext!(op);
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.commitState, 'committed');
+    assert.ok(result.runtimeCommitRef);
+    assert.deepEqual(mapPiActiveBranch(f.actual.sessionId, f.actual.sessionManager.getBranch()), before);
+    const requests = f.requests;
+    const proof = reconcilePiCompaction(identity(f), op);
+    assert.equal(proof.status, 'succeeded', '模拟提交成功但应用应答丢失');
+    assert.equal(proof.runtimeCommitRef, result.runtimeCommitRef);
+    assert.equal(f.requests, requests, '核对不发起新请求');
+    f.actual.dispose(); await f.reopen();
+    assert.equal(reconcilePiCompaction(identity(f), op).status, 'succeeded');
+    const summary = f.actual.sessionManager.getBranch().find(entry => entry.type === 'compaction');
+    assert.ok(summary?.type === 'compaction');
+    await f.actual.prompt('恢复压缩后继续');
+    assert.ok(JSON.stringify(f.contexts.at(-1)!.messages).includes(summary.summary));
+    assert.equal(reconcilePiCompaction(identity(f), op).status, 'succeeded', '后续对话不改变原提交证明');
+    assert.ok(mapPiActiveBranch(f.actual.sessionId, f.actual.sessionManager.getBranch()).length > before.length);
+  } finally { await f.close(); }
+});
+
+test('可靠原生链路：失败、取消及无内容均核对磁盘并恢复原消息', async () => {
+  for (const scenario of ['failure', 'cancel', 'empty'] as const) {
+    const f = await fixture();
+    try {
+      if (scenario !== 'empty') f.seed();
+      const before = await readFile(f.sessionFile, 'utf8');
+      const messages = structuredClone(f.actual.messages);
+      if (scenario !== 'empty') f.setMode(scenario);
+      const started = f.waitForRequest();
+      const op = operation(f);
+      const pending = f.resources.session.compactContext!(op);
+      if (scenario === 'cancel') { await started; f.actual.abortCompaction(); }
+      const result = await pending;
+      assert.equal(result.status, scenario === 'failure' ? 'failed' : scenario === 'cancel' ? 'cancelled' : 'no-content');
+      assert.equal(result.commitState, 'not-committed');
+      assert.equal(await readFile(f.sessionFile, 'utf8'), before);
+      assert.deepEqual(f.actual.messages, messages);
+      if (scenario === 'empty') assert.equal(f.requests, 0);
+      assert.equal(reconcilePiCompaction(identity(f), op).status, result.status, '取消与无内容的回执可恢复');
+      f.setMode('success');
+      await f.actual.prompt('操作终结后继续');
+      assert.equal(reconcilePiCompaction(identity(f), op).status, result.status, '后续追加不改变原终态');
+      f.seed();
+      assert.equal((await f.resources.session.compactContext!(operation(f, 'later-operation'))).status, 'succeeded');
+      assert.equal(reconcilePiCompaction(identity(f), op).status, result.status, '后来另一次压缩不冒充原失败或取消操作的提交');
+    } finally { await f.close(); }
+  }
+});
+
+test('可靠原生链路：真实写盘拒绝后恢复磁盘，丢弃 SDK 已污染的内存分支', async () => {
+  const f = await fixture();
+  try {
+    f.seed();
+    const before = await readFile(f.sessionFile, 'utf8');
+    const messages = structuredClone(f.actual.messages);
+    const { renameSync, mkdirSync, rmSync } = await import('node:fs');
+    const manager = f.actual.sessionManager;
+    const append = manager.appendCompaction.bind(manager);
+    manager.appendCompaction = (...args) => {
+      const backup = f.sessionFile + '.saved';
+      renameSync(f.sessionFile, backup); mkdirSync(f.sessionFile);
+      try { return append(...args); }
+      finally { rmSync(f.sessionFile, { recursive: true }); renameSync(backup, f.sessionFile); }
+    };
+    const result = await f.resources.session.compactContext!(operation(f));
+    assert.equal(result.status, 'failed');
+    assert.equal(result.commitState, 'not-committed');
+    assert.equal(manager.getBranch().filter(entry => entry.type === 'compaction').length, 0);
+    assert.deepEqual(f.actual.messages, messages);
+    assert.equal(await readFile(f.sessionFile, 'utf8'), before);
+    manager.appendCompaction = append;
+    await f.actual.prompt('失败恢复后继续');
+    assert.ok(f.actual.messages.length > messages.length);
+  } finally { await f.close(); }
+});
+
+test('可靠原生链路：已落盘后抛错按原生提交判定成功，截断追加保持待核对', async () => {
+  for (const fault of ['after-commit', 'partial'] as const) {
+    const f = await fixture();
+    try {
+      f.seed();
+      const { appendFileSync } = await import('node:fs');
+      const manager = f.actual.sessionManager;
+      const append = manager.appendCompaction.bind(manager);
+      manager.appendCompaction = (...args) => {
+        if (fault === 'after-commit') append(...args);
+        else appendFileSync(f.sessionFile, '{"type":"compaction","id":');
+        throw new Error('controlled persistence boundary');
+      };
+      const op = operation(f);
+      const result = await f.resources.session.compactContext!(op);
+      assert.equal(result.status, fault === 'after-commit' ? 'succeeded' : 'reconciliation-required');
+      assert.equal(reconcilePiCompaction(identity(f), op).status, result.status);
+      if (fault === 'after-commit') assert.ok(f.actual.messages.some(message => message.role === 'compactionSummary'));
+      assert.doesNotMatch(JSON.stringify(result), /controlled persistence boundary/);
+    } finally { await f.close(); }
+  }
+});
+
+test('原操作核对拒绝身份、模型及前缀变更，不补写历史', async () => {
+  const f = await fixture();
+  try {
+    f.seed();
+    const op = operation(f);
+    assert.equal((await f.resources.session.compactContext!(op)).status, 'succeeded');
+    const file = await readFile(f.sessionFile, 'utf8');
+    assert.equal(reconcilePiCompaction({ ...identity(f), runtimeSessionId: 'wrong' }, op).status, 'reconciliation-required');
+    assert.equal(reconcilePiCompaction(identity(f), { ...op, model: { ...op.model!, profileId: 'wrong' } }).status, 'reconciliation-required');
+    await writeFile(f.sessionFile, file.replace('受控早期消息', '改写早期消息'));
+    assert.equal(reconcilePiCompaction(identity(f), op).status, 'reconciliation-required');
+    assert.equal(await readFile(f.sessionFile, 'utf8'), file.replace('受控早期消息', '改写早期消息'));
+  } finally { await f.close(); }
+});
+
+
+test('两宿主原生联合链路：SQLite 意图、实际持久模型、应答丢失、只读核对及下次压缩', async () => {
+  for (const sessionId of ['work-context', 'global-coordinator']) {
+    const f = await fixture();
+    const database = join(f.root, 'context.sqlite');
+    let store = new SqliteAssistantStore(database);
+    let adapter = new PiCoordinatorAdapter({ agentDir: join(f.root, 'agent'), modelsPath: null,
+      sessionDir: f.sessionDir, sessionFactory: fixedResources(f.resources) });
+    try {
+      f.seed();
+      const ready = await adapter.createSession({ assistantSessionId: sessionId, config: f.config,
+        workingDirectory: { kind: 'session-temp', path: f.cwd } });
+      assert.ok(ready.ok);
+      store.bindings.insertIfAbsent(ready.value.binding);
+      const options = { sessionId, adapter, bindings: store.bindings, repository: store.contextCompactions,
+        lock: new AssistantOperationLock(), supported: () => true, isRunning: () => false, onChanged: () => {} };
+      // 模拟原生提交完成，但应用结果事务没有保存。证据仍由真实 SDK 与文件系统产生。
+      const interrupted = new SessionContextManagementService({ ...options, repository: {
+        ...options.repository,
+        get: (...args) => options.repository.get(...args), latest: id => options.repository.latest(id), pending: id => options.repository.pending(id),
+        insert: record => options.repository.insert(record), finish: () => { throw new Error('controlled lost result'); },
+      } });
+      const before = interrupted.get().state;
+      assert.equal(before.compaction.available, true);
+      const result = await interrupted.compact({ sessionId, operationId: 'lost-response', revision: before.revision });
+      assert.equal(result.status, 'reconciliation-required');
+      const requests = f.requests;
+      const original = store.contextCompactions.get(sessionId, 'lost-response')!;
+      assert.equal(original.operation.status, 'running');
+      adapter.dispose(); store.close();
+      store = new SqliteAssistantStore(database);
+      const reopened = await f.reopen();
+      adapter = new PiCoordinatorAdapter({ agentDir: join(f.root, 'agent'), modelsPath: null, sessionDir: f.sessionDir,
+        sessionFactory: fixedResources(reopened) });
+      const recovered = new SessionContextManagementService({ ...options, adapter, repository: store.contextCompactions, bindings: store.bindings });
+      assert.equal(recovered.get().operation?.status, 'succeeded');
+      assert.equal(recovered.blocksExecution(), false, '可靠核对后解除占用');
+      assert.deepEqual(store.contextCompactions.get(sessionId, 'lost-response'), original, 'GET 不写账本');
+      assert.equal(f.requests, requests, '恢复查询不重发原请求');
+      assert.equal(adapter.contextManagement.readContext(sessionId).ok, false, '对账不初始化运行时');
+      assert.ok((await adapter.continueSession({ binding: ready.value.binding, config: f.config,
+        workingDirectory: { kind: 'session-temp', path: f.cwd } })).ok);
+      await f.actual.prompt('核对后继续对话');
+      assert.equal(recovered.getOperation('lost-response')?.status, 'succeeded');
+      f.seed();
+      const state = recovered.get().state;
+      const next = await recovered.compact({ sessionId, operationId: 'next-operation', revision: state.revision });
+      assert.equal(next.status, 'succeeded', '新命令在锁内保存原核对结果，释放 SQLite 唯一约束');
+      assert.equal(store.contextCompactions.get(sessionId, 'lost-response')?.operation.status, 'succeeded');
+      const repeated = await recovered.compact({ sessionId, operationId: 'lost-response', revision: before.revision });
+      assert.equal(repeated.status, 'succeeded');
+      assert.equal(f.actual.sessionManager.getBranch().filter(entry => entry.type === 'compaction').length, 2);
+    } finally { adapter.dispose(); store.close(); await f.close(); }
+  }
+});
+
+test('写盘状态未知隔离当前运行时，文件恢复后需重启核对，不因只读查询解禁受污染内存', async () => {
+  const f = await fixture();
+  const adapter = new PiCoordinatorAdapter({ agentDir: join(f.root, 'agent'), modelsPath: null,
+    sessionDir: f.sessionDir, sessionFactory: fixedResources(f.resources) });
+  try {
+    f.seed();
+    assert.ok((await adapter.createSession({ assistantSessionId: 'controlled', config: f.config,
+      workingDirectory: { kind: 'session-temp', path: f.cwd } })).ok);
+    const state = adapter.contextManagement.readContext('controlled');
+    assert.ok(state.ok);
+    const op = operation(f);
+    const { renameSync, mkdirSync } = await import('node:fs');
+    const append = f.actual.sessionManager.appendCompaction.bind(f.actual.sessionManager);
+    f.actual.sessionManager.appendCompaction = (...args) => {
+      renameSync(f.sessionFile, f.sessionFile + '.saved'); mkdirSync(f.sessionFile);
+      return append(...args);
+    };
+    const result = await adapter.contextManagement.compactContext({ sessionId: 'controlled', operationId: op.operationId,
+      expectedRevision: state.value.revision, expectedModel: state.value.compaction.model! });
+    assert.ok(result.ok);
+    assert.equal(result.value.status, 'reconciliation-required');
+    await rm(f.sessionFile, { recursive: true }); await rename(f.sessionFile + '.saved', f.sessionFile);
+    assert.equal(adapter.contextManagement.reconcileCompaction({ identity: identity(f), operation: result.value }).ok, true);
+    const sameProcess = adapter.contextManagement.reconcileCompaction({ identity: identity(f), operation: result.value });
+    assert.ok(sameProcess.ok);
+    assert.equal(sameProcess.value.status, 'reconciliation-required');
+    const restarted = new PiCoordinatorAdapter({ agentDir: join(f.root, 'agent'), modelsPath: null, sessionDir: f.sessionDir });
+    try {
+      const restored = restarted.contextManagement.reconcileCompaction({ identity: identity(f), operation: result.value });
+      assert.ok(restored.ok);
+      assert.equal(restored.value.status, 'failed');
+      assert.equal(restored.value.commitState, 'not-committed');
+    } finally { restarted.dispose(); }
+  } finally { adapter.dispose(); await f.close(); }
+});
+
+
+test('原生证据无法保存时不调用模型，前置拒绝准确标为未提交', async () => {
+  const f = await fixture();
+  const adapter = new PiCoordinatorAdapter({ agentDir: join(f.root, 'agent'), modelsPath: null,
+    sessionDir: f.sessionDir, sessionFactory: fixedResources(f.resources) });
+  try {
+    f.seed();
+    const op = operation(f);
+    await mkdir(`${f.sessionFile}.compact-${digest(op.operationId)}.json`);
+    const before = await readFile(f.sessionFile, 'utf8');
+    const rejected = await f.resources.session.compactContext!(op);
+    assert.equal(rejected.status, 'unavailable');
+    assert.equal(rejected.commitState, 'not-committed');
+    assert.equal(f.requests, 0);
+    assert.equal(await readFile(f.sessionFile, 'utf8'), before);
+    assert.ok((await adapter.createSession({ assistantSessionId: 'controlled', config: f.config,
+      workingDirectory: { kind: 'session-temp', path: f.cwd } })).ok);
+    const state = adapter.contextManagement.readContext('controlled');
+    assert.ok(state.ok);
+    const stale = await adapter.contextManagement.compactContext({ operationId: 'stale', sessionId: 'controlled',
+      expectedRevision: 'outdated', expectedModel: state.value.compaction.model! });
+    assert.ok(stale.ok);
+    assert.equal(stale.value.status, 'unavailable');
+    assert.equal(stale.value.commitState, 'not-committed');
+    assert.equal(f.requests, 0);
+  } finally { adapter.dispose(); await f.close(); }
 });

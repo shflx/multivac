@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { CompactSessionContext, ContextCompactionOperation, ContextSnapshot, SessionContextResponse, SessionContextState } from '@multivac/contracts';
 import type { CoordinatorAdapter } from '../modules/sessions/coordinator-adapter.js';
 import type { AssistantSessionBindingRepository } from '../modules/sessions/assistant-session.js';
-import type { ContextCompactionRepository, StoredContextCompaction } from '../modules/sessions/context-compaction.js';
+import { compactionPending, type ContextCompactionRepository, type StoredContextCompaction } from '../modules/sessions/context-compaction.js';
 import { AssistantSessionServiceError } from './assistant-session-service.js';
 import type { AssistantOperationLock } from './assistant-operation-lock.js';
 
@@ -20,7 +20,21 @@ export class SessionContextManagementService {
   }) {}
 
   blocksExecution(): boolean {
-    return this.executing !== null || this.uncertain !== null || Boolean(this.options.repository.pending(this.options.sessionId));
+    if (this.executing !== null) return true;
+    const record = this.options.repository.pending(this.options.sessionId);
+    return record ? compactionPending(this.inspect(record)) : this.uncertain !== null;
+  }
+
+  /** 仅业务写操作调用；先封存只读核对的结果，后续 Pi 追加不能改变原操作的归属。 */
+  settleRecoveredOperation(): void {
+    if (this.executing !== null) return;
+    const pending = this.options.repository.pending(this.options.sessionId);
+    if (!pending) return;
+    const result = this.inspect(pending);
+    if (!compactionPending(result)) {
+      this.options.repository.finish({ ...pending, operation: result });
+      this.uncertain = null;
+    }
   }
 
   private state(): SessionContextState {
@@ -47,17 +61,27 @@ export class SessionContextManagementService {
   get(): SessionContextResponse {
     const state = this.state();
     const stored = this.options.repository.pending(this.options.sessionId) ?? this.options.repository.latest(this.options.sessionId);
-    return { state, operation: this.uncertain ?? (stored ? this.inspect(stored) : null) };
+    return { state, operation: stored ? this.inspect(stored) : this.uncertain };
   }
 
   getOperation(operationId: string): ContextCompactionOperation | null {
     const record = this.options.repository.get(this.options.sessionId, operationId);
-    return this.uncertain?.operationId === operationId ? this.uncertain : record ? this.inspect(record) : null;
+    return record ? this.inspect(record) : this.uncertain?.operationId === operationId ? this.uncertain : null;
   }
 
   private inspect(record: StoredContextCompaction): ContextCompactionOperation {
-    if (record.operation.status !== 'running' || this.executing === record.operation.operationId) return record.operation;
-    // 恢复没有自动重发入口。缺少原生持久证据时保持阻塞；GET 不写账本或恢复运行时。
+    if (!compactionPending(record.operation) || this.executing === record.operation.operationId) return record.operation;
+    const binding = this.options.bindings.get(this.options.sessionId);
+    if (record.identity && binding && record.identity.harness === binding.harness &&
+      record.identity.runtimeSessionId === binding.runtimeSessionId && record.identity.runtimeSessionRef === binding.runtimeSessionRef) {
+      try {
+        const result = this.options.adapter.contextManagement?.reconcileCompaction({ identity: record.identity, operation: record.operation });
+        if (result?.ok && result.value.operationId === record.operation.operationId && result.value.sessionId === record.operation.sessionId &&
+          modelIdentityFields.every(key => result.value.model?.[key] === record.operation.model?.[key]) &&
+          !compactionPending(result.value) && (result.value.status !== 'succeeded' || result.value.commitState === 'committed')) return result.value;
+      } catch { /* 核对异常不释放原占用。 */ }
+    }
+    // GET 只读证据，不改账本、不初始化或修复运行时；新命令准入时才保存已核对结果。
     return { ...record.operation, status: 'reconciliation-required', commitState: 'unknown', finishedAt: null,
       error: { code: 'COMPACTION_RESULT_UNKNOWN', message: '上次压缩执行结果待核对；不会自动重发，也不能确认已停止。' } };
   }
@@ -70,8 +94,14 @@ export class SessionContextManagementService {
       const existing = this.options.repository.get(command.sessionId, command.operationId);
       if (existing) {
         if (existing.fingerprint !== fingerprint) throw new AssistantSessionServiceError('COMMAND_ID_CONFLICT', '同一操作 ID 的参数不一致。');
-        return { result: this.inspect(existing) };
+        const result = this.inspect(existing);
+        if (compactionPending(existing.operation) && !compactionPending(result)) {
+          this.options.repository.finish({ ...existing, operation: result });
+          this.uncertain = null;
+        }
+        return { result };
       }
+      this.settleRecoveredOperation();
       const state = this.state();
       const now = this.now();
       let reason = command.revision !== state.revision ? '上下文已变化，请刷新后再操作。' : state.compaction.reason;

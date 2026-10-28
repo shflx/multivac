@@ -20,6 +20,8 @@ interface Options {
   access?: ModelAccessService;
   lock: AssistantOperationLock;
   isRunning: () => boolean;
+  /** 业务写操作前封存上下文压缩核对结果；查询不调用。 */
+  beforeMutation?: () => void;
   onChanged?: (sessionId: string) => void;
   /** 选模所属会话；缺省为全局协调会话。 */
   sessionId?: string;
@@ -189,6 +191,7 @@ export class SessionModelSelectionService {
 
   /** 选模命令的受理与执行；调用方须已持有会话操作锁。 */
   private async apply(kind: 'model' | 'thinking', command: SetSessionModel | SetSessionThinkingLevel): Promise<SessionModelCommandResult> {
+    this.options.beforeMutation?.();
     const fingerprint = createHash('sha256').update(JSON.stringify({
       kind, commandId: command.commandId, sessionId: command.sessionId, revision: command.revision,
       profileId: 'profileId' in command ? command.profileId : null,

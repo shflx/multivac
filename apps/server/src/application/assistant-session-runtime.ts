@@ -137,6 +137,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       ...(options.resolveBookQuote ? { resolveBookQuote: options.resolveBookQuote } : {}),
       ...(dependencies.images ? { images: dependencies.images } : {}),
       authorizeSend: (command) => {
+        this.context?.settleRecoveredOperation();
         if (this.context?.blocksExecution()) throw new AssistantSessionServiceError('COMMAND_STATE_MISMATCH', '上下文压缩正在执行或待核对，暂不能发送。');
         options.authorizeSend?.(command);
       },
@@ -200,6 +201,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       ...(dependencies.modelAccessService ? { access: dependencies.modelAccessService } : {}),
       lock,
       sessionId: options.sessionId,
+      beforeMutation: () => this.context?.settleRecoveredOperation(),
       isRunning: () => this.commands.isRunning() || Boolean(this.context?.blocksExecution()),
       ...(dependencies.onModelSelectionChanged ? { onChanged: dependencies.onModelSelectionChanged } : {}),
     });
@@ -230,6 +232,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
   retire<T>(operation: () => T): Promise<T> {
     return this.lock.runFinal(async () => {
       await this.session.settleInitialization();
+      this.context?.settleRecoveredOperation();
       return operation();
     }, () => new AssistantSessionServiceError(
       'COMMAND_STATE_MISMATCH',

@@ -215,3 +215,23 @@ test('会话运行时：压缩意图未对账时拒绝发送、选模及生命�
     assert.equal(adapter.calls.some(call => call.method === 'prompt'), false);
   } finally { runtime.dispose(); adapter.dispose(); store.close(); }
 });
+
+test('只读核对不写账本；业务写操作先封存原终态，后续证据不能改变原操作归属', async () => {
+  const h = fixture();
+  try {
+    await h.service.compact(command('recover-before-write'));
+    const original = h.store.contextCompactions.get(id, 'recover-before-write')!;
+    h.port.reconcileCompaction = ({ operation }) => ({ ok: true, value: { ...operation,
+      status: 'failed', commitState: 'not-committed', finishedAt: snapshot.current.observedAt, error: null } });
+    assert.equal(h.service.getOperation('recover-before-write')?.status, 'failed');
+    assert.equal(h.service.blocksExecution(), false);
+    assert.deepEqual(h.store.contextCompactions.get(id, 'recover-before-write'), original);
+    h.service.settleRecoveredOperation();
+    assert.equal(h.store.contextCompactions.pending(id), undefined);
+    assert.equal(h.store.contextCompactions.get(id, 'recover-before-write')?.operation.status, 'failed');
+    h.port.reconcileCompaction = ({ operation }) => ({ ok: true, value: { ...operation,
+      status: 'succeeded', commitState: 'committed', runtimeCommitRef: 'later-operation' } });
+    assert.equal(h.service.getOperation('recover-before-write')?.status, 'failed');
+    assert.equal(h.calls(), 1);
+  } finally { h.store.close(); }
+});
