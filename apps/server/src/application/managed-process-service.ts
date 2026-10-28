@@ -159,7 +159,7 @@ export class ManagedProcessService {
     this.validateBoundary(boundary);
     const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
     const result = await this.bash.execute({ sessionId: boundary.sessionId, taskId: boundary.taskId, runId: boundary.runId, executionId, directory }, input.commandId,
-      { command: `exec ${quote(process.execPath)} ${quote(script)}`, name: input.name, mode: 'background', requiredWhileRunning: input.requiredWhileRunning }, undefined, () => {}, undefined, control);
+      { command: `exec ${quote(process.execPath)} ${quote(script)}`, name: input.name, mode: 'background', requiredWhileRunning: input.requiredWhileRunning }, undefined, () => {}, undefined, undefined, control);
     return result.process;
   }
   start(input: ManagedStart, boundary: ManagedBoundary): Promise<ManagedProcess> {

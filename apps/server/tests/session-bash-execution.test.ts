@@ -29,7 +29,7 @@ function supervisorFixture() {
     const end = async (stopping: boolean) => {
       if (ended) return;
       ended = true;
-      await writeFile(config.receipt, JSON.stringify({ token: config.token, pid: currentPid, groupStopped: true, spawnError: false, stopping, code: 0, endedAt: new Date().toISOString() }));
+      await writeFile(config.receipt, JSON.stringify({ token: config.token, pid: currentPid, groupStopped: true, treeStopped: true, spawnError: false, stopping, code: 0, endedAt: new Date().toISOString() }));
       child.stdout.write(JSON.stringify({ rootExited: true, code: 0 }) + '\n');
       child.emit('close', 0);
     };
@@ -69,13 +69,25 @@ async function fixture() {
   let execution: string | null = 'turn';
   let run: TaskRun | null = null;
   let directoryReads = 0;
+  const leases = new Set<string>();
+  const leaseEvents: string[] = [];
   const port = sessionBashExecution({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
     runs: { bySession: () => run }, currentExecution: () => execution,
+    taskControl: original => {
+      const check = () => {
+        if (run?.runId !== original.runId || run.stopIntent || run.stopConfirmed) throw new Error('原任务 Run 已失效。');
+      };
+      return { check,
+        start: (marker, _bytes) => { check(); leases.add(marker); leaseEvents.push('start'); return { maxBytes: 10000, maxMillis: 10000 }; },
+        progress: (_marker, _bytes) => { check(); leaseEvents.push('progress'); return 10000; },
+        settle: marker => { leases.delete(marker); leaseEvents.push('settle'); },
+      };
+    },
     currentDirectory: id => { directoryReads++; return store.sessions.get(id)!.workingDirectory!; }, bash: processes.bash });
   const tool = managedBashTool('session', primary, port);
   const mount = () => projects.updateProject(project.projectId, { directories: [primary, extra] });
   const unmount = () => projects.updateProject(project.projectId, { directories: [primary] });
-  return { root, primary, extra, other, store, logs, project, projects, processes, supervisors, port, tool, mount, unmount,
+  return { root, primary, extra, other, store, logs, project, projects, processes, supervisors, port, tool, mount, unmount, leases, leaseEvents,
     setExecution: (value: string | null) => { execution = value; }, setRun: (value: TaskRun | null) => { run = value; },
     directoryReads: () => directoryReads,
     invoke: (call: string, cwd?: string, mode: 'foreground' | 'background' = 'foreground', command = 'probe') => tool.execute(call, { command, mode, ...(cwd ? { cwd } : {}) }, undefined, undefined, undefined as never),
@@ -227,5 +239,38 @@ test('隔离任务保持原执行器、归属和 cwd；准备期间停止或 Run
     assert.equal(executions, 1); assert.equal(f.supervisors.launches.length, 0);
     const nativeTool = managedBashTool('session', f.primary, f.port, { execute: () => { throw new Error('不应执行'); } } as never);
     await assert.rejects(nativeTool.execute('cwd-task', { command: 'probe', cwd: f.primary }, undefined, undefined, undefined as never), /不支持指定 cwd/);
+  } finally { await f.close(); }
+});
+
+
+test('共用后端任务：独立 worktree 可选项目 cwd，保留原目录及 Run 归属，退出才结算租约', async () => {
+  const f = await fixture();
+  try {
+    f.mount();
+    f.store.sessions.setWorkingDirectory('session', { kind: 'worktree', path: f.primary });
+    f.setRun({ taskId: 'task', runId: 'workspace-run', commandId: 'turn', executionMode: 'workspace', stopIntent: null, stopConfirmed: false } as TaskRun);
+    const result = await f.port.execute('session', f.primary, 'workspace', { command: 'probe', cwd: f.extra }, undefined, () => {});
+    assert.equal(result.process.taskId, 'task'); assert.equal(result.process.runId, 'workspace-run');
+    assert.equal(f.supervisors.launches[0]!.directory, f.extra);
+    assert.equal(f.store.sessions.get('session')!.workingDirectory!.path, f.primary);
+    assert.deepEqual(f.leaseEvents, ['start', 'progress', 'settle']); assert.equal(f.leases.size, 0);
+    f.setExecution('wrong-turn');
+    assert.throws(() => f.port.execute('session', f.primary, 'stale', { command: 'probe' }, undefined, () => {}), /任务执行边界/);
+  } finally { await f.close(); }
+});
+
+for (const change of ['unmount', 'cancel', 'replace'] as const) test(`共用后端任务：准备期间 ${change} 拒绝启动且不遗留进程租约`, async () => {
+  const f = await fixture();
+  try {
+    f.mount();
+    const run = { taskId: 'task', runId: 'workspace-run', commandId: 'turn', executionMode: 'workspace', stopIntent: null, stopConfirmed: false } as TaskRun;
+    f.setRun(run);
+    const pending = f.port.execute('session', f.primary, change, { command: 'probe', cwd: f.extra }, undefined, () => {});
+    if (change === 'unmount') f.unmount();
+    if (change === 'cancel') f.setRun({ ...run, stopIntent: 'cancel' } as TaskRun);
+    if (change === 'replace') f.setRun({ ...run, runId: 'replacement' });
+    const result = await pending;
+    assert.equal(result.process.state, 'failed'); assert.equal(f.supervisors.launches.length, 0);
+    assert.equal(f.leases.size, 0); assert.deepEqual(f.leaseEvents, []);
   } finally { await f.close(); }
 });
