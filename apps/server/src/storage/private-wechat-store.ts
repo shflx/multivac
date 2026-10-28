@@ -3,17 +3,10 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { checkedIlinkBase } from '../modules/notifications/wechat/client.js';
 
-export interface WechatBindingIdentity {
-  channelId: string; generation: number; botId: string; userId: string; apiBase: string;
-}
-export interface PrivateWechatBinding extends WechatBindingIdentity {
-  token: string; cursor: string; seenIds: string[]; contextToken: string | null; contextObservedAt: string | null;
-}
-export function sameWechatIdentity(a: WechatBindingIdentity, b: WechatBindingIdentity): boolean {
-  return a.channelId === b.channelId && a.generation === b.generation && a.botId === b.botId && a.userId === b.userId && a.apiBase === b.apiBase;
-}
+import type { PrivateWechatBinding, PrivateWechatBindingStore } from '../modules/notifications/wechat/binding.js';
+
 /** 与公开业务库分开，整份原子替换确保去重、上下文和游标一起保存。不会保存入站正文。 */
-export class PrivateWechatStore {
+export class PrivateWechatStore implements PrivateWechatBindingStore {
   constructor(private readonly root: string) {}
   private path(): string { return join(this.root, 'binding.json'); }
   load(): PrivateWechatBinding | null {

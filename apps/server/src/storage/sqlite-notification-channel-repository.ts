@@ -4,6 +4,7 @@ import type { InboxNotification, NotificationChannel, NotificationContent, Notif
 import { NOTIFICATION_DELIVERY_TTL_MS } from '@multivac/contracts';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import type { ChannelSendResult } from '../modules/notifications/channel.js';
+import type { NotificationChannelRepository } from '../modules/notifications/repository.js';
 import { runInTransaction } from './sqlite-transaction.js';
 
 const queued = new Set(['pending', 'waiting']);
@@ -12,7 +13,7 @@ const queued = new Set(['pending', 'waiting']);
  * 只处理提醒通知表，显式排除澄清、目录授权、外发授权、成果验收、恢复确认和MCP调用授权。
  * 不从通用Inbox列表分发，防止后续加入的决定事项获得外发或业务权限。
  */
-export class SqliteNotificationChannelRepository {
+export class SqliteNotificationChannelRepository implements NotificationChannelRepository {
   private transactionDepth = 0;
   constructor(private readonly db: DatabaseSync) {}
   /** 同仓储命令入口复用当前短同步事务，使事实与回执一起保存。 */

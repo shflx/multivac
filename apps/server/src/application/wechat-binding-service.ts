@@ -1,9 +1,8 @@
 import type { NotificationChannel, WechatNotificationStatus } from '@multivac/contracts';
 import { IlinkClient, IlinkError, ILINK_BASE, checkedIlinkBase, checkedQrUrl, explicitSuccess, invalidCredentials, stringField } from '../modules/notifications/wechat/client.js';
 import type { ChannelReadiness } from '../modules/notifications/channel.js';
-import { PrivateWechatStore, sameWechatIdentity, type PrivateWechatBinding, type WechatBindingIdentity } from '../storage/private-wechat-store.js';
-import type { SqliteWechatBindingRepository } from '../storage/sqlite-wechat-binding-repository.js';
-import type { SqliteNotificationChannelRepository } from '../storage/sqlite-notification-channel-repository.js';
+import { sameWechatIdentity, type PrivateWechatBinding, type WechatBindingIdentity, type PrivateWechatBindingStore, type WechatBindingRepository } from '../modules/notifications/wechat/binding.js';
+import type { NotificationChannelRepository } from '../modules/notifications/repository.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 export const WECHAT_CHANNEL_ID = 'wechat-self';
@@ -21,8 +20,8 @@ export class WechatBindingService {
   private controller: AbortController | null = null;
   private running: Promise<void> | null = null;
   private readonly lifetime = new AbortController();
-  constructor(private readonly channels: SqliteNotificationChannelRepository, private readonly identities: SqliteWechatBindingRepository,
-    private readonly secrets: PrivateWechatStore, readonly client: IlinkClient = new IlinkClient(), private readonly now: () => string = () => new Date().toISOString(), private readonly autoPoll = true) {}
+  constructor(private readonly channels: NotificationChannelRepository, private readonly identities: WechatBindingRepository,
+    private readonly secrets: PrivateWechatBindingStore, readonly client: IlinkClient = new IlinkClient(), private readonly now: () => string = () => new Date().toISOString(), private readonly autoPoll = true) {}
   /** 必须由启动装配或本机用户操作显式调用；查询不会创建配置或发起登录。 */
   initialize(): void {
     this.channels.ensureChannel(WECHAT_CHANNEL_ID, 'wechat');

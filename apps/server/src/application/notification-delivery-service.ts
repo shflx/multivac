@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NotificationChannelAdapter, ChannelSendResult } from '../modules/notifications/channel.js';
-import type { SqliteNotificationChannelRepository } from '../storage/sqlite-notification-channel-repository.js';
+import type { NotificationChannelRepository } from '../modules/notifications/repository.js';
 import type { WorkbenchEvents } from './workbench-events.js';
 
 /** 一个渠道一个在途请求；网络等待相互独立，不占用提醒生成事务。 */
@@ -11,7 +11,7 @@ export class NotificationDeliveryService {
   private timer: ReturnType<typeof setInterval> | null = null;
   private unsubscribe: (() => void) | null = null;
   private stopped = false;
-  constructor(private readonly repository: SqliteNotificationChannelRepository,
+  constructor(private readonly repository: NotificationChannelRepository,
     adapters: NotificationChannelAdapter[], private readonly now: () => string = () => new Date().toISOString(),
     private readonly timeoutMs = 30_000, private readonly onError: () => void = () => console.warn('通知渠道本地执行失败，请核对投递记录。')) {
     for (const adapter of adapters) this.adapters.set(adapter.type, adapter);
