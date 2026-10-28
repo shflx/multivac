@@ -14,7 +14,7 @@ interface CreatedProject {
   project: { directories: Array<{ kind: string; path: string }> };
 }
 
-const OUTSIDE_RULE = '读取、修改或写入目录外的文件需要你确认。';
+const OUTSIDE_RULE = '读取、修改或写入当前获准范围外的文件需要你确认。';
 const RULES = {
   临时目录: `会话专用，目录内的读写与命令自动执行。会话归档后，有文件的按“设置 · 偏好”保留（默认 30 天）再移到废纸篓，空目录直接删除。${OUTSIDE_RULE}`,
   项目托管目录: `由 Multivac 托管，长期保留、不会自动清理，目录内的读写与命令自动执行。${OUTSIDE_RULE}`,
