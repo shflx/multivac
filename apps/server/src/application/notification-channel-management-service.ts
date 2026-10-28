@@ -1,12 +1,12 @@
 import type { NotificationChannelOperation } from '@multivac/contracts';
-import type { SqliteNotificationChannelRepository } from '../storage/sqlite-notification-channel-repository.js';
+import type { NotificationChannelRepository } from '../modules/notifications/repository.js';
 import { WechatBindingService, WECHAT_CHANNEL_ID } from './wechat-binding-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 /** 只由本机HTTP设置入口调用；不注册为模型工具或远程操作。 */
 export class NotificationChannelManagementService {
   private readonly active = new Set<Promise<NotificationChannelOperation>>();
-  constructor(private readonly repository: SqliteNotificationChannelRepository, private readonly wechat: WechatBindingService,
+  constructor(private readonly repository: NotificationChannelRepository, private readonly wechat: WechatBindingService,
     private readonly now: () => string = () => new Date().toISOString()) {}
   list() { return { items: this.repository.channels() }; }
   records(id: string, offset: number, limit: number) {

@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { WechatBindingIdentity } from './private-wechat-store.js';
+import type { WechatBindingIdentity, WechatBindingRepository } from '../modules/notifications/wechat/binding.js';
 
 export const WECHAT_BINDING_MIGRATION = `
   CREATE TABLE IF NOT EXISTS notification_wechat_binding (
@@ -8,7 +8,7 @@ export const WECHAT_BINDING_MIGRATION = `
   ) STRICT;
 `;
 /** 独立核对绑定身份；不进入公开配置、日志或事件。此表不保存任何凭据。 */
-export class SqliteWechatBindingRepository {
+export class SqliteWechatBindingRepository implements WechatBindingRepository {
   constructor(private readonly db: DatabaseSync) {}
   get(id: string): WechatBindingIdentity | null {
     const row = this.db.prepare('SELECT identity_json FROM notification_wechat_binding WHERE channel_id=?').get(id);
