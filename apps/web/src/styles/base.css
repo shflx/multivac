@@ -4526,7 +4526,18 @@ svg {
 .conversation-original { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .conversation-original[hidden] { display: none; }
 .discussion-surface.has-reading .conversation-discussion { flex: 0 0 42%; border-right: 1px solid var(--line); }
-.file-browser { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; background: var(--surface); }
+.file-browser { position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; background: var(--surface); }
+/* 文件操作结果：浮在浏览区底部的轻提示，不挤占目录与原文。 */
+.browser-toast {
+  position: absolute; z-index: 30; left: 50%; bottom: 16px; display: flex; align-items: center; gap: 6px; max-width: calc(100% - 32px);
+  padding: 7px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink);
+  box-shadow: 0 6px 20px rgb(27 32 35 / 12%); font-size: var(--t-sm); overflow-wrap: anywhere;
+  transform: translateX(-50%); animation: browser-toast-in 160ms ease;
+}
+.browser-toast[data-error] { border-color: var(--danger-line); color: var(--danger); }
+.browser-toast .icon-button { width: 22px; height: 22px; flex-shrink: 0; }
+@keyframes browser-toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .browser-toast { animation: none; } }
 .browser-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); min-width: 0; }
 .browser-toolbar strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); }
 .browser-toolbar { flex-wrap: wrap; }

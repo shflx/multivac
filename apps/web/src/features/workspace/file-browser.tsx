@@ -38,13 +38,22 @@ function DirectoryBranch({ sessionId, root, path, query, selected, onSelect, exp
   </li>)}</ul>{!listing.entries.length && <p className="browser-empty">{query ? '没有匹配的文件' : '此目录为空'}</p>}{listing.limited && <p className="browser-empty">已达到浏览上限，请缩小搜索范围或展开子目录。</p>}</>;
 }
 
+/** 成功提示的停留时长。 */
+const NOTICE_MS = 2000;
+
 export function FileBrowser({ sessionId, root, reading, setReading, visible, expanded, onExpand, onReturn, onClose, onSelection, onReadingFocus, onReference }: {
   sessionId: string; root: string; expanded: boolean; onExpand: () => void; onReturn: () => void; onClose: () => void;
   reading: ReadingScene; setReading: UpdateReading; visible: boolean;
   onSelection: (selection: FileSelection | null) => void; onReadingFocus: () => void; onReference: (quote: AssistantFileQuote) => void;
 }) {
-  const [notice, setNotice] = useState<{ message: string; error: boolean } | null>(null);
-  const onNotice = (message: string, error: boolean) => setNotice({ message, error });
+  // 文件操作结果以浮层提示呈现：成功短暂显示后自动消失，失败保留到手动关闭。
+  const [notice, setNotice] = useState<{ message: string; error: boolean; stamp: number } | null>(null);
+  const onNotice = (message: string, error: boolean) => setNotice(current => ({ message, error, stamp: (current?.stamp ?? 0) + 1 }));
+  useEffect(() => {
+    if (!notice || notice.error) return;
+    const timer = window.setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   const query = reading.search;
   const selected = reading.position.path;
   // 历史条数达到上限后仍按每次导航重建阅读器，不让同文件旧加载或滚动覆盖新目标。
@@ -84,7 +93,6 @@ export function FileBrowser({ sessionId, root, reading, setReading, visible, exp
       <button className="icon-button" aria-label={expanded ? '并排讨论与原文' : '放大原文'} title={expanded ? '并排讨论与原文' : '放大原文'} onClick={onExpand}>{expanded ? <Columns2 /> : <Maximize2 />}</button>
       <button className="icon-button" aria-label="回到当前讨论" title="回到当前讨论" onClick={onReturn}><MessageSquare /></button>
       <button className="icon-button" aria-label="关闭文件浏览" title="关闭文件浏览" onClick={onClose}><X /></button></header>
-    {notice && <p className="browser-empty" role={notice.error ? 'alert' : 'status'}>{notice.message}</p>}
     {reading.notice && <p className="browser-empty" role="status">{reading.notice}</p>}
     <div className="browser-body">
       <aside className={`browser-directory ${wide ? '' : 'overlay'}`} aria-label="会话工作目录" hidden={!directoryOpen || reading.chooser || !selected}>
@@ -99,5 +107,9 @@ export function FileBrowser({ sessionId, root, reading, setReading, visible, exp
         onSelection={onSelection} onReadingFocus={onReadingFocus} onNotice={onNotice}
         onPosition={(change) => setReading((scene) => scene.position.path === selected && scene.history === reading.history && scene.future === reading.future ? { ...scene, position: { ...scene.position, ...change } } : scene)} />}</div>
     </div>
+    {notice && <div key={notice.stamp} className="browser-toast" data-error={notice.error || undefined} role={notice.error ? 'alert' : 'status'}>
+      <span>{notice.message}</span>
+      {notice.error && <button type="button" className="icon-button" aria-label="关闭提示" title="关闭提示" onClick={() => setNotice(null)}><X /></button>}
+    </div>}
   </section></FileActionsActive.Provider></FileSourceQuote.Provider>;
 }
