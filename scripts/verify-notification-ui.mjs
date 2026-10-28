@@ -9,7 +9,8 @@ import { chromium } from '@playwright/test';
 const root=resolve('.');await mkdir('.tmp/notification-ui',{recursive:true});
 await writeFile('.tmp/notification-ui/index.html','<html lang="zh"><meta charset="UTF-8"><div id="root"></div><script type="module" src="/\.tmp/notification-ui/main.jsx"></script></html>');
 await writeFile('.tmp/notification-ui/main.jsx',`import React from 'react';import{createRoot}from'react-dom/client';import{ConfirmProvider}from'/apps/web/src/components/confirm-card.tsx';import{NotificationChannelsPage}from'/apps/web/src/features/notifications/notification-channels-page.tsx';import'/apps/web/src/styles/base.css';createRoot(document.getElementById('root')).render(<ConfirmProvider><NotificationChannelsPage active={true}/></ConfirmProvider>);`);
-const server=await createServer({root,configFile:false,plugins:[react()],server:{host:'127.0.0.1',port:0}});await server.listen();
+// 组件位于 web workspace，验收入口位于仓库根；统一 React 身份，避免两份运行时导致 Hook 初始化失败。
+const server=await createServer({root,configFile:false,plugins:[react()],resolve:{dedupe:['react','react-dom']},server:{host:'127.0.0.1',port:0}});await server.listen();
 let browser;
 try{
   browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1120,height:1000}});
