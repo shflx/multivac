@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import type { ContextCompactionOperation, SessionContextResponse } from '@multivac/contracts';
 import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
 
@@ -12,6 +12,12 @@ const snapshot: SessionContextResponse = { state: { sessionId: 'global-coordinat
   lastRequest: null, compaction: { available: false, model, reason: '受控用例中当前执行器不支持主动压缩。' } }, operation: null };
 
 test.beforeEach(async ({ request }) => { await resetE2eState(request); });
+
+/** 在输入框输入 /compact，返回菜单中的内置命令选项。 */
+async function slashCompact(root: Locator) {
+  await root.getByLabel('Multivac 草稿').fill('/compact');
+  return root.getByRole('option', { name: /compact/u });
+}
 
 test('Fake 执行器下 HTTP 查询不初始化工作会话，双宿主显示不可用并拒绝主动压缩', async ({ page, request }) => {
   const taskLookups: string[] = [];
@@ -31,15 +37,12 @@ test('Fake 执行器下 HTTP 查询不初始化工作会话，双宿主显示不
   expect((await (await request.get(`${base}/context/operations/${operationId}`)).json()).operationId).toBe(operationId);
   await page.goto('/');
   const global = page.locator('.assistant-page').filter({ has: page.getByLabel('会话上下文', { exact: true }) }).first();
-  await global.getByLabel('会话上下文', { exact: true }).click();
-  await expect(global.getByRole('button', { name: '压缩较早上下文' })).toBeDisabled();
-  await expect(global.locator('.context-panel-content')).toContainText('不可用');
-  await page.keyboard.press('Escape');
+  await expect(await slashCompact(global)).toHaveAttribute('aria-disabled', 'true');
+  await global.getByLabel('Multivac 草稿').fill('');
   await openPanel(page, 'workspace');
   const panel = page.locator(`.conversation-panel[data-session-id="${id}"]`);
-  await panel.getByLabel('会话上下文', { exact: true }).click();
-  await expect(panel.getByRole('button', { name: '压缩较早上下文' })).toBeDisabled();
-  await expect(panel.locator('.context-panel-content')).toContainText('主动压缩不可用');
+  await expect(await slashCompact(panel)).toHaveAttribute('aria-disabled', 'true');
+  await panel.getByLabel('Multivac 草稿').fill('');
   expect(taskLookups).toEqual([]);
   const noteId = crypto.randomUUID();
   expect((await request.post(`${fakeApiRoot}/api/notes`, { data: { id: noteId, commandId: crypto.randomUUID(), title: '排除宿主', body: '受控正文' } })).ok()).toBe(true);
@@ -50,19 +53,18 @@ test('Fake 执行器下 HTTP 查询不初始化工作会话，双宿主显示不
   } })).status()).toBe(404);
 });
 
-for (const width of [320, 1440]) test(`${width}px 受控统计来源、长模型、覆盖说明和键盘焦点`, async ({ page }, info) => {
+for (const width of [320, 1440]) test(`${width}px 受控统计来源、长模型、命令提示和键盘焦点`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 800 });
   await page.route('**/api/assistant/context', route => route.fulfill({ json: snapshot }));
   await page.goto('/');
   const trigger = page.getByLabel('会话上下文', { exact: true });
-  await expect(trigger).toContainText('估算 20.0%');
+  await expect(trigger).toContainText('20%');
   await trigger.focus(); await page.keyboard.press('Enter');
   const panel = page.locator('.context-panel-content:visible');
-  await expect(panel).toContainText('当前估算：2,000 token');
-  await expect(panel).toContainText('模型窗口：10,000 token');
-  await expect(panel).toContainText('当前持久模型');
-  await panel.getByText('计数覆盖说明', { exact: true }).click();
-  await expect(panel).toContainText('系统提示 · 覆盖未知');
+  await expect(panel).toContainText('2,000 / 10,000');
+  await expect(panel).toContainText('更新');
+  await expect(panel).toContainText('长模型名称');
+  await expect(panel).toContainText('/compact');
   const bounds = (await panel.boundingBox())!;
   expect(bounds.x).toBeGreaterThanOrEqual(0);
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
@@ -83,11 +85,11 @@ test('双窗口与刷新仅查询上下文，不自动发起压缩', async ({ pa
   await Promise.all([page.goto('/'), other.goto('/')]);
   for (const window of [page, other]) {
     await window.getByLabel('会话上下文', { exact: true }).click();
-    await expect(window.getByRole('button', { name: '压缩较早上下文' })).toBeDisabled();
+    await expect(await slashCompact(window.locator('.assistant-page').first())).toHaveAttribute('aria-disabled', 'true');
   }
   await page.reload();
   await page.getByLabel('会话上下文', { exact: true }).click();
-  await expect(page.getByRole('button', { name: '压缩较早上下文' })).toBeDisabled();
+  await expect(await slashCompact(page.locator('.assistant-page').first())).toHaveAttribute('aria-disabled', 'true');
   expect(posts).toBe(0);
   await other.close();
 });
@@ -118,35 +120,40 @@ for (const host of ['global', 'work'] as const) test(`${host} 受控压缩交互
       compaction: operation && !completed ? { available: false, model, reason: '原操作仍在执行。' } : { available: true, model, reason: null } }, operation };
     await route.fulfill({ json: value });
   });
-  const details = async (window: Page) => {
+  const hostRoot = async (window: Page) => {
     if (host === 'work') await openPanel(window, 'workspace');
-    const root = host === 'global' ? window.locator('.assistant-page').first() : window.locator(`.conversation-panel[data-session-id="${sessionId}"]`);
+    return host === 'global' ? window.locator('.assistant-page').first() : window.locator(`.conversation-panel[data-session-id="${sessionId}"]`);
+  };
+  const details = async (root: Locator) => {
     await root.getByLabel('会话上下文', { exact: true }).click();
     return root.locator('.context-panel-content');
   };
   await page.goto('/');
-  let panel = await details(page);
-  const compact = panel.getByRole('button', { name: '压缩较早上下文' });
-  await expect(compact).toBeEnabled();
+  let root = await hostRoot(page);
+  const compact = await slashCompact(root);
+  await expect(compact).not.toHaveAttribute('aria-disabled', 'true');
   await compact.click();
-  await expect(panel.getByRole('status')).toContainText('正在压缩');
-  await expect(compact).toBeDisabled();
+  await expect(root.getByLabel('Multivac 草稿')).toHaveValue('');
+  await expect(root.locator('.compact-feedback')).toContainText('正在压缩');
+  await expect(await slashCompact(root)).toHaveAttribute('aria-disabled', 'true');
+  await root.getByLabel('Multivac 草稿').fill('');
   const other = await context.newPage(); await other.goto('/');
-  const otherPanel = await details(other);
-  await expect(otherPanel.getByRole('button', { name: '压缩较早上下文' })).toBeDisabled();
-  await page.reload(); panel = await details(page);
-  await expect(panel.getByRole('status')).toContainText('正在压缩');
+  const otherRoot = await hostRoot(other);
+  await expect(await slashCompact(otherRoot)).toHaveAttribute('aria-disabled', 'true');
+  await otherRoot.getByLabel('Multivac 草稿').fill('');
+  const otherPanel = await details(otherRoot);
+  await page.reload(); root = await hostRoot(page);
+  const panel = await details(root);
+  await expect(panel.locator('.context-operation')).toContainText('正在压缩');
   expect(posts).toBe(1);
   completed = true;
   expect(operation).not.toBeNull();
   operation = { ...operation!, status: 'succeeded', commitState: 'committed', runtimeCommitRef: 'controlled-native-entry', finishedAt: current.observedAt,
     after: { ...current, source: 'unavailable', tokens: null, basis: null, unavailableReason: '压缩后尚无新的有效请求用量，当前占用未知。' } };
   await panel.getByRole('button', { name: '刷新状态' }).click();
-  await expect(panel.getByRole('status')).toContainText('压缩成功');
-  await panel.getByText('操作后统计', { exact: true }).click();
-  await expect(panel.getByRole('status')).toContainText('当前占用未知');
+  await expect(panel.locator('.context-operation')).toHaveCount(0);
   await otherPanel.getByRole('button', { name: '刷新状态' }).click();
-  await expect(otherPanel.getByRole('status')).toContainText('压缩成功');
+  await expect(otherPanel.locator('.context-operation')).toHaveCount(0);
   expect(posts).toBe(1);
   await other.close();
 });

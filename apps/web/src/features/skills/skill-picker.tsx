@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { CircleAlert, Layers, Search, SearchX, SlidersHorizontal, X } from 'lucide-react';
+import { CircleAlert, Layers, Search, SearchX, SlidersHorizontal, SquareSlash, X } from 'lucide-react';
 import { parseSkillInvocation, skillInvocation, type SkillAvailability } from '@multivac/contracts';
 import { skillApi } from './skills-store.js';
 import { useOptionalWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
@@ -10,6 +10,7 @@ import './skill-picker.css';
  * 选择只更新原草稿；身份首行显示为标签，不向用户暴露存储编码。
  * 两种打开方式：草稿以 / 开头时按草稿筛选（选择后替换这段命令）；
  * 点击底栏的 Skill 按钮时在弹层内搜索（选择后保留已输入的正文）。
+ * 内置命令只在 / 输入时列在 Skill 之前；选择后清空草稿并立即执行，不作为消息发送。
  */
 export function useSkillPicker(
   sessionId: string,
@@ -17,6 +18,7 @@ export function useSkillPicker(
   update: (text: string) => void,
   focusComposer: () => void = () => {},
   enabled = true,
+  commands: ComposerCommand[] = [],
 ) {
   const [preferenceError, setPreferenceError] = useState('');
   const [items, setItems] = useState<SkillAvailability[]>([]),
@@ -52,6 +54,8 @@ export function useSkillPicker(
       `${i.record.name} ${i.record.displayName} ${i.record.description}`.toLowerCase().includes(query),
     )
     .slice(0, 20);
+  const commandChoices = typed ? commands.filter((c) => `${c.name} ${c.description}`.toLowerCase().includes(query)) : [];
+  const total = commandChoices.length + choices.length;
   useEffect(() => {
     setIndex(0);
     setDismissed(false);
@@ -69,6 +73,17 @@ export function useSkillPicker(
       setSearch('');
       focusComposer();
     } else setDismissed(true);
+  };
+  const run = (command: ComposerCommand) => {
+    if (command.disabledReason) return;
+    update('');
+    command.run();
+    focusComposer();
+  };
+  /** 键盘序号先覆盖内置命令，再覆盖 Skill。 */
+  const chooseAt = (n: number) => {
+    if (n < commandChoices.length) run(commandChoices[n]!);
+    else if (choices[n - commandChoices.length]) choose(choices[n - commandChoices.length]!);
   };
   const choose = (item: SkillAvailability) => {
     if (!item.available) return;
@@ -90,13 +105,13 @@ export function useSkillPicker(
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       setIndex(
-        (n) => (n + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % Math.max(1, choices.length),
+        (n) => (n + (event.key === 'ArrowDown' ? 1 : -1) + total) % Math.max(1, total),
       );
       return true;
     }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
-      if (choices[index]) choose(choices[index]);
+      chooseAt(index);
       return true;
     }
     return false;
@@ -177,7 +192,7 @@ export function useSkillPicker(
             }}
           >
             <div className="skill-picker-heading">
-              <strong>选择 Skill</strong>
+              <strong>{commandChoices.length ? '命令与 Skill' : '选择 Skill'}</strong>
               <span>{typed ? '继续输入以筛选' : '仅用于本条消息'}</span>
             </div>
             {!typed && (
@@ -196,7 +211,32 @@ export function useSkillPicker(
               </div>
             )}
             <div role="listbox" aria-label="选择 Skill" id={`${menuId}-options`} className="skill-picker-options">
-              {choices.map((item, n) => (
+              {commandChoices.map((command, n) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={n === index}
+                  aria-disabled={Boolean(command.disabledReason)}
+                  key={`command:${command.name}`}
+                  ref={n === index ? activeRef : undefined}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setIndex(n)}
+                  onClick={() => run(command)}
+                >
+                  <span className="skill-option-icon">
+                    <SquareSlash aria-hidden="true" />
+                  </span>
+                  <span className="skill-option-copy">
+                    <strong>
+                      {command.name}
+                      <em>内置</em>
+                    </strong>
+                    <small>{command.disabledReason ?? command.description}</small>
+                  </span>
+                  {command.disabledReason && <CircleAlert className="skill-option-status" aria-label="不可用" />}
+                </button>
+              ))}
+              {choices.map((item, i) => { const n = i + commandChoices.length; return (
                 <button
                   type="button"
                   role="option"
@@ -220,9 +260,9 @@ export function useSkillPicker(
                   </span>
                   {!item.available && <CircleAlert className="skill-option-status" aria-label="不可用" />}
                 </button>
-              ))}
+              ); })}
             </div>
-            {!choices.length && (
+            {!total && (
               <div className="skill-picker-empty">
                 <SearchX aria-hidden="true" />
                 <strong>{query ? '没有匹配的 Skill' : '还没有可用的 Skill'}</strong>
@@ -260,4 +300,12 @@ export function useSkillPicker(
       </>
     ),
   };
+}
+
+/** 输入区内置命令：/ 菜单中选择后直接执行；不可执行时给出原因并保持可见。 */
+export interface ComposerCommand {
+  name: string;
+  description: string;
+  disabledReason: string | null;
+  run: () => void;
 }

@@ -1,4 +1,5 @@
-import { ContextPanel } from './context-panel.js';
+import { CompactFeedback, ContextPanel } from './context-panel.js';
+import type { ComposerCommand } from '../skills/skill-picker.js';
 import type { SessionContext } from './session-context.js';
 import { McpSessionTools } from '../mcp/mcp-session-tools.js';
 import { ComposerAddMenu } from './composer-add-menu.js';
@@ -373,9 +374,22 @@ function AssistantSessionView({
   // 激活并排会话时输入区展开，消息区随之变矮；下一帧恢复贴底并聚焦，
   // 同时避开本次点击的默认聚焦和消息区暂停跟随的指针事件。
   const wasCollapsedRef = useRef(false);
+  const contextEnabled = !remote && !taskId && (isCoordinator || allowAgentSelection);
+  // 本视图发起过 /compact 后才在输入区展示压缩结果，关闭后不再提示。
+  const [compactNotice, setCompactNotice] = useState(false);
+  const compactState = sessionContext.data?.state.compaction;
+  const compactCommand: ComposerCommand = {
+    name: 'compact',
+    description: '压缩较早的上下文，聊天历史仍可查看',
+    disabledReason: runBusy || submitting ? '会话运行中，暂不能压缩'
+      : sessionContext.pending ? '压缩正在执行或等待核对'
+        : compactState && !compactState.available ? compactState.reason ?? '当前会话不支持主动压缩'
+          : !compactState || sessionContext.stale || sessionContext.reading ? '正在读取上下文状态' : null,
+    run: () => { setCompactNotice(true); void sessionContext.compact(); },
+  };
   const skillPicker = useSkillPicker(
     session.sessionId, pageState.draft, text => session.updateDraft(text),
-    () => composerRef.current?.focus(), !remote,
+    () => composerRef.current?.focus(), !remote, contextEnabled ? [compactCommand] : [],
   );
   const composerCollapsedNow = collapseComposer && !pageState.draft.trim() && !pageState.agentId && !pageState.quote;
   useLayoutEffect(() => {
@@ -962,6 +976,7 @@ function AssistantSessionView({
                 </div>
               )}
               {skillPicker.view}
+              {compactNotice && sessionContext.operation && <CompactFeedback operation={sessionContext.operation} onDismiss={() => setCompactNotice(false)} />}
               {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
               <div className="composer-inline-input">
@@ -1023,9 +1038,6 @@ function AssistantSessionView({
                   </button>
                 </div>
               )}
-              {!remote && !taskId && (isCoordinator || allowAgentSelection) && <div className="context-toolbar">
-                <ContextPanel context={sessionContext} running={runBusy || submitting} />
-              </div>}
               <div className="composer-bar">
                 <div className="composer-meta">
                   <ComposerAddMenu draft={session.imageDraft} {...(allowAgentSelection && !isCoordinator && !remote ? { mcpResources: {
@@ -1044,9 +1056,10 @@ function AssistantSessionView({
                   {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} mentionTarget={agentMentionTarget} focusComposer={() => composerRef.current?.focus()} />}
                   {remote && !modelState.available && <span role="status">当前模型不可用，请在本机配置。</span>}
                 </div>
-                {/* MCP 与发送作为整体换行，避免夹在左侧操作的多行之间。 */}
+                {/* MCP、上下文与发送作为整体换行，避免夹在左侧操作的多行之间。 */}
                 <div className="composer-submit-actions">
                   {!remote && (isCoordinator || allowAgentSelection) && <McpSessionTools key={session.sessionId} sessionId={session.sessionId} disabled={status !== 'ready'} />}
+                  {contextEnabled && <ContextPanel context={sessionContext} />}
                   <button
                     type="button"
                     className="composer-send-button"

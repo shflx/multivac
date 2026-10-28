@@ -2477,8 +2477,8 @@ svg {
 }
 
 .multivac-sidebar {
-  /* 按输入工具栏一行放下的宽度确定：+、Skill、模型名上限、紧凑 MCP 与发送。 */
-  --multivac-sidebar-width: 420px;
+  /* 按输入工具栏一行放下的宽度确定：+、Skill、模型名上限、紧凑 MCP、上下文圆环与发送。 */
+  --multivac-sidebar-width: 440px;
   display: flex;
   flex: 0 0 var(--multivac-sidebar-width);
   flex-direction: column;
