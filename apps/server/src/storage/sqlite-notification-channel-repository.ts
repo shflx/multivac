@@ -158,7 +158,7 @@ export class SqliteNotificationChannelRepository implements NotificationChannelR
         text: `Multivac 通知渠道测试，编号 ${number}。请核对手机是否收到此编号。`, scheduledAt: now,
         localTime: now.slice(0, 19), timeZone: 'UTC', createdAt: now }, 'test', now);
       this.db.prepare('UPDATE notification_delivery SET content_json=? WHERE id=?').run(JSON.stringify({
-        ...this.content(record.id), text: `Multivac 通知渠道测试，编号 ${record.localMessageId}。请在 Multivac 核对手机是否收到此编号。`,
+        ...this.content(record.id), text: `✅ Multivac 微信通知测试\n\n编号：${record.localMessageId}\n收到后请回到 Multivac 确认。`,
       }), record.id);
       this.saveChannel({ ...channel, testedDeliveryId: record.id, receivedConfirmedAt: null });
       return record;
