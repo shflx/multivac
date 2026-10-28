@@ -1,6 +1,6 @@
 import type { NotificationChannel, NotificationContent } from '@multivac/contracts';
 import type { ChannelReadiness, ChannelSendContext, ChannelSendResult, NotificationChannelAdapter } from '../channel.js';
-import { explicitSuccess, invalidCredentials, stringField, type IlinkClient } from './client.js';
+import { ilinkSucceeded, invalidCredentials, stringField, type IlinkClient } from './client.js';
 
 /** 微信适配器只取得发送所需的私有资料端口，不依赖应用服务实现。 */
 interface WechatBindingAccess {
@@ -36,7 +36,7 @@ export class WechatNotificationAdapter implements NotificationChannelAdapter {
           item_list: [{ type: 1, text_item: { text } }] } },
       });
       if (invalidCredentials(reply)) return { outcome: 'rejected', diagnostic: '微信凭据已失效，请重新绑定。', credentialsInvalid: true };
-      if (explicitSuccess(reply)) return { outcome: 'accepted', serverMessageId: stringField(reply.body.message_id) };
+      if (ilinkSucceeded(reply)) return { outcome: 'accepted', serverMessageId: stringField(reply.body.message_id) };
       if (typeof reply.body.ret === 'number' && reply.body.ret !== 0 || typeof reply.body.errcode === 'number' && reply.body.errcode !== 0) {
         return { outcome: 'rejected', diagnostic: '微信接口明确拒绝了此次发送。' };
       }

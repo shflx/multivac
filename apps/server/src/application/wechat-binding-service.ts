@@ -1,5 +1,5 @@
 import type { NotificationChannel, WechatNotificationStatus } from '@multivac/contracts';
-import { IlinkClient, IlinkError, ILINK_BASE, checkedIlinkBase, checkedQrUrl, explicitSuccess, invalidCredentials, stringField } from '../modules/notifications/wechat/client.js';
+import { IlinkClient, IlinkError, ILINK_BASE, checkedIlinkBase, checkedQrUrl, ilinkSucceeded, invalidCredentials, stringField } from '../modules/notifications/wechat/client.js';
 import type { ChannelReadiness } from '../modules/notifications/channel.js';
 import { sameWechatIdentity, type PrivateWechatBinding, type WechatBindingIdentity, type PrivateWechatBindingStore, type WechatBindingRepository } from '../modules/notifications/wechat/binding.js';
 import type { NotificationChannelRepository } from '../modules/notifications/repository.js';
@@ -150,7 +150,7 @@ export class WechatBindingService {
       this.channels.setReadiness(channel.id, 'invalid', '微信凭据失效，轮询已暂停，请重新绑定。');
       this.statusValue = { state: 'failed', qrAvailable: false, diagnostic: '微信凭据失效，轮询已暂停，请重新绑定。', contextObservedAt: binding.contextObservedAt }; return;
     }
-    if (!explicitSuccess(reply)) throw new IlinkError('response');
+    if (!ilinkSucceeded(reply)) throw new IlinkError('response');
     const messages = reply.body.msgs;
     if (messages !== undefined && !Array.isArray(messages)) throw new IlinkError('response');
     const next = { ...binding, seenIds: [...binding.seenIds] };

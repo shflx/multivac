@@ -21,11 +21,11 @@ test('Unicode格式不截断emoji，总长1000，保留原时间、截断和Inbo
   assert.ok(formatted.endsWith('请到Multivac Inbox查看。'));assert.equal(formatted.includes('\ufffd'),false);
 });
 
-test('本人身份、持久编号和原始上下文请求，明确成功才接受，缺字段/中断为未知',async()=>{
+test('本人身份、持久编号和原始上下文请求，兼容省略状态码，拒绝及未知结果独立分类',async()=>{
   const f=wechatFixture();try{
     await initialize(f);const adapter=new WechatNotificationAdapter(f.service);
     const channel=f.outbox.channel(WECHAT_CHANNEL_ID),ctx={channel,localMessageId:'multivac:fixed',signal:new AbortController().signal};
-    const outcomes=[[{ret:0,message_id:'18446744073709551615'},'accepted'],[{},'unknown'],[{ret:1},'rejected'],[{ret:-14},'rejected'],['not-json','unknown']];
+    const outcomes=[[{ret:0,message_id:'18446744073709551615'},'accepted'],[{},'accepted'],[{ret:1},'rejected'],[{ret:-14},'rejected'],['not-json','unknown']];
     for(const [reply,outcome]of outcomes){f.queue.push(reply);assert.equal((await adapter.send('提醒',ctx)).outcome,outcome);}
     const request=f.calls.find(c=>c.url.pathname.endsWith('sendmessage'));
     const body=JSON.parse(request.options.body);
@@ -57,7 +57,7 @@ test('与通用执行器集成：测试独立编号无Inbox，接受后需本人
     assert.equal(f.outbox.delivery(d.id).state,'accepted');assert.equal(f.outbox.delivery(d.id).serverMessageId,'99');
     assert.equal(f.reminders.notifications().length,0);assert.equal(f.outbox.channel(channel.id).receivedConfirmedAt,null);
     f.outbox.confirmTest(channel.id,channel.version,d.id,now);f.outbox.setEnabled(channel.id,channel.version,true,now);
-    f.notification('actual');f.queue.push({});await worker.tick();await worker.tick();
+    f.notification('actual');f.queue.push('not-json');await worker.tick();await worker.tick();
     const record=f.records(channel.id)[0];assert.equal(record.state,'unknown');assert.equal(record.attempts,1);
     assert.equal(f.reminders.notifications().length,1);assert.equal(f.reminders.notifications()[0].acknowledgedAt,null);
     await worker.close();
