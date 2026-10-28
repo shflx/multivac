@@ -6,8 +6,16 @@ const {spawn, execFileSync} = require('node:child_process');
 const readline = require('node:readline');
 const input = readline.createInterface({input:process.stdin});
 ${PROCESS_TREE_TRACKER}
-let child, tree, config, timer, poll, killTimer, rootExited=false, code=null, stopping=false, finished=false, timedOut=false, bytes=0, overflow=false, killRequested=false;
+let child, tree, config, timer, poll, killTimer, rootExited=false, commandFinished=false, code=null, stopping=false, finished=false, timedOut=false, bytes=0, overflow=false, killRequested=false, anchorReleased=false;
 const send = value => process.stdout.write(JSON.stringify(value)+'\n');
+function observeTree() {
+  const members=tree?.observe();
+  // 组内保留本次启动的根作为归属锚点，直到命令及所有后代退出；不靠已消失的根 PID 认领组。
+  if(commandFinished && !anchorReleased && members?.length===1 && members[0].pid===child.pid) {
+    anchorReleased=true;child.stdio[3].end('\n');
+  }
+  return members;
+}
 function signalGroup(signal) {
   try { tree?.signal(signal); } catch { /* 核对失败不按未知 PID 发信号；保留停止核对。 */ }
 }
@@ -28,12 +36,23 @@ function finish(spawnError=false) {
 input.once('line',line=>{
   config=JSON.parse(line);
   fs.writeFileSync(config.log,'',{mode:0o600,flag:'wx'});
-  child=spawn('/bin/bash',['--noprofile','--norc','-c',config.command],{
-    cwd:config.directory,env:config.env,detached:true,stdio:['ignore','pipe','pipe']
+  // 根 bash 等待私有管道放行后才退出。原命令不继承握手 fd，stdin 仍为 /dev/null。
+  const command='/bin/bash --noprofile --norc -c "$1" 3<&- 4>&-; multivac_command_status=$?; printf "%s\\n" "$multivac_command_status" >&4; IFS= read -r -u 3; exit "$multivac_command_status"';
+  child=spawn('/bin/bash',['--noprofile','--norc','-c',command,'multivac-bash',config.command],{
+    cwd:config.directory,env:config.env,detached:true,stdio:['ignore','pipe','pipe','pipe','pipe']
   });
-  child.once('spawn',()=>{tree=processTree(child.pid);try{tree.observe();}catch{}send({pid:child.pid});if(stopping) stop();});
+  child.stdio[3].on('error',()=>{});
+  let commandResult='';
+  child.stdio[4].on('data',chunk=>{
+    commandResult+=chunk.toString();
+    if(!commandFinished && /^\d+\n$/.test(commandResult)) {
+      commandFinished=true;code=Number(commandResult);send({rootExited:true,code});
+      try{observeTree();}catch{}
+    }
+  });
+  child.once('spawn',()=>{tree=processTree(child.pid);try{observeTree();}catch{}send({pid:child.pid});if(stopping) stop();});
   child.once('error',()=>finish(true));
-  child.once('exit',exitCode=>{code=exitCode;rootExited=true;send({rootExited:true,code});});
+  child.once('exit',exitCode=>{rootExited=true;if(!commandFinished){code=exitCode;send({rootExited:true,code});}});
   const output=chunk=>{
     bytes+=chunk.length;
     if(config.maxBytes !== null && bytes>config.maxBytes) { overflow=true;stop(); }
@@ -48,7 +67,7 @@ input.once('line',line=>{
   child.stdout.on('data',output);child.stderr.on('data',output);
   poll=setInterval(()=>{
     try {
-      const members=tree?.observe();
+      const members=observeTree();
       if(rootExited && members?.length===0) finish();
       else if(killRequested) signalGroup('SIGKILL');
     } catch { /* 核对失败时继续保留监护器与停止入口。 */ }
