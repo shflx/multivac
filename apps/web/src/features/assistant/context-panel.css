@@ -1,15 +1,82 @@
-.context-toolbar { display: flex; justify-content: flex-end; padding: 2px 0 4px; }
-.context-panel { position: relative; min-width: 0; font-size: 12px; }
-.context-panel > summary { cursor: pointer; padding: 4px 6px; border-radius: var(--r-sm); color: var(--muted); list-style: none; white-space: nowrap; }
+.context-panel { position: relative; min-width: 0; font-size: var(--t-xs); }
+
+/* 入口：圆环 + 比例，和输入卡片底栏的其它控件同高。 */
+.context-panel > summary {
+  display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 6px;
+  border-radius: var(--r-md); color: var(--muted); list-style: none; white-space: nowrap; cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
 .context-panel > summary::-webkit-details-marker { display: none; }
+.context-panel > summary:hover, .context-panel[open] > summary { background: var(--surface-subtle); color: var(--ink); }
 .context-panel > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.context-panel-content { position: absolute; z-index: 30; bottom: calc(100% + 8px); right: 0; width: min(350px, calc(100vw - 32px)); max-height: min(65vh, 520px); overflow: auto; overscroll-behavior: contain; padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 6px 24px #0002; line-height: 1.6; overflow-wrap: anywhere; color: var(--ink); }
-.context-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.context-snapshot { display: grid; gap: 4px; }
-.context-panel-content summary { cursor: pointer; }
-.context-panel-content ul { padding-left: 18px; }
-.context-panel-content p { margin: 6px 0; }
-.context-panel-content button { padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
-.context-panel-content button:disabled { opacity: .55; cursor: default; }
-.context-compaction { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 10px; }
-.context-compaction > [role='status'] { display: grid; gap: 4px; margin-top: 8px; }
+.context-panel > summary[data-stale] .context-label { opacity: .6; }
+.context-panel > summary[data-level='warn'] { color: var(--warn); }
+.context-panel > summary[data-level='danger'] { color: var(--danger); }
+
+.context-ring { width: 16px; height: 16px; flex-shrink: 0; transform: rotate(-90deg); }
+.context-ring circle { fill: none; stroke-width: 2.25; }
+.context-ring-track { stroke: var(--line); }
+.context-ring-value { stroke: currentColor; stroke-linecap: round; transition: stroke-dashoffset .3s ease; }
+[data-level='normal'] > .context-ring .context-ring-value { stroke: var(--accent); }
+
+/* 弹层：数字、进度条、一行来源，其余收起。 */
+.context-panel-content {
+  position: absolute; z-index: 30; bottom: calc(100% + 8px); right: 0;
+  display: grid; gap: 8px; width: min(280px, calc(100vw - 32px)); max-height: min(65vh, 480px); overflow: auto; overscroll-behavior: contain;
+  padding: 12px 14px 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface);
+  box-shadow: 0 8px 28px rgb(27 32 35 / 12%); line-height: 1.5; overflow-wrap: anywhere; color: var(--ink); font-size: var(--t-xs);
+}
+.context-panel-content p { margin: 0; }
+.context-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); }
+.context-panel-heading strong { font-weight: 500; }
+.context-icon-button {
+  display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.context-icon-button:hover:not(:disabled) { background: var(--surface-subtle); color: var(--ink); }
+.context-icon-button svg { width: 13px; height: 13px; }
+.context-icon-button:disabled { cursor: default; }
+
+.context-usage { display: flex; align-items: baseline; gap: 2px; font-variant-numeric: tabular-nums; }
+.context-usage strong { font-size: var(--t-xl); font-weight: 600; line-height: 1.2; }
+.context-usage span { color: var(--muted); }
+.context-usage em { margin-left: auto; font-style: normal; font-weight: 600; font-size: var(--t-sm); }
+.context-meter { height: 4px; border-radius: 999px; background: var(--surface-strong); overflow: hidden; }
+.context-meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .3s ease; }
+[data-level='warn'] > .context-meter span { background: var(--warn-bright); }
+[data-level='danger'] > .context-meter span { background: var(--danger-bright); }
+[data-level='warn'] > .context-usage em { color: var(--warn); }
+[data-level='danger'] > .context-usage em { color: var(--danger); }
+.context-meta { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.context-note { color: var(--faint); }
+.context-note[role='alert'] { color: var(--danger); }
+.context-operation { color: var(--muted); }
+.context-operation[data-status='running'] { color: var(--accent); }
+.context-operation[data-status='succeeded'] { color: var(--success); }
+.context-operation[data-status='failed'], .context-operation[data-status='reconciliation-required'] { color: var(--danger); }
+/* 压缩入口提示：浅底卡片 + 命令键帽，和普通说明文字区分开。 */
+.context-hint {
+  display: flex; align-items: center; gap: 8px; margin-top: 2px !important; padding: 7px 10px;
+  border: 1px dashed var(--line-strong); border-radius: var(--r-md); background: var(--surface-subtle); color: var(--muted);
+}
+.context-hint > svg { flex-shrink: 0; width: 14px; height: 14px; color: var(--accent); }
+.context-hint kbd {
+  padding: 1px 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-sm);
+  background: var(--surface); color: var(--ink); font: 500 11px/1.4 var(--font-mono, ui-monospace, monospace);
+}
+
+/* /compact 的输入区反馈：一行状态，结束后可关闭。 */
+.compact-feedback { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; color: var(--muted); font-size: var(--t-xs); }
+.compact-feedback > svg { flex-shrink: 0; width: 14px; height: 14px; }
+.compact-feedback[data-status='succeeded'] { color: var(--success); }
+.compact-feedback[data-status='failed'], .compact-feedback[data-status='reconciliation-required'] { color: var(--danger); }
+.compact-feedback button { display: grid; place-items: center; width: 18px; height: 18px; margin-left: auto; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
+.compact-feedback button:hover { background: var(--surface-subtle); color: var(--ink); }
+.compact-feedback button svg { width: 12px; height: 12px; }
+
+/* 窄输入卡片（侧栏、并排面板）只保留圆环，避免右侧操作组整体换行；比例仍在悬停提示和弹层中。 */
+@container assistant-composer (max-width: 480px) {
+  .context-panel .context-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .context-panel > summary { padding: 0 5px; }
+  .composer-submit-actions:has(> .context-panel) { gap: 6px; }
+}
