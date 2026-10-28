@@ -24,6 +24,7 @@ import { GitReadService, workingGitBoundary } from '../application/git-read-serv
 import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
 import { ReminderScheduler } from '../application/reminder-scheduler.js';
+import { NotificationDeliveryService } from '../application/notification-delivery-service.js';
 import { ReminderService } from '../application/reminder-service.js';
 import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { ManagedProcessService } from '../application/managed-process-service.js';
@@ -1083,6 +1084,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
   });
+  const notificationDelivery = new NotificationDeliveryService(store.notificationChannels, []);
+  notificationDelivery.start(workbenchEvents);
   const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
   reminderScheduler.start();
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.sessions.get(id)?.title);
@@ -1177,6 +1180,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ready: ready.then(async () => { await managedProcesses.recover(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
     close() {
       reminderScheduler.stop();
+      const hadNotifications = notificationDelivery.hasActivity;
+      const notificationsStopped = notificationDelivery.close();
       remoteAccess.close();
       images.dispose();
       noteImages.dispose();
@@ -1210,9 +1215,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
-      if (hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb) {
+      if (hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb || hadNotifications) {
         const processesStopped = managedProcesses.activeCount ? managedProcesses.close() : Promise.resolve();
-        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped]).then(results => {
+        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped, notificationsStopped]).then(results => {
           // 无法核对终端停止时仍保留数据库和运行时，让迟到退出能够写回真实状态。
           if (results[0]?.status === 'rejected') throw results[0].reason;
           finish();
