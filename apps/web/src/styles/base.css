@@ -6674,7 +6674,8 @@ svg {
 .task-inspector .task-request-card { max-width: 100%; margin: 12px 0; padding: 16px; box-shadow: none; }
 
 /* 任务图标提示与原型保持相同的延迟和浮层样式。 */
-.task-control-tooltip { position: fixed; z-index: 200; transform: translateX(-50%); max-width: 320px; padding: 6px 9px; border-radius: var(--r-sm); background: var(--n-900); color: var(--n-0); box-shadow: 0 3px 12px rgb(0 0 0 / 12%); font-size: var(--t-sm); line-height: 1.5; pointer-events: none; animation: task-tooltip-in 140ms 280ms ease both; }
+/* 浅色提示：与说明气泡、上下文面板等浮层同一套白底描边样式。 */
+.task-control-tooltip { position: fixed; z-index: 200; transform: translateX(-50%); max-width: 320px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink); box-shadow: 0 6px 20px rgb(27 32 35 / 10%); font-size: var(--t-xs); line-height: 1.5; pointer-events: none; animation: task-tooltip-in 140ms 280ms ease both; }
 @keyframes task-tooltip-in { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .task-control-tooltip { animation: none; } }
 
