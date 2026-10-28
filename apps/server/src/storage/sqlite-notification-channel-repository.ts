@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { InboxNotification, NotificationChannel, NotificationContent, NotificationDelivery } from '@multivac/contracts';
 import { NOTIFICATION_DELIVERY_TTL_MS } from '@multivac/contracts';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
+import type { ChannelSendResult } from '../modules/notifications/channel.js';
 import { runInTransaction } from './sqlite-transaction.js';
 
 const queued = new Set(['pending', 'waiting']);
@@ -171,6 +172,73 @@ export class SqliteNotificationChannelRepository {
         this.validateQueued(JSON.parse(String(row.record_json)), now);
       }
       return inserted;
+    });
+  }
+  /** 仅在已确认同库旧服务停止后的启动恢复调用，不把遗留发送中退回待发送。 */
+  recover(now: string): void {
+    this.transaction(() => {
+      for (const row of this.db.prepare("SELECT record_json FROM notification_delivery WHERE state='sending'").all()) {
+        const record = JSON.parse(String(row.record_json)) as NotificationDelivery;
+        const result: ChannelSendResult = { outcome: 'unknown', diagnostic: '上次发送未保留完整结果，需核对；不会自动重发。' };
+        this.saveDelivery({ ...record, state: 'unknown', completedAt: now, diagnostic: result.diagnostic });
+        this.db.prepare('UPDATE notification_delivery_attempt SET result_json=? WHERE delivery_id=? AND attempt=? AND result_json IS NULL')
+          .run(JSON.stringify(result), record.id, record.attempts);
+      }
+      this.db.prepare('UPDATE notification_channel SET owner=NULL').run();
+    });
+  }
+  acquire(id: string, owner: string, now: string): NotificationDelivery | null {
+    return this.transaction(() => {
+      const lock = this.db.prepare("UPDATE notification_channel SET owner=? WHERE id=? AND owner IS NULL AND NOT EXISTS (SELECT 1 FROM notification_delivery WHERE channel_id=? AND state='sending')").run(owner, id, id);
+      if (!lock.changes) return null;
+      const row = this.db.prepare("SELECT record_json FROM notification_delivery WHERE channel_id=? AND state IN ('pending','waiting') AND next_attempt_at<=? ORDER BY rowid LIMIT 1").get(id, now);
+      const record = row ? JSON.parse(String(row.record_json)) as NotificationDelivery : null;
+      if (record && this.validateQueued(record, now)) return record;
+      this.release(id, owner); return null;
+    });
+  }
+  release(id: string, owner: string): void {
+    this.db.prepare('UPDATE notification_channel SET owner=NULL WHERE id=? AND owner=?').run(id, owner);
+  }
+  private owned(id: string, owner: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM notification_channel WHERE id=? AND owner=?').get(id, owner);
+  }
+  wait(id: string, owner: string, now: string, diagnostic: string): void {
+    const record = this.delivery(id);
+    if (!record || !this.owned(record.channelId, owner) || !this.validateQueued(record, now)) return;
+    this.saveDelivery({ ...record, state: 'waiting', nextAttemptAt: new Date(Date.parse(now) + 30_000).toISOString(), diagnostic });
+  }
+  beginSend(id: string, owner: string, now: string): NotificationDelivery | null {
+    return this.transaction(() => {
+      const record = this.delivery(id);
+      if (!record || !this.owned(record.channelId, owner) || !this.validateQueued(record, now)) return null;
+      if (record.attempts >= 5) {
+        this.saveDelivery({ ...record, state: 'failed', completedAt: now, diagnostic: '确定未发出后的重试已达上限。' }); return null;
+      }
+      const next: NotificationDelivery = { ...record, state: 'sending', startedAt: now, attempts: record.attempts + 1, diagnostic: null };
+      this.saveDelivery(next);
+      this.db.prepare('INSERT INTO notification_delivery_attempt VALUES (?,?,?,NULL)').run(next.id, next.attempts, now);
+      return next;
+    });
+  }
+  finish(sent: NotificationDelivery, owner: string, result: ChannelSendResult, now: string): void {
+    this.transaction(() => {
+      const record = this.delivery(sent.id);
+      if (!record || !this.owned(sent.channelId, owner) || record.state !== 'sending' || record.attempts !== sent.attempts) return;
+      let state: NotificationDelivery['state'] = 'unknown';
+      if (result.outcome === 'accepted') state = 'accepted';
+      else if (result.outcome === 'rejected') state = 'failed';
+      else if (result.outcome === 'not-sent') state = record.expiresAt <= now ? 'expired' : record.attempts >= 5 ? 'failed' : 'pending';
+      const retryAt = new Date(Date.parse(now) + Math.min(60_000, 1000 * 2 ** record.attempts)).toISOString();
+      this.saveDelivery({ ...record, state, serverMessageId: result.outcome === 'accepted' ? result.serverMessageId : null,
+        diagnostic: result.outcome === 'accepted' ? null : result.diagnostic,
+        completedAt: state === 'pending' ? null : now, nextAttemptAt: state === 'pending' ? retryAt : record.nextAttemptAt });
+      this.db.prepare('UPDATE notification_delivery_attempt SET result_json=? WHERE delivery_id=? AND attempt=?')
+        .run(JSON.stringify(result), sent.id, sent.attempts);
+      const channel = this.channel(sent.channelId);
+      if (result.outcome === 'rejected' && result.credentialsInvalid && channel?.bindingGeneration === sent.bindingGeneration && channel.version === sent.configVersion) {
+        this.setReadiness(channel.id, 'invalid', '渠道凭据已失效，请重新绑定；原通知保留在 Inbox。');
+      }
     });
   }
   /** 发送前同样调用；查看和 seen 不参与取消判断。 */
