@@ -26,6 +26,7 @@ import type {
 import {
   buildSessionContext,
   createAgentSession,
+  estimateTokens,
   ModelRuntime,
   SessionManager,
   SettingsManager,
@@ -100,6 +101,8 @@ export interface PiCoordinatorAgentSession {
   compactContext?(operation: ContextCompactionOperation): Promise<ContextCompactionOperation>;
   getActiveBranch(): SessionEntry[];
   getContextUsage?(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
+  /** 按 Pi 字符启发式估算完整上下文（系统提示、启用工具定义与 Agent 消息）；仅在缺少可信用量时使用。 */
+  estimateContextTokens?(): number;
   prompt(text: string, options?: { images?: { type: 'image'; mimeType: string; data: string }[] }): Promise<void>;
   steer(text: string, images?: { type: 'image'; mimeType: string; data: string }[]): Promise<void>;
   followUp(text: string, images?: { type: 'image'; mimeType: string; data: string }[]): Promise<void>;
@@ -759,6 +762,13 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         taskToolsStopped: () => lifecycle ? lifecycle.stopped : taskTools?.processesStopped ?? false,
         getActiveBranch: () => result.session.sessionManager.getBranch(),
         getContextUsage: () => result.session.getContextUsage(),
+        estimateContextTokens: () => {
+          const { systemPrompt, tools, messages } = result.session.agent.state;
+          // 与 Pi 消息估算同一口径：字符数 / 4。
+          const promptChars = systemPrompt.length + tools.reduce((sum, tool) =>
+            sum + tool.name.length + tool.description.length + JSON.stringify(tool.parameters).length, 0);
+          return Math.ceil(promptChars / 4) + messages.reduce((sum, message) => sum + estimateTokens(message), 0);
+        },
         compactContext: operation => compactPiContext(result.session, operation),
         prompt: (text, options) => result.session.prompt(text, options),
         steer: (text, images) => result.session.steer(text, images),

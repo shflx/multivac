@@ -3,7 +3,7 @@ import { SessionContextManagementService } from '../src/application/session-cont
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { reconcilePiCompaction } from '../src/runtime/executors/pi-context-compaction.js';
 import type { ContextCompactionOperation } from '@multivac/contracts';
-import { readPiContext } from '../src/runtime/executors/pi-context-snapshot.js';
+import { POST_COMPACTION_BASIS, readPiContext } from '../src/runtime/executors/pi-context-snapshot.js';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -278,7 +278,7 @@ test('应用快照：空消息不伪装零，缓存输入完整计入，查询�
   } finally { await f.close(); }
 });
 
-test('应用快照：模型变更不套旧用量，压缩后未知，历史请求保留原模型', async () => {
+test('应用快照：模型变更不套旧用量，压缩后按字符粗估，历史请求保留原模型', async () => {
   const f = await fixture();
   try {
     f.seed();
@@ -294,8 +294,10 @@ test('应用快照：模型变更不套旧用量，压缩后未知，历史请�
     f.actual.agent.state.model = f.model;
     await f.actual.compact();
     const compacted = readPiContext('controlled', f.resources.session, f.config.model, '2026-10-26T00:00:02.000Z');
-    assert.equal(compacted.current.source, 'unavailable');
-    assert.equal(compacted.current.tokens, null);
+    assert.equal(compacted.current.source, 'current-estimate');
+    assert.equal(compacted.current.basis, POST_COMPACTION_BASIS);
+    assert.ok((compacted.current.tokens ?? 0) > 0, '压缩后不再显示未知，改为字符粗估');
+    assert.equal(compacted.current.stale, false);
     assert.equal(compacted.lastRequest?.tokens, 14);
     assert.equal(compacted.lastRequest?.stale, true);
   } finally { await f.close(); }
