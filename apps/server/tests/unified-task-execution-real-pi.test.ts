@@ -4,7 +4,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { configureScriptedModel, startScriptedModel } from './fixtures/scripted-model.js';
 import { testApplicationEnvironment, testDataDir } from './fixtures/test-environment.js';
@@ -25,7 +26,7 @@ test('真实 Pi 两类会话对照：安装、失败测试、修复、构建、�
   await writeFile(join(source, '.gitignore'), 'node_modules/\n');
   await writeFile(join(source, 'value.cjs'), 'exports.value = 1;\n');
   await writeFile(join(source, 'value.test.cjs'), "require('node:test')('value',()=>require('node:assert/strict').equal(require('./value.cjs').value,42));\n");
-  const playwrightModule = resolve('node_modules/playwright');
+  const playwrightModule = fileURLToPath(new URL('../../../node_modules/playwright', import.meta.url));
   await writeFile(join(source, 'browser.cjs'), `
 const {spawn}=require('node:child_process');
 const assert=require('node:assert/strict');
@@ -50,7 +51,7 @@ const {chromium}=require(${JSON.stringify(playwrightModule)});
   await writeFile(join(source, 'user-only.txt'), 'keep dirty user tree');
   const app = createMultivacApplication({ ...testApplicationEnvironment(root), MULTIVAC_MODE: 'development', MULTIVAC_FAKE_ASSISTANT: '0', MULTIVAC_PROVIDER: 'local-scripted', MULTIVAC_MODEL: 'scripted' });
   const runChecks = 'npm ci --ignore-scripts --no-audit --no-fund && npm run build && npm test';
-  const browser = `PLAYWRIGHT_BROWSERS_PATH=${quote(resolve('.tmp/browsers'))} ${quote(process.execPath)} browser.cjs`;
+  const browser = `PLAYWRIGHT_BROWSERS_PATH=${quote(process.env.PLAYWRIGHT_BROWSERS_PATH ?? fileURLToPath(new URL('../../../.tmp/browsers', import.meta.url)))} ${quote(process.execPath)} browser.cjs`;
   const script = (task: boolean) => {
     model.script(
       { toolCalls: [{ name: 'bash', arguments: { command: runChecks } }] },
