@@ -2,21 +2,18 @@ import { GLOBAL_ASSISTANT_SESSION_ID, type WorkingDirectory } from '@multivac/co
 import type { ProjectRepository, WorkspaceRepository } from '../modules/projects/project.js';
 import type { SessionRegistryRepository } from '../modules/sessions/session-registry.js';
 
-/** 只从服务端当前记录读取普通工作会话的项目范围，不缓存归属或目录。 */
+/** 两类工作会话均逐次读取当前项目范围；任务 Run 身份另由执行租约核对。 */
 export function projectFileScope(dependencies: {
   sessions: SessionRegistryRepository;
   workspaces: WorkspaceRepository;
   projects: ProjectRepository;
-  isTaskSession: (sessionId: string) => boolean;
 }): (sessionId: string, runtimeDirectory: WorkingDirectory) => readonly string[] {
-  return (sessionId, runtimeDirectory) => {
-    if (sessionId === GLOBAL_ASSISTANT_SESSION_ID ||
-      ['task-isolated', 'worktree'].includes(runtimeDirectory.kind) ||
-      dependencies.isTaskSession(sessionId)) return [];
+  return (sessionId, _runtimeDirectory) => {
+    if (sessionId === GLOBAL_ASSISTANT_SESSION_ID) return [];
 
     const session = dependencies.sessions.get(sessionId);
     if (!session || session.kind !== 'work' || session.host || session.archivedAt ||
-      !session.workingDirectory || ['task-isolated', 'worktree'].includes(session.workingDirectory.kind)) return [];
+      !session.workingDirectory) return [];
     const projectId = dependencies.workspaces.get(session.workspaceId)?.project?.projectId;
     return projectId ? dependencies.projects.get(projectId)?.directories.map(directory => directory.path) ?? [] : [];
   };

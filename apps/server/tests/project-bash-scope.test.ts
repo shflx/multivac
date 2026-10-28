@@ -28,7 +28,7 @@ async function fixture() {
   }).record.workingDirectory!;
   const old = add('old');
   const tasks = new Set<string>();
-  const scope = projectBashScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, isTaskSession: id => tasks.has(id) });
+  const scope = projectBashScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, taskExecutionMode: id => tasks.has(id) ? 'native-isolated' : null });
   const mount = () => projects.updateProject(a.projectId, { directories: [primary, extra] });
   const unmount = () => projects.updateProject(a.projectId, { directories: [primary] });
   return { root, primary, extra, other, store, projects, a, b, old, add, tasks, scope, mount, unmount,

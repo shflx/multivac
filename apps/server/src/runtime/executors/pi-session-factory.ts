@@ -41,6 +41,7 @@ import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-m
 import { securePiAuthFile } from './pi-credential-security.js';
 import { managedBashTool, type BashExecutionPort } from './managed-bash-tool.js';
 import { NativeTaskTools, type NativeTaskLease } from './native-task-tools.js';
+import { TaskToolLifecycle } from './task-tool-lifecycle.js';
 import type { ExecutionDiagnostics } from '../../application/execution-diagnostics.js';
 import { observedModelRuntime } from './observed-model-runtime.js';
 import { usageModelRuntime } from './usage-model-runtime.js';
@@ -137,7 +138,9 @@ export interface PiCoordinatorSessionFactoryInput {
   assistantSessionId?: string;
   bashProcesses?: BashExecutionPort;
   skills?: PiSkills;
+  /** 仅用于显式恢复旧隔离执行；新任务只添加运行管理。 */
   taskIsolation?: boolean;
+  taskExecution?: boolean;
   taskProtectedPaths?: readonly string[];
   taskLease?: NativeTaskLease;
   executionDiagnostics?: ExecutionDiagnostics;
@@ -512,6 +515,8 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
     let preparation: PersistedSessionPreparation = { sessionManager };
     let createdAgentSession: CreateAgentSessionResult['session'] | undefined;
     let taskTools: NativeTaskTools | undefined;
+    if (input.taskExecution && !input.taskLease) throw new Error('任务执行租约尚未接入。');
+    const lifecycle = input.taskExecution ? new TaskToolLifecycle(input.taskLease!) : undefined;
     let unsubscribeExecutionDiagnostics: (() => void) | undefined;
     let appliedModelConfig = input.config.model;
     try {
@@ -618,6 +623,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       const toolBoundary: ToolBoundaryExtensionOptions = {
         cwd: input.cwd,
         readingOnly: input.config.readingOnly,
+        ...(input.taskExecution ? { assertExecution: () => input.taskLease!('check', 'file-check', 0) } : {}),
         ...(guardedFiles ? { fileExecutionGuarded: true } : {}),
         ...(guardedFiles && input.projectDirectories ? { projectDirectories: input.projectDirectories } : {}),
         ...(input.authorizeOutsideAccess ? { authorizeOutsideAccess: input.authorizeOutsideAccess } : {}),
@@ -664,13 +670,15 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       taskTools = input.taskIsolation ? await NativeTaskTools.create(input.cwd, [input.agentDir, ...(input.sessionDir ? [input.sessionDir] : []), ...(input.taskProtectedPaths ?? [])], input.taskLease) : undefined;
       const managedBash = !input.config.readingOnly && input.bashProcesses && input.assistantSessionId
         ? managedBashTool(input.assistantSessionId, input.cwd, input.bashProcesses, taskTools) : undefined;
-      const customTools = [...(guardedFiles ? createBoundaryFileTools(toolBoundary) : []), ...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? []), ...(input.skills?.definitions ?? [])];
+      const files = guardedFiles ? createBoundaryFileTools(toolBoundary) : [];
+      const tracked = [...files, ...(input.skills?.definitions ?? [])].map(tool => lifecycle ? lifecycle.wrap(tool) : tool);
+      const customTools = [...tracked, ...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? [])];
       if (input.skills) {
-        // 普通会话也使用已验证的原生隔离；任务复用原执行器及租约，不扩张任务能力。
+        // Skill 单文件脚本的共同限制保持不变，任务额外使用原 Run 租约。
         input.skills.bindExecutor(async (executable,args,options) => {
           if (taskTools) return taskTools.execute(executable,args,{...options,fenced:true});
-          const isolated=await NativeTaskTools.create(input.cwd,[input.agentDir,...(input.taskProtectedPaths??[])]);
-          try { return await isolated.execute(executable,args,options); } finally { isolated.dispose(); }
+          const isolated=await NativeTaskTools.create(input.cwd,[input.agentDir,...(input.taskProtectedPaths??[])], input.taskLease);
+          try { return await isolated.execute(executable,args,{...options, ...(input.taskExecution ? { fenced: true } : {})}); } finally { isolated.dispose(); }
         });
       }
       const result = await this.createPiAgentSession({
@@ -744,7 +752,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
           return result.session.isStreaming;
         },
         get isIdle() { return result.session.isIdle && !result.session.isRetrying; },
-        taskToolsStopped: () => taskTools?.processesStopped ?? false,
+        taskToolsStopped: () => lifecycle ? lifecycle.stopped : taskTools?.processesStopped ?? false,
         getActiveBranch: () => result.session.sessionManager.getBranch(),
         prompt: (text, options) => result.session.prompt(text, options),
         steer: (text, images) => result.session.steer(text, images),
@@ -782,7 +790,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         setModel: (model) => result.session.setModel(model),
         setThinkingLevel: (level) => result.session.setThinkingLevel(level),
         getAvailableThinkingLevels: () => result.session.getAvailableThinkingLevels(),
-        dispose: () => { unsubscribeExecutionDiagnostics?.(); taskTools?.dispose(); result.session.dispose(); },
+        dispose: () => { unsubscribeExecutionDiagnostics?.(); lifecycle?.dispose(); taskTools?.dispose(); result.session.dispose(); },
       };
 
       return {

@@ -36,7 +36,13 @@ test('创建与恢复共用 factory 的 bash 覆盖保留工具集合，阅读�
     const parameters = bash.parameters as ReturnType<typeof Type.Object>;
     assert.ok(parameters.properties.mode); assert.ok(parameters.properties.cwd);
     assert.match(bash.description, /background/); assert.match(bash.description, /不改会话目录，不提供文件系统隔离/);
+    const leases: string[] = [];
+    await factory.create({ cwd, agentDir, sessionDir: join(root, 'task'), config, assistantSessionId: 'task-session', bashProcesses,
+      taskExecution: true, taskLease: phase => { leases.push(phase); return 100000; } });
+    assert.deepEqual(captured[1]!.tools, captured[0]!.tools);
+    assert.deepEqual(captured[1]!.customTools?.map(tool => tool.name), captured[0]!.customTools?.map(tool => tool.name));
+    await assert.rejects(factory.create({ cwd, agentDir, config, taskExecution: true }), /租约尚未接入/);
     await factory.create({ cwd, agentDir, sessionDir: join(root, 'reading'), config: { ...config, readingOnly: true }, assistantSessionId: 'reading-session', bashProcesses });
-    assert.deepEqual(captured[1]!.tools, []); assert.equal(captured[1]!.customTools, undefined);
+    assert.deepEqual(captured[2]!.tools, []); assert.equal(captured[2]!.customTools, undefined);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -120,9 +120,9 @@ export class TaskExecutionService {
     this.updateRun(runId, 'preparing', (current, task) => { current.hasStarted = true; current.startedAt = this.now(); return { ...task, reason: '准备独立目录与执行模型。' }; });
     this.launch(runId);
   }
-  nativeLease(sessionId: string, phase: 'starting' | 'settled', marker: string, bytes: number): number {
+  nativeLease(sessionId: string, phase: 'starting' | 'settled' | 'check' | 'progress', marker: string, bytes: number): number {
     if (this.disposed) { if (phase === 'settled') return 0; throw new Error('任务执行器已停止。'); }
-    if (this.closing && phase === 'starting') throw new Error('任务执行器正在关闭，不能启动新工具。');
+    if (this.closing && (phase === 'starting' || phase === 'check')) throw new Error('任务执行器正在关闭，不能启动新工具。');
     this.assertOwner?.();
     let remaining = 0;
     this.options.tasks.facts((facts) => {
@@ -130,18 +130,35 @@ export class TaskExecutionService {
       if (!run || run.ownerId !== this.ownerId || run.stopConfirmed) throw new Error('任务执行租约已失效。');
       const task = this.options.tasks.get(run.taskId);
       const pending = run.nativePendingIds ?? [];
-      if (phase === 'starting') {
+      if (phase === 'starting' || phase === 'check') {
         if (task.currentRunId !== run.runId || task.status !== 'running' || run.stopIntent) throw new Error('任务当前不能执行工具。');
         const budget = this.budget(run.rootTaskId ?? run.taskId);
         if (bytes > budget.remainingBytes || budget.remainingBytes < 1 || !(budget.remainingMillis > 0)) throw new Error('任务共享预算已耗尽。');
-        run.nativePendingIds = [...pending, marker];
+        if (phase === 'starting') run.nativePendingIds = [...new Set([...pending, marker])];
         remaining = budget.remainingBytes - bytes;
-      } else run.nativePendingIds = pending.filter((id) => id !== marker);
+      } else {
+        // 迟到回执只能结算原运行已登记的调用，不能给新 Run 记账或清除其停止标记。
+        if (!pending.includes(marker)) throw new Error('工具调用不属于当前任务运行。');
+        if (phase === 'settled') run.nativePendingIds = pending.filter((id) => id !== marker);
+        remaining = this.budget(run.rootTaskId ?? run.taskId).remainingBytes - bytes;
+      }
       run.lastActivityAt = this.now();
       run.outputBytes = (run.outputBytes ?? 0) + bytes;
       facts.runs.save(run);
     });
     return remaining;
+  }
+  /** 只结算已由托管后端核实的原进程退出凭据，不恢复旧工具或改变停止意图。 */
+  reconcileBashLease(record: import('../modules/processes/managed-process.js').ManagedProcessRecord): void {
+    if (record.backend !== 'bash' || record.executionMode !== 'workspace' || record.totalOutputBytes === undefined || !['exited', 'failed'].includes(record.public.state)) return;
+    this.options.tasks.facts(facts => {
+      const run = record.public.runId ? facts.runs.get(record.public.runId) : null;
+      const marker = `bash-process:${record.public.processId}`;
+      if (!run || run.sessionId !== record.public.sessionId || run.commandId !== record.public.executionId || !run.nativePendingIds?.includes(marker)) return;
+      run.outputBytes = (run.outputBytes ?? 0) + Math.max(0, record.totalOutputBytes! - (record.accountedBytes ?? 0));
+      run.nativePendingIds = run.nativePendingIds.filter(id => id !== marker);
+      facts.runs.save(run);
+    });
   }
   async stopForBudget(runId: string): Promise<void> {
     if (this.budgetStops.has(runId)) return;
@@ -281,7 +298,7 @@ export class TaskExecutionService {
         .filter(result => !satisfiesTaskDependency(this.options.tasks.get(result.taskId).status) && this.options.tasks.get(result.taskId).status !== 'paused')
         .map(result => ({ ...result, commandId: `tree-result:${runId}:${result.taskId}` })) : [],
       rootTaskId: rootTask.taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
-      outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
+      executionMode: 'workspace', outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
       agentId: task.agentId ?? DEFAULT_AGENT_ID,
       runId, taskId: task.taskId, sessionId, commandId: `task-run:${runId}`,
       status: 'preparing', stopIntent: null, stopConfirmed: false, ownerId: this.ownerId,

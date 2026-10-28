@@ -265,9 +265,11 @@ export function denyOutsideWorkingDirectory(cwd: string): OutsideWorkingDirector
 
 export interface ToolBoundaryExtensionOptions {
   readingOnly?: boolean | undefined;
+  /** 任务运行检查与文件权限分开，授权等待后及每次 I/O 前复核原 Run。 */
+  assertExecution?: () => void;
   /** 会话工作目录（绝对路径），取自 Multivac 会话记录。 */
   cwd: string;
-  /** 服务端当前项目目录来源，每次文件执行重新读取。隔离任务不传入。 */
+  /** 服务端当前项目目录来源，每次文件执行重新读取，两类工作会话共用。 */
   projectDirectories?: () => readonly string[];
   /** 普通 Pi 文件工具已有执行入口校验时，钩子不提前授予可能过期的许可。 */
   fileExecutionGuarded?: boolean;
@@ -356,6 +358,7 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
   return definitions.map(definition => ({
     ...definition,
     async execute(toolCallId, params, signal, onUpdate, context) {
+      options.assertExecution?.();
       const event = { type: 'tool_call', toolName: definition.name, toolCallId, input: { ...params as Record<string, unknown> } } as ToolCallEvent;
       const planned = await judgeToolCall(definition.name, event.input, options.cwd, options.internalTools, options.projectDirectories);
       if (planned.type === 'block') throw new Error(planned.reason);
@@ -366,6 +369,7 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
       let started = false;
       const beforeIo = async (filePath?: string) => {
         if (signal?.aborted) throw new Error(CANCELLED_REASON);
+        options.assertExecution?.();
         const current = await resolveToolTargetPath(definition.name, (event.input as Record<string, unknown>).path as string, options.cwd);
         if (current !== target || (filePath && await resolveRealTargetPath(filePath) !== target)) {
           throw new Error('文件实际目标在执行前发生了变化，调用未执行，请按新目标重新确认。');
@@ -374,6 +378,7 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
         const result = await check(event, { ...context, signal }) as ToolCallEventResult | undefined;
         if (result?.block) throw new Error(result.reason);
         if (signal?.aborted) throw new Error(CANCELLED_REASON);
+        options.assertExecution?.();
         started = true;
       };
       // 每个调用独立持有状态；复用 Pi 的队列、替换算法、图片与截断处理。

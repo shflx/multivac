@@ -171,6 +171,7 @@ const FOREIGN_HARNESS = { code: 'SESSION_BINDING_MISMATCH', message: '会话属�
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
   readonly harness = PI_HARNESS;
   readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true, skills: true } as const;
+  private taskMode: ((sessionId: string) => 'workspace' | 'native-isolated' | null) | undefined;
   private taskLease: ((sessionId: string, phase: Parameters<NativeTaskLease>[0], marker: string, bytes: number) => number) | undefined;
   private readonly bashProcesses: BashExecutionPort | undefined;
   private readonly taskProtectedPaths: readonly string[];
@@ -689,9 +690,10 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     return active?.session.taskToolsStopped?.() === true && !active.session.isStreaming;
   }
   get protectedPaths(): readonly string[] { return [this.agentDir, ...this.taskProtectedPaths]; }
-  bindTaskLease(lease: CoordinatorTaskLease): void {
+  bindTaskLease(lease: CoordinatorTaskLease, mode?: (sessionId: string) => 'workspace' | 'native-isolated' | null): void {
     if (this.taskLease) throw new Error('任务执行租约已经接入。');
     this.taskLease = lease;
+    this.taskMode = mode;
   }
 
   private skillsFor: ((id: string) => PiSkills) | undefined;
@@ -705,18 +707,19 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     internalTools?: CoordinatorInternalTools,
   ): PiCoordinatorSessionFactoryInput {
     const authorize = this.authorizeToolCall;
+    const taskMode = this.taskMode?.(assistantSessionId) ?? null;
     return {
       ...(this.skillsFor && !config.readingOnly ? { skills: this.skillsFor(assistantSessionId) } : {}),
       cwd: workingDirectory.path,
-      ...(!config.readingOnly && !['task-isolated', 'worktree'].includes(workingDirectory.kind) && this.optionsProjectFileScope ? {
+      ...(!config.readingOnly && this.optionsProjectFileScope ? {
         projectDirectories: () => this.optionsProjectFileScope!(assistantSessionId, workingDirectory),
       } : {}),
       assistantSessionId,
       ...(this.executionDiagnostics ? { executionDiagnostics: this.executionDiagnostics } : {}),
       ...(this.usageRecorder ? { usageRecorder: this.usageRecorder } : {}),
       ...(this.bashProcesses ? { bashProcesses: this.bashProcesses } : {}),
-      ...(['task-isolated', 'worktree'].includes(workingDirectory.kind) ? {
-        taskIsolation: true, taskProtectedPaths: this.taskProtectedPaths,
+      ...(taskMode ? {
+        ...(taskMode === 'workspace' ? { taskExecution: true } : { taskIsolation: true }), taskProtectedPaths: this.taskProtectedPaths,
         taskLease: (phase, marker, bytes) => {
           if (!this.taskLease) throw new Error('任务执行租约尚未接入。');
           return this.taskLease(assistantSessionId, phase, marker, bytes);
@@ -731,7 +734,6 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       ...(authorize
         ? {
             authorizeOutsideAccess: async (access, signal) => {
-              if (workingDirectory.kind === 'task-isolated' || workingDirectory.kind === 'worktree') return { allowed: false, reason: '原生任务工具隔离拒绝目录外访问，授权不能扩大这个执行边界。' };
               const decision = await authorize(
                 { ...access, assistantSessionId, workingDirectory: { ...workingDirectory } }, signal,
               );

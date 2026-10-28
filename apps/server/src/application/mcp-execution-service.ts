@@ -8,7 +8,7 @@ import { validateMcpArguments } from '../modules/mcp/arguments.js';
 export interface McpExecutionHost {
   context(sessionId: string, commandId: string | null, phase?: 'prepare'): McpRuleContext & { workingDirectory: string };
   transport(service: McpService, context: ReturnType<McpExecutionHost['context']>): boolean;
-  lease(sessionId: string, phase: 'starting' | 'settled', marker: string, bytes: number): number;
+  lease(sessionId: string, phase: 'starting' | 'settled' | 'progress', marker: string, bytes: number): number;
   redactor(accountId: string, revision: number): Promise<(text: string) => string>;
 }
 interface Capability { capabilityId: string; identity: McpOperationIdentity; tool: McpTool; connectionId: string | null; preferred: boolean }

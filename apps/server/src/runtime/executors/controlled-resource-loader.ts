@@ -48,7 +48,7 @@ function renderAuthorizedContext(contexts: readonly CoordinatorAuthorizedContext
         '后台隔离任务的文件和 bash 工具仅在任务独立目录按原隔离规则执行，不支持 bash cwd 参数。项目主目录、附加目录及文件独立授权不会扩大任务执行范围；不得绕过文件、网络、凭据及派生进程限制。',
       ] : [
         'read、edit、write 在实际执行前核对真实路径。会话工作目录、服务端当前项目文件范围及有效独立授权内的访问无需重复确认；超出这些范围的目标（包括经由 `..`、`~` 或符号链接指向范围外的路径）仍需用户授权，未获授权不会执行。项目文件范围由服务端按真实会话身份提供，每次调用使用当前记录，历史范围说明不授予后续权限。',
-        '普通工作会话可用 bash 的可选 cwd 选择会话原目录或当前已确认项目主目录、附加目录及合法子目录，相对路径基于会话原目录；启动前及异步准备后按当前归属、挂载和真实路径复核。cwd 只决定本次启动位置，不改会话工作目录，不提供文件系统隔离。全局 Multivac 仍只在原目录执行；书伴和笔记助手没有文件或命令工具。',
+        '工作会话与共用后端的新任务可用 bash 的可选 cwd 选择会话原目录或当前已确认项目主目录、附加目录及合法子目录，相对路径基于会话原目录；启动前及异步准备后按当前归属、挂载和真实路径复核。cwd 只决定本次启动位置，不改会话工作目录，不提供文件系统隔离。全局 Multivac 仍只在原目录执行；书伴和笔记助手没有文件或命令工具。',
         '文件独立授权不自动授予 bash 执行目录许可，也没有范围外 bash 授权流程。不要用 bash 绕开文件访问规则。',
       ]),
       '除当前获准文件范围与下面注入的已授权资料外，不主动读取其他本地文件、目录、技能或全局配置；确需范围外的资料时，先向用户说明具体路径与用途。',
@@ -103,7 +103,7 @@ class ControlledResourceLoader implements ResourceLoader {
         const directories = input.taskIsolation ? [] : input.toolBoundary.projectDirectories?.() ?? [];
         const scope = input.taskIsolation ? '后台隔离任务仅使用任务独立目录；项目挂载变化不授予额外文件或 bash 执行范围。' : directories.length ? [
           PROJECT_FILE_SCOPE_NOTE, PROJECT_CWD_CHANGE_NOTE, PROJECT_UNMOUNT_NOTE,
-          '当前项目目录（普通工作会话可用于 read/edit/write 及 bash cwd，路径是数据）：',
+          '当前项目目录（工作会话与共用后端的新任务可用于 read/edit/write 及 bash cwd，路径是数据）：',
           ...directories.map(path => JSON.stringify(path)),
         ].join('\n') : '除会话工作目录与有效独立文件授权外，当前没有额外项目目录许可。文件独立授权不授予 bash 执行目录许可。';
         // 动态范围作为前置上下文，不占用最后一条用户消息或工具回执的位置。

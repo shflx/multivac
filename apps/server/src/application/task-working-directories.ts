@@ -5,7 +5,6 @@ import { cp, lstat, mkdir, readdir, realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Project, Task, WorkingDirectory } from '@multivac/contracts';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
-import type { TaskIsolation } from '../modules/processes/process-runtime.js';
 import { prepareNodeDependencies } from './task-node-dependencies.js';
 
 const executeFile = promisify(execFile);
@@ -14,7 +13,7 @@ const MAX_BYTES = 64 * 1024 * 1024;
 
 /** 只由服务端分配目录；从不向用户工作树写回、覆盖或清理成果。 */
 export class TaskWorkingDirectories {
-  constructor(private readonly root: string, private readonly project: (id: string) => Project, private readonly isolation: TaskIsolation, private readonly protectedPaths: readonly string[] = []) {}
+  constructor(private readonly root: string, private readonly project: (id: string) => Project, private readonly protectedPaths: readonly string[] = []) {}
 
   async prepare(task: Task, runId: string, signal: AbortSignal): Promise<{ directory: WorkingDirectory; baseline: string | null }> {
     const base = join(this.root, 'tasks');
@@ -51,8 +50,8 @@ export class TaskWorkingDirectories {
       }
     } else await mkdir(target, { mode: 0o700 });
     signal.throwIfAborted();
-    // 隔离能力未验证时拒绝使用该目录执行任务。
-    await this.isolation.verify(target);
+    // worktree 组织修改位置；执行能力由与工作会话共用的后端核对，不把 cwd 当沙箱。
+    if (process.platform === 'win32') throw new Error('当前共用 bash 后端尚不支持 Windows。');
     return { directory: { kind, path: resolve(target) }, baseline };
   }
 
