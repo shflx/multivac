@@ -45,6 +45,7 @@ import { captureFocusReturn, restoreFocusReturn, type FocusReturn } from '../com
 import { ModelSettingsPage } from '../features/models/model-settings-page.js';
 import { AgentsPage } from '../features/agents/agents-page.js';
 import { PreferencesPage } from '../features/preferences/preferences-page.js';
+import { NotificationChannelsPage } from '../features/notifications/notification-channels-page.js';
 import { UsagePage } from '../features/usage/usage-page.js';
 import { ReadingApp } from '../features/reading/reading-app.js';
 import { bookLocation, type BookReference, type ReadingMessageSource } from '@multivac/contracts';
@@ -506,6 +507,7 @@ export function App() {
       />
     ),
     preferences: <PreferencesPage active={showManagement && currentPage === 'preferences'} />,
+    notifications: <NotificationChannelsPage active={showManagement && currentPage === 'notifications'} />,
     usage: <UsagePage active={showManagement && currentPage === 'usage'} />,
   };
 

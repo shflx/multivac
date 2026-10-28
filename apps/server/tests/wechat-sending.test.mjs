@@ -55,7 +55,7 @@ test('与通用执行器集成：测试独立编号无Inbox，接受后需本人
     const worker=new NotificationDeliveryService(f.outbox,[adapter],()=>now);
     f.queue.push({ret:0,message_id:'99'});await worker.tick();
     assert.equal(f.outbox.delivery(d.id).state,'accepted');assert.equal(f.outbox.delivery(d.id).serverMessageId,'99');
-    assert.equal(f.reminders.notifications().length,0);assert.equal(f.outbox.channel(channel.id).phoneConfirmedAt,null);
+    assert.equal(f.reminders.notifications().length,0);assert.equal(f.outbox.channel(channel.id).receivedConfirmedAt,null);
     f.outbox.confirmTest(channel.id,channel.version,d.id,now);f.outbox.setEnabled(channel.id,channel.version,true,now);
     f.notification('actual');f.queue.push({});await worker.tick();await worker.tick();
     const record=f.records(channel.id)[0];assert.equal(record.state,'unknown');assert.equal(record.attempts,1);

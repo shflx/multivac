@@ -2,6 +2,8 @@ import { createTerminalRoutes, attachTerminalWebSockets } from '../adapters/http
 import type { TerminalService } from '../application/terminal-service.js';
 import type { SessionContextManagementService } from '../application/session-context-management-service.js';
 import { createWebSettingsRequestHandler } from '../adapters/http/web-settings-routes.js';
+import { createNotificationChannelRequestHandler } from '../adapters/http/notification-channel-routes.js';
+import type { NotificationChannelManagementService } from '../application/notification-channel-management-service.js';
 import type { WebSettingsService } from '../application/web-settings-service.js';
 import { createNoteSuggestionsRequestHandler } from '../adapters/http/note-suggestions-routes.js';
 import type { NoteSuggestionsService } from '../application/note-suggestions-service.js';
@@ -103,6 +105,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 export interface MultivacHttpServerOptions {
   terminals?: TerminalService;
   webSettings?: WebSettingsService;
+  notificationChannels?: NotificationChannelManagementService;
   remoteAccess?: RemoteAccess;
   webRoot?: string;
   skills?: SkillService;
@@ -167,6 +170,7 @@ export interface MultivacHttpServerOptions {
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const terminalRoutes = options.terminals ? createTerminalRoutes(options.terminals) : undefined;
   const webSettingsRoutes = options.webSettings ? createWebSettingsRequestHandler(options.webSettings) : undefined;
+  const notificationRoutes = options.notificationChannels ? createNotificationChannelRequestHandler(options.notificationChannels) : undefined;
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
   const noteImageRoutes = options.noteImages ? createNoteImagesRequestHandler(options.noteImages) : undefined;
@@ -280,6 +284,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;
       if (proposalRoutes && await proposalRoutes(request, response)) return;
       if (webSettingsRoutes && await webSettingsRoutes(request, response)) return;
+      if (notificationRoutes && await notificationRoutes(request, response)) return;
       if (preferencesRoutes && await preferencesRoutes(request, response)) return;
       if (usageRoutes && await usageRoutes(request, response)) return;
       if (projectResourceRoutes && await projectResourceRoutes(request, response, access ?? undefined)) return;

@@ -25,6 +25,7 @@ import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
 import { ReminderScheduler } from '../application/reminder-scheduler.js';
 import { NotificationDeliveryService } from '../application/notification-delivery-service.js';
+import { NotificationChannelManagementService } from '../application/notification-channel-management-service.js';
 import { WechatBindingService } from '../application/wechat-binding-service.js';
 import { PrivateWechatStore } from '../storage/private-wechat-store.js';
 import { WechatNotificationAdapter } from '../modules/notifications/wechat/adapter.js';
@@ -1133,8 +1134,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         restartProcess: () => process.exit(E2E_RESTART_EXIT_CODE),
       })
     : undefined;
+  const notificationChannels = new NotificationChannelManagementService(store.notificationChannels, wechatNotifications);
   const server = createMultivacHttpServer({
     terminals,
+    notificationChannels,
     skills,
     webSettings,
     usage: usageStatistics,

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import type { InboxNotification, NotificationChannel, NotificationContent, NotificationDelivery } from '@multivac/contracts';
+import type { InboxNotification, NotificationChannel, NotificationContent, NotificationDelivery, NotificationChannelOperation } from '@multivac/contracts';
 import { NOTIFICATION_DELIVERY_TTL_MS } from '@multivac/contracts';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import type { ChannelSendResult } from '../modules/notifications/channel.js';
@@ -10,8 +10,16 @@ const queued = new Set(['pending', 'waiting']);
 
 /** 只处理提醒通知表。外部人工请求与授权表不属于本仓储的分发来源。 */
 export class SqliteNotificationChannelRepository {
+  private transactionDepth = 0;
   constructor(private readonly db: DatabaseSync) {}
-  transaction<T>(operation: () => T): T { return runInTransaction(this.db, operation); }
+  /** 同仓储命令入口复用当前短同步事务，使事实与回执一起保存。 */
+  transaction<T>(operation: () => T): T {
+    if (this.transactionDepth) return operation();
+    return runInTransaction(this.db, () => {
+      this.transactionDepth++;
+      try { return operation(); } finally { this.transactionDepth--; }
+    });
+  }
   command<T>(id: string, fingerprint: string, operation: () => T): T {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT * FROM notification_channel_command WHERE id=?').get(id);
@@ -24,6 +32,25 @@ export class SqliteNotificationChannelRepository {
       return result;
     });
   }
+  beginOperation(id: string, fingerprint: string): boolean {
+    return this.transaction(() => {
+      const row = this.db.prepare('SELECT fingerprint FROM notification_channel_command WHERE id=?').get(id);
+      if (row) {
+        if (row.fingerprint !== `operation:${fingerprint}`) throw new TaskServiceError('COMMAND_ID_CONFLICT', '通知渠道命令内容已变化。');
+        return false;
+      }
+      this.db.prepare('INSERT INTO notification_channel_command VALUES (?,?,?)').run(id, `operation:${fingerprint}`, JSON.stringify({ state: 'running' }));
+      return true;
+    });
+  }
+  operation(id: string): NotificationChannelOperation {
+    const row = this.db.prepare('SELECT fingerprint,result_json FROM notification_channel_command WHERE id=?').get(id);
+    if (!row) throw new TaskServiceError('NOT_FOUND', '操作记录尚不存在，请稍后只读核对。');
+    return String(row.fingerprint).startsWith('operation:') ? JSON.parse(String(row.result_json)) : { state: 'done' };
+  }
+  finishOperation(id: string, state: 'done' | 'unknown'): void {
+    this.db.prepare("UPDATE notification_channel_command SET result_json=? WHERE id=? AND fingerprint LIKE 'operation:%'").run(JSON.stringify({ state }), id);
+  }
   channels(): NotificationChannel[] {
     return this.db.prepare('SELECT record_json FROM notification_channel ORDER BY id').all().map(row => JSON.parse(String(row.record_json)));
   }
@@ -33,7 +60,7 @@ export class SqliteNotificationChannelRepository {
   }
   ensureChannel(id: string, type: string): NotificationChannel {
     const initial: NotificationChannel = { id, type, enabled: false, version: 1, bindingGeneration: 1, scope: 'notification',
-      readiness: 'waiting', diagnostic: null, testedDeliveryId: null, phoneConfirmedAt: null };
+      readiness: 'waiting', diagnostic: null, testedDeliveryId: null, receivedConfirmedAt: null };
     this.db.prepare('INSERT OR IGNORE INTO notification_channel VALUES (?,?,NULL)').run(id, JSON.stringify(initial));
     return this.channel(id)!;
   }
@@ -61,7 +88,7 @@ export class SqliteNotificationChannelRepository {
     return this.transaction(() => {
       const current = this.requireVersion(id, version);
       if (current.enabled === enabled) return current;
-      if (enabled && (!current.phoneConfirmedAt || current.readiness !== 'ready')) {
+      if (enabled && (!current.receivedConfirmedAt || current.readiness !== 'ready')) {
         throw new TaskServiceError('TASK_CONFLICT', '请先初始化渠道、发送测试，并在 Multivac 确认手机收到。');
       }
       const next = { ...current, enabled, version: current.version + 1 };
@@ -83,7 +110,7 @@ export class SqliteNotificationChannelRepository {
       this.closeRange(id);
       this.cancelQueued(id, now, '绑定已变化，旧投递不转移到新身份。');
       const next: NotificationChannel = { ...current, version: current.version + 1, bindingGeneration: current.bindingGeneration + 1,
-        enabled: false, readiness: 'waiting', diagnostic: null, testedDeliveryId: null, phoneConfirmedAt: null };
+        enabled: false, readiness: 'waiting', diagnostic: null, testedDeliveryId: null, receivedConfirmedAt: null };
       this.saveChannel(next);
       return next;
     });
@@ -121,11 +148,15 @@ export class SqliteNotificationChannelRepository {
   createTest(id: string, version: number, now: string): NotificationDelivery {
     return this.transaction(() => {
       const channel = this.requireVersion(id, version);
+      if (channel.enabled) throw new TaskServiceError('TASK_CONFLICT', '请先暂停正式通知，再发送新的编号测试。');
       const number = randomUUID();
       const record = this.insertDelivery(id, version, channel.bindingGeneration, { notificationId: `test:${number}`,
         text: `Multivac 通知渠道测试，编号 ${number}。请核对手机是否收到此编号。`, scheduledAt: now,
         localTime: now.slice(0, 19), timeZone: 'UTC', createdAt: now }, 'test', now);
-      this.saveChannel({ ...channel, testedDeliveryId: record.id, phoneConfirmedAt: null });
+      this.db.prepare('UPDATE notification_delivery SET content_json=? WHERE id=?').run(JSON.stringify({
+        ...this.content(record.id), text: `Multivac 通知渠道测试，编号 ${record.localMessageId}。请在 Multivac 核对手机是否收到此编号。`,
+      }), record.id);
+      this.saveChannel({ ...channel, testedDeliveryId: record.id, receivedConfirmedAt: null });
       return record;
     });
   }
@@ -136,7 +167,7 @@ export class SqliteNotificationChannelRepository {
         test.bindingGeneration !== channel.bindingGeneration || test.state !== 'accepted') {
         throw new TaskServiceError('TASK_CONFLICT', '请核对当前绑定的测试编号及接口接受结果。');
       }
-      const next = { ...channel, phoneConfirmedAt: now };
+      const next = { ...channel, receivedConfirmedAt: now };
       this.saveChannel(next); return next;
     });
   }
@@ -185,6 +216,8 @@ export class SqliteNotificationChannelRepository {
           .run(JSON.stringify(result), record.id, record.attempts);
       }
       this.db.prepare('UPDATE notification_channel SET owner=NULL').run();
+      this.db.prepare("UPDATE notification_channel_command SET result_json=? WHERE fingerprint LIKE 'operation:%' AND json_extract(result_json,'$.state')='running'")
+        .run(JSON.stringify({ state: 'unknown' }));
     });
   }
   acquire(id: string, owner: string, now: string): NotificationDelivery | null {

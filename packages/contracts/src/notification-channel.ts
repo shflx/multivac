@@ -20,7 +20,7 @@ export const NotificationChannelSchema = Type.Object({
   bindingGeneration: Type.Integer({ minimum: 1 }), scope: Type.Literal('notification'),
   readiness: Type.Union([Type.Literal('ready'), Type.Literal('waiting'), Type.Literal('invalid')]),
   diagnostic: Type.Union([Type.String(), Type.Null()]),
-  testedDeliveryId: Type.Union([Id, Type.Null()]), phoneConfirmedAt: NullableTime,
+  testedDeliveryId: Type.Union([Id, Type.Null()]), receivedConfirmedAt: NullableTime,
 }, { additionalProperties: false });
 export type NotificationChannel = Type.Static<typeof NotificationChannelSchema>;
 export const NotificationDeliverySchema = Type.Object({
@@ -33,6 +33,14 @@ export const NotificationDeliverySchema = Type.Object({
   startedAt: NullableTime, completedAt: NullableTime, diagnostic: Type.Union([Type.String(), Type.Null()]),
 }, { additionalProperties: false });
 export type NotificationDelivery = Type.Static<typeof NotificationDeliverySchema>;
+export const NotificationChannelListSchema = Type.Object({ items: Type.Array(NotificationChannelSchema) }, { additionalProperties: false });
+export const NotificationDeliveryPageSchema = Type.Object({
+  items: Type.Array(NotificationDeliverySchema), total: Type.Integer({ minimum: 0 }), nextOffset: Type.Union([Type.Integer(), Type.Null()]),
+}, { additionalProperties: false });
+export const NotificationChannelOperationSchema = Type.Object({
+  state: Type.Union([Type.Literal('running'), Type.Literal('done'), Type.Literal('unknown')]),
+}, { additionalProperties: false });
+export type NotificationChannelOperation = Type.Static<typeof NotificationChannelOperationSchema>;
 export const SetNotificationChannelSchema = Type.Object({
   commandId: Id, version: Type.Integer({ minimum: 1 }), enabled: Type.Boolean(),
 }, { additionalProperties: false });
