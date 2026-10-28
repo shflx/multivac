@@ -5,6 +5,7 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 /** 只由本机HTTP设置入口调用；不注册为模型工具或远程操作。 */
 export class NotificationChannelManagementService {
+  private readonly active = new Set<Promise<NotificationChannelOperation>>();
   constructor(private readonly repository: SqliteNotificationChannelRepository, private readonly wechat: WechatBindingService,
     private readonly now: () => string = () => new Date().toISOString()) {}
   list() { return { items: this.repository.channels() }; }
@@ -30,7 +31,14 @@ export class NotificationChannelManagementService {
   }
   wechatStatus(id: string) { this.requireWechat(id); return this.wechat.status(); }
   qrContent(id: string) { this.requireWechat(id); return this.wechat.qrContent(); }
-  async manageWechat(id: string, action: 'bind' | 'unbind' | 'verify', input: { commandId: string; version: number; code?: string }): Promise<NotificationChannelOperation> {
+  manageWechat(id: string, action: 'bind' | 'unbind' | 'verify', input: { commandId: string; version: number; code?: string }): Promise<NotificationChannelOperation> {
+    const work = this.performWechat(id, action, input);
+    this.active.add(work);
+    return work.finally(() => this.active.delete(work));
+  }
+  get hasActivity(): boolean { return this.active.size > 0; }
+  async close(): Promise<void> { await Promise.allSettled([...this.active]); }
+  private async performWechat(id: string, action: 'bind' | 'unbind' | 'verify', input: { commandId: string; version: number; code?: string }): Promise<NotificationChannelOperation> {
     this.requireWechat(id);
     // 不把验证码写入命令指纹或业务库。同命令只执行一次，不重复发送验证码。
     if (!this.repository.beginOperation(input.commandId, JSON.stringify([action, id, input.version]))) return this.repository.operation(input.commandId);

@@ -20,6 +20,7 @@ export class WechatBindingService {
   private statusValue: WechatNotificationStatus = { state: 'unbound', qrAvailable: false, diagnostic: null, contextObservedAt: null };
   private controller: AbortController | null = null;
   private running: Promise<void> | null = null;
+  private readonly lifetime = new AbortController();
   constructor(private readonly channels: SqliteNotificationChannelRepository, private readonly identities: SqliteWechatBindingRepository,
     private readonly secrets: PrivateWechatStore, readonly client: IlinkClient = new IlinkClient(), private readonly now: () => string = () => new Date().toISOString(), private readonly autoPoll = true) {}
   /** 必须由启动装配或本机用户操作显式调用；查询不会创建配置或发起登录。 */
@@ -49,19 +50,25 @@ export class WechatBindingService {
   status(): WechatNotificationStatus { return { ...this.statusValue }; }
   qrContent(): string | null { return this.login?.qrUrl ?? null; }
   async begin(version: number): Promise<WechatNotificationStatus> {
+    if (this.lifetime.signal.aborted) throw new TaskServiceError('INVALID_REQUEST', '通知渠道服务正在关闭。');
     const previous = this.binding(this.channels.requireVersion(WECHAT_CHANNEL_ID, version));
     const channel = this.channels.resetBinding(WECHAT_CHANNEL_ID, version, this.now());
     this.login = null;
     await this.stopLoop(previous);
     // 并发重绑时，仅最新代次能继续。旧返回不会覆盖新资料。
+    if (this.lifetime.signal.aborted) throw new TaskServiceError('INVALID_REQUEST', '服务已关闭，请只读核对原绑定操作。');
     if (this.channels.channel(WECHAT_CHANNEL_ID)?.bindingGeneration !== channel.bindingGeneration) return this.status();
     try {
       const login = await this.fetchQr(channel.bindingGeneration, 0);
+      if (this.lifetime.signal.aborted) throw new TaskServiceError('INVALID_REQUEST', '服务已关闭，请只读核对原绑定操作。');
       if (this.channels.channel(WECHAT_CHANNEL_ID)?.bindingGeneration !== channel.bindingGeneration) return this.status();
       this.login = login;
       this.statusValue = { state: 'qr', qrAvailable: true, diagnostic: null, contextObservedAt: null };
       if (this.autoPoll) this.startLoop();
-    } catch { if (this.channels.channel(WECHAT_CHANNEL_ID)?.bindingGeneration === channel.bindingGeneration) this.fail('获取微信二维码失败，请稍后重新绑定。'); }
+    } catch {
+      if (this.lifetime.signal.aborted) throw new TaskServiceError('INVALID_REQUEST', '服务已关闭，请只读核对原绑定操作。');
+      if (this.channels.channel(WECHAT_CHANNEL_ID)?.bindingGeneration === channel.bindingGeneration) this.fail('获取微信二维码失败，请稍后重新绑定。');
+    }
     return this.status();
   }
   verify(version: number, code: string): void {
@@ -74,12 +81,13 @@ export class WechatBindingService {
     const previous = this.binding(this.channels.requireVersion(WECHAT_CHANNEL_ID, version));
     const next = this.channels.resetBinding(WECHAT_CHANNEL_ID, version, this.now()); this.login = null;
     await this.stopLoop(previous);
+    if (this.lifetime.signal.aborted) throw new TaskServiceError('INVALID_REQUEST', '服务已关闭，请只读核对原解绑操作。');
     if (this.channels.channel(WECHAT_CHANNEL_ID)?.bindingGeneration !== next.bindingGeneration) return;
     this.identities.clear(WECHAT_CHANNEL_ID); this.secrets.clear();
     this.statusValue = { state: 'unbound', qrAvailable: false, diagnostic: null, contextObservedAt: null };
   }
-  private async fetchQr(generation: number, refreshes: number): Promise<Login> {
-    const reply = await this.client.request(ILINK_BASE, 'get_bot_qrcode', { body: { local_token_list: [] }, query: { bot_type: '3' } });
+  private async fetchQr(generation: number, refreshes: number, signal: AbortSignal = this.lifetime.signal): Promise<Login> {
+    const reply = await this.client.request(ILINK_BASE, 'get_bot_qrcode', { body: { local_token_list: [] }, query: { bot_type: '3' }, signal: AbortSignal.any([signal, this.lifetime.signal]) });
     const qrcode = stringField(reply.body.qrcode), qrUrl = stringField(reply.body.qrcode_img_content);
     if (reply.status !== 200 || !qrcode || !qrUrl) throw new IlinkError('response');
     return { generation, qrcode, qrUrl: checkedQrUrl(qrUrl), base: ILINK_BASE, expiresAt: Date.parse(this.now()) + 5 * 60_000, refreshes };
@@ -104,7 +112,7 @@ export class WechatBindingService {
       const state = reply.body.status;
       if (state === 'expired' || state === 'verify_code_blocked') {
         if (login.refreshes >= 2) { this.login = null; this.statusValue = { state: 'expired', qrAvailable: false, diagnostic: '二维码刷新次数已达上限，请重新发起绑定。', contextObservedAt: null }; return; }
-        const refreshed = await this.fetchQr(login.generation, login.refreshes + 1);
+        const refreshed = await this.fetchQr(login.generation, login.refreshes + 1, signal);
         if (this.login !== login || signal.aborted) return;
         this.login = refreshed; this.statusValue = { state: 'qr', qrAvailable: true, diagnostic: null, contextObservedAt: null }; return;
       }
@@ -200,5 +208,5 @@ export class WechatBindingService {
     await this.notify('msg/notifystop', binding);
   }
   get hasActivity(): boolean { return this.running !== null; }
-  async close(): Promise<void> { this.login = null; await this.stopLoop(); }
+  async close(): Promise<void> { this.lifetime.abort(); this.login = null; await this.stopLoop(); }
 }

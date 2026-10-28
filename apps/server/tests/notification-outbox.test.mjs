@@ -1,32 +1,8 @@
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { DatabaseSync } from 'node:sqlite';
-import { NOTIFICATION_CHANNEL_MIGRATION } from '../dist/storage/notification-channel-schema.js';
-import { SqliteNotificationChannelRepository } from '../dist/storage/sqlite-notification-channel-repository.js';
-import { REMINDER_MIGRATION, SqliteReminderRepository } from '../dist/storage/sqlite-reminder-repository.js';
-
-const now = '2026-10-28T00:00:00.000Z';
-export function fixture() {
-  const db = new DatabaseSync(':memory:'); db.exec(REMINDER_MIGRATION); db.exec(NOTIFICATION_CHANNEL_MIGRATION);
-  const outbox = new SqliteNotificationChannelRepository(db), reminders = new SqliteReminderRepository(db);
-  function enable(id = 'wechat') {
-    let channel = outbox.ensureChannel(id, id);
-    outbox.setReadiness(id, 'ready', null);
-    const result = outbox.createTest(id, channel.version, now);
-    outbox.saveDelivery({ ...result, state: 'accepted' });
-    outbox.confirmTest(id, channel.version, result.id, now);
-    channel = outbox.setEnabled(id, channel.version, true, now);
-    return channel;
-  }
-  function notification(id, at = now) {
-    const reminder = { reminderId: id, revision: 1, text: '提醒'+id, scheduledAt: at, timeZone: 'UTC', localTime: at.slice(0, 19),
-      sourceSessionId: 'global-coordinator', status: 'scheduled', createdAt: at, updatedAt: at, notificationId: null, failure: null };
-    reminders.transaction(() => { reminders.save(reminder); reminders.schedule(reminder); });
-    return reminders.deliver(reminders.claim(`notification:${id}:1`, at), at);
-  }
-  const records = id => outbox.deliveries(id, 0, 100).items.filter(d => d.kind === 'notification');
-  return { db, outbox, reminders, enable, notification, records };
-}
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { fixture } from "./fixtures/notification-channels.mjs";
+import { SqliteNotificationChannelRepository } from "../src/storage/sqlite-notification-channel-repository.js";
+const now="2026-10-28T00:00:00.000Z";
 
 test('提交后崩溃由补查恢复，多渠道去重；首次启用与停用期间无历史补发', () => {
   const f = fixture();

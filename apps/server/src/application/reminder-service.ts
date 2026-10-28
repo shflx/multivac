@@ -18,7 +18,7 @@ export class ReminderService {
       catch { throw new TaskServiceError('INVALID_REQUEST', '用户时区无效，请核对 IANA 时区。'); }
     }
     return { currentTime: now.toISOString(), timeZone: timeZone ?? null, localTime,
-      limitation: '仅支持单次 Inbox 提醒。服务关闭期间无法准时通知，重启后补发并显示原计划时间。' };
+      limitation: '仅支持单次提醒，原通知保留在 Inbox；已启用的通知渠道可额外发送文本副本。服务关闭期间无法准时通知，重启后补发并显示原计划时间。' };
   }
   get(id: string): Reminder {
     const item = this.repository.get(id);

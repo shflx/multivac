@@ -1,36 +1,12 @@
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-import { fixture } from './notification-outbox.test.mjs';
-import { PrivateWechatStore } from '../dist/storage/private-wechat-store.js';
-import { SqliteWechatBindingRepository, WECHAT_BINDING_MIGRATION } from '../dist/storage/sqlite-wechat-binding-repository.js';
-import { WechatBindingService, WECHAT_CHANNEL_ID } from '../dist/application/wechat-binding-service.js';
-import { IlinkClient, checkedIlinkBase, checkedQrUrl } from '../dist/modules/notifications/wechat/client.js';
-import { parseWeixinApiJson } from '../dist/modules/notifications/wechat/lossless-json.js';
-
-const now='2026-10-28T00:00:00.000Z';
-export function wechatFixture() {
-  const f=fixture(); f.db.exec(WECHAT_BINDING_MIGRATION);
-  mkdirSync('.tmp',{recursive:true}); const root=mkdtempSync('.tmp/wechat-test-');
-  const secrets=new PrivateWechatStore(root), identities=new SqliteWechatBindingRepository(f.db);
-  const queue=[], calls=[];
-  const client=new IlinkClient(async (url,options)=>{
-    calls.push({url:new URL(url),options});
-    const entry=queue.shift(); if(!entry)throw Error('unexpected request');
-    return new Response(typeof entry==='string'?entry:JSON.stringify(entry),{status:200});
-  },50);
-  const service=new WechatBindingService(f.outbox,identities,secrets,client,()=>now,false);
-  service.initialize();
-  async function login(){
-    queue.push({qrcode:'qr-private',qrcode_img_content:'https://liteapp.weixin.qq.com/test'});
-    await service.begin(f.outbox.channel(WECHAT_CHANNEL_ID).version);
-    queue.push({status:'confirmed',ilink_bot_id:'bot',ilink_user_id:'self',baseurl:'https://ilinkai.weixin.qq.com',bot_token:'private-token'},{ret:0});
-    await service.pollOnce(new AbortController().signal);
-  }
-  const close=()=>{f.db.close();rmSync(root,{recursive:true,force:true});};
-  return {...f,root,secrets,identities,queue,calls,service,login,close};
-}
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { statSync } from "node:fs";
+import { join } from "node:path";
+import { wechatFixture } from "./fixtures/notification-channels.mjs";
+import { WechatBindingService, WECHAT_CHANNEL_ID } from "../src/application/wechat-binding-service.js";
+import { checkedIlinkBase, checkedQrUrl } from "../src/modules/notifications/wechat/client.js";
+import { parseWeixinApiJson } from "../src/modules/notifications/wechat/lossless-json.js";
+const now="2026-10-28T00:00:00.000Z";
 
 test('绑定与本人入站原子保存游标、无损ID和非空上下文；入站正文无业务效力',async()=>{
   const f=wechatFixture();try{
