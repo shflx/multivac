@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
@@ -18,7 +19,7 @@ for (const action of ['complete', 'pause', 'cancel', 'budget', 'output'] as cons
     const root = await mkdtemp(join(tmpdir(), 'multivac-unified-tree-'));
     const source = join(root, 'source'); await mkdir(source);
     const script = `
-const {chromium}=require(${JSON.stringify(resolve('node_modules/playwright'))});
+const {chromium}=require(${JSON.stringify(fileURLToPath(new URL('../../../node_modules/playwright', import.meta.url)))});
 const {spawn}=require('node:child_process');
 (async()=>{
  const worker=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});
@@ -41,7 +42,7 @@ const {spawn}=require('node:child_process');
       const response = await fetch(api + '/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: '进程树测试', directory: source }) });
       assert.equal(response.ok, true);
       const { project } = await response.json() as { project: { projectId: string } };
-      const command = `PLAYWRIGHT_BROWSERS_PATH=${quote(resolve('.tmp/browsers'))} ${quote(process.execPath)} tree.cjs`;
+      const command = `PLAYWRIGHT_BROWSERS_PATH=${quote(process.env.PLAYWRIGHT_BROWSERS_PATH ?? fileURLToPath(new URL('../../../.tmp/browsers', import.meta.url)))} ${quote(process.execPath)} tree.cjs`;
       const task = app.tasks.create({ commandId: 'task', title: '真实进程树', projectId: project.projectId,
         goal: `bash执行：${JSON.stringify({ command })}`, acceptance: true,
         budget: { maxRuns: 2, maxMillis: action === 'budget' ? 4500 : 20000, maxOutputBytes: action === 'output' ? 18000 : 200000 } }).task;
