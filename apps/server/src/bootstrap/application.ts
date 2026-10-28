@@ -25,6 +25,8 @@ import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
 import { ReminderScheduler } from '../application/reminder-scheduler.js';
 import { NotificationDeliveryService } from '../application/notification-delivery-service.js';
+import { WechatBindingService } from '../application/wechat-binding-service.js';
+import { PrivateWechatStore } from '../storage/private-wechat-store.js';
 import { ReminderService } from '../application/reminder-service.js';
 import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { ManagedProcessService } from '../application/managed-process-service.js';
@@ -1084,6 +1086,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
   });
+  const wechatNotifications = new WechatBindingService(store.notificationChannels, store.wechatBindings,
+    new PrivateWechatStore(join(paths.dataDir, 'notification-secrets', 'wechat')));
+  wechatNotifications.initialize();
   const notificationDelivery = new NotificationDeliveryService(store.notificationChannels, []);
   notificationDelivery.start(workbenchEvents);
   const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
@@ -1180,8 +1185,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ready: ready.then(async () => { await managedProcesses.recover(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
     close() {
       reminderScheduler.stop();
-      const hadNotifications = notificationDelivery.hasActivity;
-      const notificationsStopped = notificationDelivery.close();
+      const hadNotifications = notificationDelivery.hasActivity || wechatNotifications.hasActivity;
+      const notificationsStopped = Promise.allSettled([notificationDelivery.close(), wechatNotifications.close()]);
       remoteAccess.close();
       images.dispose();
       noteImages.dispose();
