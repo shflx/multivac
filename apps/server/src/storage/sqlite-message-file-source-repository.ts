@@ -1,3 +1,4 @@
+import { noteCodecFor } from './note-record-codec.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { SessionFileReference } from '@multivac/contracts';
 import { SessionFileReferenceSchema } from '@multivac/contracts';
@@ -15,11 +16,13 @@ export class SqliteMessageFileSourceRepository implements MessageFileSourceRepos
   get(sessionId: string, runtimeSessionId: string, entryId: string): SessionFileReference[] | null {
     const row = this.database.prepare('SELECT references_json FROM assistant_message_file_source WHERE session_id = ? AND runtime_session_id = ? AND runtime_entry_id = ?').get(sessionId, runtimeSessionId, entryId) as { references_json: string } | undefined;
     if (!row) return null;
-    try { const value: unknown = JSON.parse(row.references_json); return Check(Type.Array(SessionFileReferenceSchema, { maxItems: 20 }), value) ? value : []; }
+    const codec = noteCodecFor(this.database), owner = codec?.owner(sessionId);
+    const json = owner && codec?.state(owner) ? JSON.stringify(codec.decode(owner, 'message-files', `${runtimeSessionId}:${entryId}`, row.references_json)) : row.references_json;
+    try { const value: unknown = JSON.parse(json); return Check(Type.Array(SessionFileReferenceSchema, { maxItems: 20 }), value) ? value : []; }
     catch { return []; }
   }
 
   putIfAbsent(sessionId: string, runtimeSessionId: string, entryId: string, references: SessionFileReference[]): void {
-    this.database.prepare('INSERT OR IGNORE INTO assistant_message_file_source (session_id, runtime_session_id, runtime_entry_id, references_json) VALUES (?, ?, ?, ?)').run(sessionId, runtimeSessionId, entryId, JSON.stringify(references));
+    this.database.prepare('INSERT OR IGNORE INTO assistant_message_file_source (session_id, runtime_session_id, runtime_entry_id, references_json) VALUES (?, ?, ?, ?)').run(sessionId, runtimeSessionId, entryId, (() => { const codec = noteCodecFor(this.database), owner = codec?.owner(sessionId); return owner && codec ? codec.encode(owner, 'message-files', `${runtimeSessionId}:${entryId}`, references) : JSON.stringify(references); })());
   }
 }

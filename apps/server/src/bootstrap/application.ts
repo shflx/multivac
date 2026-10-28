@@ -1,3 +1,4 @@
+import { SqliteProtectedTranscripts } from '../storage/sqlite-protected-transcripts.js';
 import { NoteSecurityService } from '../application/note-security-service.js';
 import { projectFileScope } from '../application/project-file-scope.js';
 import { sessionBashExecution } from '../application/session-bash-execution.js';
@@ -223,6 +224,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     : systemTrash({ platform: process.platform, homeDir: homedir(), xdgDataHome: environment.XDG_DATA_HOME });
   const store = new SqliteAssistantStore(paths.databasePath);
   const noteSecurity = new NoteSecurityService(store.noteSecurity);
+  store.noteCodec.bind(noteSecurity);
+  const protectedFiles = new SqliteProtectedTranscripts(store.noteCodec);
   const eventStream = new AssistantEventStream();
   const preferencesService = new PreferencesService(store.preferences);
   const executionDiagnostics = new ExecutionDiagnostics(join(paths.dataDir, 'diagnostics'), sessionId => {
@@ -341,6 +344,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 执行器（harness）按启动配置选择；适配器、模型目录与访问后端都由它提供。用量记账在下方创建，调用时才转发。
   const harnessContext: HarnessContext = {
     environment, instance, paths, bashProcesses, executionDiagnostics,
+    protectedTranscripts: protectedFiles,
     authorizeToolCall: toolAuthorization.authorize,
     projectFileScope: projectFileScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects }),
     usageRecorder: { begin: (sessionId, runtimeSessionId, model) => usage.begin(sessionId, runtimeSessionId, model) },
@@ -573,7 +577,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const baseRuntimeConfig = runtimeConfig(environment);
   const selectionRepository = store.selections;
   const noteImages = new NoteImagesService(store.noteImages, notesService);
-  const images = new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); });
+  const images = new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { store.noteCodec.assertSession(id); if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); }, protectedFiles);
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
     images,
     stopExecution: (id, commandId) => managedProcesses.bash.stopExecution(id, commandId),

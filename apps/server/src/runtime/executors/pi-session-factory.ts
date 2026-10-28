@@ -1,3 +1,5 @@
+import { protectedPiSession } from './pi-protected-session.js';
+import type { ProtectedTranscriptStore } from '../../modules/notes/protected-transcript.js';
 import { compactPiContext } from './pi-context-compaction.js';
 import type { ContextCompactionOperation } from '@multivac/contracts';
 import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
@@ -142,6 +144,7 @@ export interface PiCoordinatorSessionResources {
 }
 
 export interface PiCoordinatorSessionFactoryInput {
+  protectedTranscripts?: ProtectedTranscriptStore;
   assistantSessionId?: string;
   bashProcesses?: BashExecutionPort;
   skills?: PiSkills;
@@ -435,8 +438,10 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
   create(input: PiCoordinatorSessionFactoryInput): Promise<PiCoordinatorSessionResources> {
     return serializeSessionOperation(input, () => this.createFromSessionManager(
       input,
-      SessionManager.create(input.cwd, input.sessionDir),
-      true,
+      input.protectedTranscripts?.forSession(input.assistantSessionId ?? '')
+        ? protectedPiSession(input.protectedTranscripts, input.assistantSessionId!, join(input.sessionDir!, `protected-${input.assistantSessionId}.jsonl`), input.cwd, false)
+        : SessionManager.create(input.cwd, input.sessionDir),
+      !input.protectedTranscripts?.forSession(input.assistantSessionId ?? ''),
       false,
     ));
   }
@@ -444,7 +449,9 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
   open(input: PiCoordinatorOpenSessionFactoryInput): Promise<PiCoordinatorSessionResources> {
     return this.createFromSessionManager(
       input,
-      SessionManager.open(input.sessionPath, input.sessionDir, input.cwd),
+      input.protectedTranscripts?.has(input.sessionPath)
+        ? protectedPiSession(input.protectedTranscripts, input.assistantSessionId!, input.sessionPath, input.cwd, true)
+        : SessionManager.open(input.sessionPath, input.sessionDir, input.cwd),
       false,
       true,
     );

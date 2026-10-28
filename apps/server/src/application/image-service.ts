@@ -1,3 +1,4 @@
+import type { ProtectedManagedFiles } from '../modules/notes/protected-transcript.js';
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -12,8 +13,10 @@ export class ImageService {
   private readonly projections = new Map<string, Promise<AssistantMessageView>>();
   private disposed = false;
   files?: SessionFilesService;
+  private readonly pendingUploads = new Map<string, number>();
+  hasPendingUploads(sessionId: string): boolean { return (this.pendingUploads.get(sessionId) ?? 0) > 0; }
   private tail: Promise<unknown> = Promise.resolve();
-  constructor(private readonly repository: ImageRepository, private readonly directory: string, private readonly requireSession: (id: string) => void) {}
+  constructor(private readonly repository: ImageRepository, private readonly directory: string, private readonly requireSession: (id: string) => void, private readonly protectedFiles?: ProtectedManagedFiles) {}
 
   private checkSession(sessionId: string): void {
     try { this.requireSession(sessionId); } catch { throw new ImageError(404, '会话不存在或已归档。'); }
@@ -27,13 +30,18 @@ export class ImageService {
   }
   async read(sessionId: string, id: string): Promise<{ image: ImageAttachment; data: Buffer }> {
     const image = this.get(sessionId, id);
-    const data = await readFile(join(this.directory, image.id));
+    const path = join(this.directory, image.id);
+    const data = this.protectedFiles?.has(path) ? this.protectedFiles.readBytes(path) : await readFile(path);
     this.get(sessionId, id);
     return { image, data };
   }
   upload(sessionId: string, data: Buffer, retained = false): Promise<ImageAttachment> {
     // 串行核对草稿预算与落盘，避免并发上传绕过限额。
-    const operation = this.tail.then(() => this.save(sessionId, data, retained));
+    this.pendingUploads.set(sessionId, (this.pendingUploads.get(sessionId) ?? 0) + 1);
+    const operation = this.tail.then(() => this.save(sessionId, data, retained)).finally(() => {
+      const remaining = (this.pendingUploads.get(sessionId) ?? 1) - 1;
+      if (remaining) this.pendingUploads.set(sessionId, remaining); else this.pendingUploads.delete(sessionId);
+    });
     this.tail = operation.catch(() => {});
     return operation;
   }
@@ -50,8 +58,15 @@ export class ImageService {
     const drafts = this.repository.drafts(sessionId);
     if (!retained && (drafts.length >= IMAGE_LIMITS.count || drafts.reduce((sum, image) => sum + image.bytes, data.length) > IMAGE_LIMITS.totalBytes)) throw new ImageError(413, '草稿最多 4 张图片，总大小不超过 20 MiB。');
     const image: ImageAttachment = { id, sessionId, mimeType: `image/${metadata.format === 'jpeg' ? 'jpeg' : metadata.format}`, width: metadata.width!, height: metadata.height!, bytes: data.length };
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await writeFile(join(this.directory, id), data, { mode: 0o600 });
+    this.checkSession(sessionId);
+    if (this.protectedFiles?.forSession(sessionId)) this.protectedFiles.createBytes(sessionId, join(this.directory, id), data);
+    else {
+      await mkdir(this.directory, { recursive: true, mode: 0o700 });
+      // 异步准备之后再次检查，避免转换后的迟到上传创建明文副本。
+      this.checkSession(sessionId);
+      if (this.protectedFiles?.forSession(sessionId)) this.protectedFiles.createBytes(sessionId, join(this.directory, id), data);
+      else await writeFile(join(this.directory, id), data, { mode: 0o600 });
+    }
     if (this.disposed) throw new ImageError(503, '图片服务已关闭。');
     this.checkSession(sessionId);
     this.repository.insert(image);
@@ -64,7 +79,11 @@ export class ImageService {
   }
   async remove(sessionId: string, id: string): Promise<void> {
     this.get(sessionId, id);
-    if (this.repository.removeDraft(id)) await unlink(join(this.directory, id)).catch(() => {});
+    if (this.repository.removeDraft(id)) {
+      const path = join(this.directory, id);
+      if (this.protectedFiles?.has(path)) this.protectedFiles.remove(path);
+      else await unlink(path).catch(() => {});
+    }
   }
   async cleanup(): Promise<void> {
     for (const id of this.repository.expired(Date.now() - IMAGE_LIMITS.draftHours * 3600_000)) {

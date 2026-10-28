@@ -29,7 +29,7 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
       WHERE assistant_id = ? AND phase != 'terminal'
       ORDER BY created_at, command_id
     `).all(assistantSessionId) as unknown as CommandRow[];
-    return rows.map(commandFromRow);
+    return rows.map(row => commandFromRow(row, this.database));
   }
 
   /** 只返回带 Pi entry 锚点的命令，按创建顺序；供前端把工具记录放回所属 Turn。 */
@@ -102,7 +102,7 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
       const now = this.now();
       this.database.prepare(`
         UPDATE assistant_command_receipt
-        SET phase = 'terminal', terminal_outcome = 'rejected', error_code = ?, error_message = ?, updated_at = ?
+        SET phase = 'terminal', terminal_outcome = 'rejected', error_code = ?, error_message = note_command_error(assistant_id,command_id,?), updated_at = ?
         WHERE command_id = ? AND phase != 'terminal'
       `).run(error.code, error.message, now, commandId);
       const event = appendEventRow(this.database, {
@@ -179,7 +179,7 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
       const now = this.now();
       this.database.prepare(`
         UPDATE assistant_command_receipt
-        SET phase = 'terminal', terminal_outcome = ?, error_code = ?, error_message = ?,
+        SET phase = 'terminal', terminal_outcome = ?, error_code = ?, error_message = note_command_error(assistant_id,command_id,?),
             runtime_entry_id = COALESCE(?, runtime_entry_id), updated_at = ?
         WHERE command_id = ? AND phase != 'terminal'
       `).run(

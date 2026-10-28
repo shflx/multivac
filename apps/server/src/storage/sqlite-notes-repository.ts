@@ -1,3 +1,4 @@
+import type { NoteRecordCodec } from './note-record-codec.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { Check } from 'typebox/value';
 import { NOTE_SUMMARIES_SELECT, NOTE_SUMMARY_SELECT, NOTE_SUMMARY_COUNT, NOTE_VERSION_SUMMARIES_SELECT, writeNoteSummaries } from './sqlite-note-summaries.js';
@@ -29,21 +30,21 @@ export const NOTE_DELETION_MIGRATION = `
 
 /** 每次修改与版本快照、命令回执共用短事务；不在事务中调用模型或等待文件。 */
 export class SqliteNotesRepository implements NotesRepository {
-  constructor(readonly database: DatabaseSync) {}
+  constructor(readonly database: DatabaseSync, readonly codec?: NoteRecordCodec) {}
 
   get(id: string, revision?: number): Note {
     const row = revision === undefined
       ? this.database.prepare('SELECT record_json FROM app_note WHERE id=?').get(id)
       : this.database.prepare('SELECT record_json FROM app_note_version WHERE note_id=? AND revision=?').get(id, revision);
     if (!row) throw new NotesError('笔记或正文版本不存在。', 404);
-    const value: unknown = JSON.parse(String(row.record_json));
+    const value: unknown = this.codec?.decode(id, revision === undefined ? 'note' : 'version', revision === undefined ? id : String(revision), row.record_json) ?? JSON.parse(String(row.record_json));
     if (value && typeof value === 'object' && 'deleted' in value && value.deleted === true) throw new NotesError('笔记已删除。', 404);
     if (!Check(NoteSchema, value)) throw new Error('独立笔记存储无效。');
     return value;
   }
 
-  private readSummary(json: unknown): NoteSummary {
-    const value: unknown = JSON.parse(String(json));
+  private readSummary(json: unknown, id: string, revision?: number): NoteSummary {
+    const value: unknown = this.codec?.decode(id, revision === undefined ? 'summary' : 'version-summary', revision === undefined ? id : String(revision), json) ?? JSON.parse(String(json));
     if (!Check(NoteSummarySchema, value)) throw new Error('笔记摘要存储无效。');
     return value;
   }
@@ -51,11 +52,11 @@ export class SqliteNotesRepository implements NotesRepository {
   summary(id: string): NoteSummary {
     const row = this.database.prepare(NOTE_SUMMARY_SELECT).get(id);
     if (!row) throw new NotesError('笔记不存在。', 404);
-    return this.readSummary(row.summary_json);
+    return this.readSummary(row.summary_json, id);
   }
 
   list(): NoteSummary[] {
-    return this.database.prepare(NOTE_SUMMARIES_SELECT).all().map(row => this.readSummary(row.summary_json));
+    return this.database.prepare(NOTE_SUMMARIES_SELECT).all().map(row => this.readSummary(row.summary_json, String(row.id)));
   }
 
   count(): number {
@@ -66,25 +67,25 @@ export class SqliteNotesRepository implements NotesRepository {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50 || before !== undefined && (!Number.isSafeInteger(before) || before < 1)) throw new NotesError('版本分页参数无效。');
     const latestRevision = this.summary(id).revision;
     const rows = this.database.prepare(NOTE_VERSION_SUMMARIES_SELECT).all(id, before ?? Number.MAX_SAFE_INTEGER, limit + 1);
-    const versions = rows.slice(0, limit).map(row => this.readSummary(row.summary_json));
+    const versions = rows.slice(0, limit).map(row => this.readSummary(row.summary_json, id, Number(row.revision)));
     return { versions, latestRevision, nextBefore: rows.length > limit ? versions.at(-1)!.revision : null };
   }
 
   /** 只读核对已提交的笔记命令，不重新执行，也不把当前正文冒充原回执。 */
   operation(commandId: string): Note | undefined {
-    const row = this.database.prepare('SELECT result_json FROM app_note_command WHERE command_id=?').get(commandId);
+    const row = this.database.prepare('SELECT note_id,result_json FROM app_note_command WHERE command_id=?').get(commandId);
     if (!row) return undefined;
-    const value: unknown = JSON.parse(String(row.result_json));
+    const value: unknown = row.note_id && this.codec ? this.codec.decode(String(row.note_id), 'command', commandId, row.result_json) : JSON.parse(String(row.result_json));
     if (value && typeof value === 'object' && ('deletedNoteId' in value || 'deleted' in value)) throw new NotesError('笔记已删除，原操作不能重放。', 410);
     if (!Check(NoteSchema, value)) throw new Error('笔记命令回执无效。');
     return value;
   }
 
   receipt<T>(commandId: string, fingerprint: string): T | undefined {
-    const row = this.database.prepare('SELECT fingerprint,result_json FROM app_note_command WHERE command_id=?').get(commandId);
+    const row = this.database.prepare('SELECT note_id,fingerprint,result_json FROM app_note_command WHERE command_id=?').get(commandId);
     if (!row) return undefined;
     if (row.fingerprint !== fingerprint) throw new NotesError('同一命令的参数发生变化，请核对原请求。', 409);
-    const value: unknown = JSON.parse(String(row.result_json));
+    const value: unknown = row.note_id && this.codec ? this.codec.decode(String(row.note_id), 'command', commandId, row.result_json) : JSON.parse(String(row.result_json));
     if (value && typeof value === 'object' && 'deletedNoteId' in value) throw new NotesError('笔记已删除，原操作不能重放。', 410);
     return value as T;
   }
@@ -94,9 +95,20 @@ export class SqliteNotesRepository implements NotesRepository {
       const receipt = this.receipt<T>(commandId, fingerprint);
       if (receipt !== undefined) { return { value: receipt, changed: false }; }
       const value = mutate();
-      this.database.prepare('INSERT INTO app_note_command VALUES (?,?,?)').run(commandId, fingerprint, JSON.stringify(value));
+      const owner = this.commandOwner(value);
+      const json = owner && this.codec ? this.codec.encode(owner, 'command', commandId, value) : JSON.stringify(value);
+      this.database.prepare('INSERT INTO app_note_command(command_id,fingerprint,result_json,note_id) VALUES (?,?,?,?)').run(commandId, fingerprint, json, owner ?? null);
       return { value, changed: true };
     });
+  }
+
+  private commandOwner(value: unknown): string | undefined {
+    if (!value || typeof value !== 'object') return undefined;
+    if (Array.isArray(value)) return value.map(item => this.commandOwner(item)).find(Boolean);
+    const record = value as Record<string, unknown>;
+    if (typeof record.noteId === 'string') return record.noteId;
+    if (typeof record.id === 'string' && ('body' in record || 'deleted' in record)) return record.id;
+    return Object.values(record).map(item => this.commandOwner(item)).find(Boolean);
   }
 
   /** 仅供本仓库及建议应用在已有事务中写入；每个正文版本不可变。 */
@@ -104,15 +116,24 @@ export class SqliteNotesRepository implements NotesRepository {
     if (!Check(NoteSchema, note)) throw new NotesError('笔记内容超过限制或无效。');
     const existing = this.database.prepare("SELECT id FROM app_note WHERE id=? AND json_extract(record_json,'$.deleted')=1").get(note.id);
     if (existing) throw new NotesError('笔记已删除，不能重新写入正文版本。', 404);
-    new SqliteNoteImagesRepository(this.database).retainReferences(note.id, note.body);
-    this.database.prepare('INSERT INTO app_note VALUES (?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json').run(note.id, JSON.stringify(note));
-    this.database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run(note.id, note.revision, JSON.stringify(note));
-    writeNoteSummaries(this.database, note);
+    new SqliteNoteImagesRepository(this.database, this.codec).retainReferences(note.id, note.body);
+    this.database.prepare('INSERT INTO app_note VALUES (?,?) ON CONFLICT(id) DO UPDATE SET record_json=excluded.record_json').run(note.id, this.codec?.encode(note.id, 'note', note.id, note) ?? JSON.stringify(note));
+    this.database.prepare('INSERT INTO app_note_version VALUES (?,?,?)').run(note.id, note.revision, this.codec?.encode(note.id, 'version', String(note.revision), note) ?? JSON.stringify(note));
+    writeNoteSummaries(this.database, note, this.codec);
     // 正文版本变化使基于旧版本的待处理建议失效，与正文、版本快照同一事务提交。
-    this.database.prepare(`UPDATE app_note_suggestion
-      SET record_json=json_set(record_json, '$.status', 'stale', '$.problem', ?)
-      WHERE note_id=? AND json_extract(record_json, '$.status')='pending' AND json_extract(record_json, '$.baseRevision')<>?`)
-      .run(STALE_SUGGESTION_PROBLEM, note.id, note.revision);
+    if (this.codec?.state(note.id)) {
+      for (const row of this.database.prepare('SELECT id,record_json FROM app_note_suggestion WHERE note_id=?').all(note.id)) {
+        const suggestion = this.codec.decode<Record<string, unknown>>(note.id, 'suggestion', String(row.id), row.record_json);
+        if (suggestion.status === 'pending' && suggestion.baseRevision !== note.revision) {
+          this.database.prepare('UPDATE app_note_suggestion SET record_json=? WHERE id=?').run(this.codec.encode(note.id, 'suggestion', String(row.id), { ...suggestion, status: 'stale', problem: STALE_SUGGESTION_PROBLEM }), row.id!);
+        }
+      }
+    } else {
+      this.database.prepare(`UPDATE app_note_suggestion
+        SET record_json=json_set(record_json, '$.status', 'stale', '$.problem', ?)
+        WHERE note_id=? AND json_extract(record_json, '$.status')='pending' AND json_extract(record_json, '$.baseRevision')<>?`)
+        .run(STALE_SUGGESTION_PROBLEM, note.id, note.revision);
+    }
   }
 
   create(input: CreateNote) {

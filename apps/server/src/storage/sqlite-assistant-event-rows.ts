@@ -1,3 +1,4 @@
+import { noteCodecFor } from './note-record-codec.js';
 /**
  * 命令收据与公开事件的行解析和事件写入：命令、事件与工具授权仓储在各自事务内共用，
  * 保证收据、授权状态与对应事件一起提交。
@@ -43,10 +44,13 @@ export interface EventRow {
   command_id: string | null;
   event_type: AssistantPublicEvent['type'];
   payload_json: string;
+  source_key?: string;
   occurred_at: string;
 }
 
-export function commandFromRow(row: CommandRow): StoredAssistantCommandReceipt {
+export function commandFromRow(row: CommandRow, database?: DatabaseSync): StoredAssistantCommandReceipt {
+  const codec = database && noteCodecFor(database), owner = codec && codec.owner(row.assistant_id);
+  const message = row.error_message && owner && codec?.state(owner) ? codec.decode<string>(owner, 'command-error', row.command_id, row.error_message) : row.error_message;
   return {
     commandId: row.command_id,
     assistantSessionId: row.assistant_id,
@@ -56,8 +60,8 @@ export function commandFromRow(row: CommandRow): StoredAssistantCommandReceipt {
     dispatchMode: row.dispatch_mode,
     status: row.phase,
     terminalOutcome: row.terminal_outcome,
-    error: row.error_code && row.error_message
-      ? assistantExecutionError(row.error_code, row.error_message) ?? null
+    error: row.error_code && message
+      ? assistantExecutionError(row.error_code, message) ?? null
       : null,
     runtimeSessionId: row.runtime_session_id,
     runtimeEntryId: row.runtime_entry_id,
@@ -118,20 +122,26 @@ export function publicEventData(type: AssistantPublicEvent['type'], data: Assist
   return data;
 }
 
-export function eventFromRow(row: EventRow): AssistantPublicEvent {
+export function eventFromRow(row: EventRow, database?: DatabaseSync): AssistantPublicEvent {
   return {
     cursor: String(row.cursor),
     eventId: `assistant-event:${row.cursor}`,
     assistantSessionId: row.assistant_id,
     commandId: row.command_id,
     type: row.event_type,
-    data: publicEventData(row.event_type, JSON.parse(row.payload_json) as AssistantPublicEvent['data']),
+    data: publicEventData(row.event_type, (() => {
+      const codec = database && noteCodecFor(database), owner = codec && codec.owner(row.assistant_id);
+      return owner && codec?.state(owner) ? codec.decode(owner, 'event', row.source_key!, row.payload_json) : JSON.parse(row.payload_json);
+    })() as AssistantPublicEvent['data']),
     occurredAt: row.occurred_at,
   } as AssistantPublicEvent;
 }
 
 /** 按来源键幂等追加公开事件；已存在时返回 null。调用方负责事务。 */
 export function appendEventRow(database: DatabaseSync, input: AppendAssistantPublicEventInput): AssistantPublicEvent | null {
+  const codec = noteCodecFor(database), owner = codec?.owner(input.assistantSessionId);
+  const data = publicEventData(input.type, input.data);
+  const payload = owner && codec ? codec.encode(owner, 'event', input.sourceKey, data) : JSON.stringify(data);
   const result = database.prepare(`
     INSERT OR IGNORE INTO assistant_event_projection (
       source_key, assistant_id, command_id, event_type, payload_json, occurred_at
@@ -141,22 +151,22 @@ export function appendEventRow(database: DatabaseSync, input: AppendAssistantPub
     input.assistantSessionId,
     input.commandId,
     input.type,
-    JSON.stringify(publicEventData(input.type, input.data)),
+    payload,
     input.occurredAt,
   );
   if (result.changes === 0) return null;
   const row = database.prepare(`
-    SELECT cursor, assistant_id, command_id, event_type, payload_json, occurred_at
+    SELECT source_key, cursor, assistant_id, command_id, event_type, payload_json, occurred_at
     FROM assistant_event_projection WHERE source_key = ?
   `).get(input.sourceKey) as unknown as EventRow;
-  return eventFromRow(row);
+  return eventFromRow(row, database);
 }
 
 export function readCommand(database: DatabaseSync, commandId: string): StoredAssistantCommandReceipt | undefined {
   const row = database.prepare(`
     SELECT * FROM assistant_command_receipt WHERE command_id = ?
   `).get(commandId) as unknown as CommandRow | undefined;
-  return row ? commandFromRow(row) : undefined;
+  return row ? commandFromRow(row, database) : undefined;
 }
 
 export function requireCommand(database: DatabaseSync, commandId: string): StoredAssistantCommandReceipt {

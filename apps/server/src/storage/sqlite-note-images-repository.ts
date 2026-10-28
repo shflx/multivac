@@ -1,3 +1,4 @@
+import type { NoteRecordCodec } from './note-record-codec.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { NOTE_IMAGE_LIMITS, type NoteImage } from '@multivac/contracts';
 import { NotesError } from '../modules/notes/note.js';
@@ -14,9 +15,10 @@ export const NOTE_IMAGES_MIGRATION = `
 
 /** 附件内容和元数据一次提交；不参与会话附件清理，也不按正文移除立即回收。 */
 export class SqliteNoteImagesRepository implements NoteImagesRepository {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private readonly db: DatabaseSync, private readonly codec?: NoteRecordCodec) {}
 
   private requireNote(noteId: string): void {
+    this.codec?.assert(noteId);
     const row = this.db.prepare("SELECT id FROM app_note WHERE id=? AND json_extract(record_json,'$.deleted') IS NOT 1").get(noteId);
     if (!row) throw new NotesError('笔记不存在或已删除。', 404);
   }
@@ -24,12 +26,13 @@ export class SqliteNoteImagesRepository implements NoteImagesRepository {
     this.requireNote(noteId);
     const row = this.db.prepare('SELECT metadata,retained FROM app_note_image WHERE id=? AND note_id=?').get(id, noteId);
     if (!row) throw new NotesError('图片不存在或不属于此笔记。', 404);
-    return { ...JSON.parse(String(row.metadata)) as NoteImage, retained: row.retained === 1 };
+    return { ...(this.codec?.decode<NoteImage>(noteId, 'image-metadata', id, row.metadata) ?? JSON.parse(String(row.metadata)) as NoteImage), retained: row.retained === 1 };
   }
   read(noteId: string, id: string): { image: NoteImage; data: Buffer } {
     const image = this.get(noteId, id);
     const row = this.db.prepare('SELECT content FROM app_note_image WHERE id=? AND note_id=?').get(id, noteId)!;
-    return { image, data: Buffer.from(row.content as Uint8Array) };
+    const stored = Buffer.from(row.content as Uint8Array);
+    return { image, data: this.codec?.state(noteId) ? this.codec.open(noteId, 'image', id, stored.toString('utf8')) : stored };
   }
   insert(image: NoteImage, data: Buffer): NoteImage {
     return runInTransaction(this.db, () => {
@@ -39,7 +42,7 @@ export class SqliteNoteImagesRepository implements NoteImagesRepository {
       if (existing) return this.get(image.noteId, image.id);
       const budget = this.db.prepare('SELECT COUNT(*) AS count,COALESCE(SUM(length(content)),0) AS bytes FROM app_note_image WHERE note_id=?').get(image.noteId)!;
       if (Number(budget.count) >= NOTE_IMAGE_LIMITS.count || Number(budget.bytes) + data.length > NOTE_IMAGE_LIMITS.totalBytes) throw new NotesError('每篇笔记最多 200 张图片，总大小不超过 100 MiB（含保留的上传）。', 413);
-      this.db.prepare('INSERT INTO app_note_image(id,note_id,metadata,content,created_at) VALUES (?,?,?,?,?)').run(image.id, image.noteId, JSON.stringify(image), data, Date.now());
+      this.db.prepare('INSERT INTO app_note_image(id,note_id,metadata,content,created_at) VALUES (?,?,?,?,?)').run(image.id, image.noteId, this.codec?.encode(image.noteId, 'image-metadata', image.id, image) ?? JSON.stringify(image), this.codec?.state(image.noteId) ? Buffer.from(this.codec.seal(image.noteId, 'image', image.id, data)) : data, Date.now());
       return image;
     });
   }
