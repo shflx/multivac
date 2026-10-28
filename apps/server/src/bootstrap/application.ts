@@ -27,6 +27,7 @@ import { ReminderScheduler } from '../application/reminder-scheduler.js';
 import { NotificationDeliveryService } from '../application/notification-delivery-service.js';
 import { WechatBindingService } from '../application/wechat-binding-service.js';
 import { PrivateWechatStore } from '../storage/private-wechat-store.js';
+import { WechatNotificationAdapter } from '../modules/notifications/wechat/adapter.js';
 import { ReminderService } from '../application/reminder-service.js';
 import { stopProcessKind } from '../application/proposals/process-proposals.js';
 import { ManagedProcessService } from '../application/managed-process-service.js';
@@ -1089,7 +1090,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const wechatNotifications = new WechatBindingService(store.notificationChannels, store.wechatBindings,
     new PrivateWechatStore(join(paths.dataDir, 'notification-secrets', 'wechat')));
   wechatNotifications.initialize();
-  const notificationDelivery = new NotificationDeliveryService(store.notificationChannels, []);
+  const notificationDelivery = new NotificationDeliveryService(store.notificationChannels, [new WechatNotificationAdapter(wechatNotifications)]);
   notificationDelivery.start(workbenchEvents);
   const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
   reminderScheduler.start();
