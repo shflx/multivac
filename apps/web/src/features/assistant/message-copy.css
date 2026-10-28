@@ -1,0 +1,19 @@
+/* 消息操作行占用原本的行间距，不改变消息之间的距离；悬停或聚焦时显示。 */
+.chat-row:has(> .chat-content > .message-actions) { margin-bottom: 0; }
+.message-actions { display: flex; align-items: center; gap: 6px; height: 22px; margin-top: 2px; }
+.chat-row.user .message-actions { flex-direction: row-reverse; }
+.message-actions button {
+  display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--faint); cursor: pointer; opacity: 0; transition: opacity .12s ease;
+}
+.message-actions button svg { width: 14px; height: 14px; }
+.message-actions button:hover { background: var(--surface-subtle); color: var(--ink); }
+.message-actions button:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.message-actions button[data-state='copied'] { color: var(--success); }
+.message-actions button[data-state='failed'] { color: var(--danger); }
+.message-time { color: var(--faint); font-size: var(--t-xs); font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0; transition: opacity .12s ease; }
+.chat-row:hover .message-actions button, .message-actions button:not([data-state='idle']),
+.chat-row:hover .message-time, .message-actions:focus-within .message-time { opacity: 1; }
+.message-actions-feedback { color: var(--muted); font-size: var(--t-xs); }
+/* 触屏没有悬停，操作行常驻但保持弱化。 */
+@media (hover: none) { .message-actions button, .message-time { opacity: .7; } }

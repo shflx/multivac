@@ -1,4 +1,5 @@
 import { CompactFeedback, ContextPanel } from './context-panel.js';
+import { MessageActions } from './message-copy.js';
 import type { ComposerCommand } from '../skills/skill-picker.js';
 import type { SessionContext } from './session-context.js';
 import { McpSessionTools } from '../mcp/mcp-session-tools.js';
@@ -841,6 +842,8 @@ function AssistantSessionView({
                             >{item.message.text}</p>
                           ) : null}
                         {onOpenFileReference && item.message.fileReferences?.some((reference) => reference.startOffset === undefined && reference.kind !== 'image') && <div className="discussion-references">{item.message.fileReferences.filter((reference) => reference.startOffset === undefined && reference.kind !== 'image').map((reference) => <button key={reference.href} type="button" title={`${reference.root}/${reference.path}${reference.section ? ` · ${reference.section}` : ''}`} aria-label={`打开原文 ${reference.path}`} onClick={() => onOpenFileReference(reference)}><FileText /><span>{reference.path}{reference.line ? ` · 第 ${reference.line}${reference.endLine ? `-${reference.endLine}` : ''} 行` : reference.section ? ` · ${reference.section}` : ''}</span></button>)}</div>}
+                        {/* 流式输出中的消息不提供复制，避免复制到半截内容。 */}
+                        {item.message.text && item.message.streamCursor === undefined && <MessageActions text={item.message.text} createdAt={item.message.createdAt} />}
                       </div>
                     </article>
                   )])}
