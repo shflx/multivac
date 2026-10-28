@@ -2334,6 +2334,11 @@ svg {
   color: var(--ink);
 }
 
+/* 会话菜单以整张输入卡片为定位边界，避开草稿并限制在卡片宽度内。 */
+.assistant-composer:has(.model-selector) { position: relative; }
+.assistant-composer .model-selector { position: static; }
+.assistant-composer .model-selector-menu { left: 12px; width: min(330px, calc(100% - 24px)); }
+
 .model-selector-heading {
   display: flex;
   flex-direction: column;
