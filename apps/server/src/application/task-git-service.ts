@@ -15,7 +15,7 @@ export interface TaskGitOptions {
 }
 const fail = (message: string): never => { throw new TaskServiceError('INVALID_REQUEST', message); };
 
-/** Git 专用进程只访问固定 worktree 与所需元数据；通用任务 bash 的隔离规则保持不变。 */
+/** Git 专用进程只访问固定 worktree 与所需元数据；共用 shell 也能操作 Git 元数据，本通道仍提供固定边界的可核对入口。 */
 export class TaskGitService {
   readonly channel: ControlledGitChannel;
   constructor(private readonly options: TaskGitOptions) { this.channel = new ControlledGitChannel(options.protectedPaths); }

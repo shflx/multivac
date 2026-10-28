@@ -8,7 +8,6 @@ import { WEB_TOOLS } from '../application/internal-tools/web-tools.js';
 import { subscribeModelSelectionLifecycle } from '../application/model-selection-events.js';
 import { resolveRuntimeConfig, runtimePathsOverlap } from '../runtime-config.js';
 import { realpathSync } from 'node:fs';
-import { isAbsolute } from 'node:path';
 import { McpExecutionService, type McpExecutionHost } from '../application/mcp-execution-service.js';
 import { McpAccountService } from '../application/mcp-account-service.js';
 import { McpManagementService } from '../application/mcp-management-service.js';
@@ -305,7 +304,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   toolAuthorization.invalidateOnStartup();
   const bashProcesses: BashExecutionPort = sessionBashExecution({
     sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
-    isTaskSession: id => !!store.taskRuns.bySession(id), runs: store.taskRuns,
+    runs: store.taskRuns,
     currentExecution: id => sessionRuntimes.get(id)?.commands.currentPromptCommandId(),
     // 命令准入只读当前记录，不用运行时恢复入口补建准备期间已消失的目录。
     currentDirectory: id => {
@@ -314,13 +313,29 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       workingDirectories.validate(directory);
       return directory;
     },
+    taskControl: (run, toolCallId) => {
+      const check = () => {
+        if (store.taskRuns.bySession(run.sessionId)?.runId !== run.runId) throw new Error('原任务 Run 已失效。');
+        taskExecution.nativeLease(run.sessionId, 'check', toolCallId, 0);
+      };
+      return {
+        check,
+        start: (marker, bytes) => {
+          check();
+          const maxBytes = taskExecution.nativeLease(run.sessionId, 'starting', marker, bytes);
+          return { maxBytes, maxMillis: Math.max(1, taskExecution.budget(run.rootTaskId ?? run.taskId).remainingMillis) };
+        },
+        progress: (marker, bytes) => taskExecution.nativeLease(run.sessionId, 'progress', marker, bytes),
+        settle: marker => taskExecution.nativeLease(run.sessionId, 'settled', marker, 0),
+      };
+    },
     bash: { execute: (...args) => managedProcesses.bash.execute(...args) },
   });
   // 执行器（harness）按启动配置选择；适配器、模型目录与访问后端都由它提供。用量记账在下方创建，调用时才转发。
   const harnessContext: HarnessContext = {
     environment, instance, paths, bashProcesses, executionDiagnostics,
     authorizeToolCall: toolAuthorization.authorize,
-    projectFileScope: projectFileScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, isTaskSession: id => !!store.taskRuns.bySession(id) }),
+    projectFileScope: projectFileScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects }),
     usageRecorder: { begin: (sessionId, runtimeSessionId, model) => usage.begin(sessionId, runtimeSessionId, model) },
   };
   const harnessName = selectedHarness(environment);
@@ -640,8 +655,22 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         const run = store.taskRuns.bySession(sessionId);
         if (!run?.directory || run.stopConfirmed || run.stopIntent) throw new Error('当前没有可托管的任务执行。');
         const budget = taskExecution.budget(run.rootTaskId ?? run.taskId);
-        return managedProcesses.start(input, { taskId: run.taskId, runId: run.runId, sessionId, directory: run.directory.path,
-          maxMillis: Math.min(300000, budget.remainingMillis), maxBytes: Math.min(1024 * 1024, budget.remainingBytes) });
+        const boundary = { taskId: run.taskId, runId: run.runId, sessionId, directory: run.directory.path,
+          maxMillis: Math.min(300000, budget.remainingMillis), maxBytes: Math.min(1024 * 1024, budget.remainingBytes) };
+        return managedProcesses.startWorkspace(input, boundary, run.commandId, {
+          start: (marker, bytes) => {
+            taskExecution.nativeLease(sessionId, input.requiredWhileRunning ? 'starting' : 'check', marker, bytes);
+            return { maxBytes: boundary.maxBytes, maxMillis: boundary.maxMillis };
+          },
+          check: () => { if (input.requiredWhileRunning) taskExecution.nativeLease(sessionId, 'check', 'managed-check', 0); },
+          progress: (marker, bytes) => {
+            if (input.requiredWhileRunning) return taskExecution.nativeLease(sessionId, 'progress', marker, bytes);
+            // 独立长期进程按声明生命周期存活，输出仍计入原 Run，不能改变任务状态或新运行。
+            tasks.facts(facts => { const original = facts.runs.get(run.runId)!; original.outputBytes = (original.outputBytes ?? 0) + bytes; facts.runs.save(original); });
+            return taskExecution.budget(run.rootTaskId ?? run.taskId).remainingBytes;
+          },
+          settle: marker => { if (input.requiredWhileRunning) taskExecution.nativeLease(sessionId, 'settled', marker, 0); },
+        });
       } },
       taskRequests: { askSession: (id, commandId, question, scope) => { taskScheduler.assertOwner(); return humanRequests.askSession(id, commandId, question, scope); } },
       taskArtifacts: { executionTree: (id, offset, limit) => artifacts.executionTree(id, offset, limit), reportChild: (id, commandId, taskId, summary, title, path) => { taskScheduler.assertOwner(); artifacts.reportChild(id, commandId, taskId, summary, title, path); }, registerSession: (id, commandId, title, path) => { taskScheduler.assertOwner(); artifacts.registerSession(id, commandId, title, path); } },
@@ -867,6 +896,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const task = tasks.get(boundary.taskId);
     if (!run || run.stopIntent || run.stopConfirmed || run.status !== 'running' || task.status !== 'running' || task.currentRunId !== run.runId || run.sessionId !== boundary.sessionId || run.directory?.path !== boundary.directory) throw new Error('任务执行边界已失效。');
   });
+  function reconcileBashLeases() {
+    for (const run of store.taskRuns.active()) for (const marker of run.nativePendingIds ?? []) {
+      if (!marker.startsWith('bash-process:')) continue;
+      const record = store.managedProcesses.get(marker.slice('bash-process:'.length));
+      if (record) taskExecution.reconcileBashLease(record);
+    }
+  }
   function assertSessionProcessesStopped(id: string) {
     if (managedProcesses.list(true).some(item => item.sessionId === id && !['exited', 'failed'].includes(item.state))) throw new TaskServiceError('TASK_CONFLICT', '会话进程清理结果尚未确认。');
   }
@@ -878,18 +914,21 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     await mcp.cancelSession(id);
     await managedProcesses.stopSession(id, commandId);
   };
-  const processObservation = setInterval(() => { void managedProcesses.observe().then(() => taskScheduler.reconcileProcessExits()).catch(() => undefined); }, 2000);
+  const processObservation = setInterval(() => { void managedProcesses.observe().then(() => { reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }).catch(() => undefined); }, 2000);
   processObservation.unref();
   // 任务目录、Git 通道与只读 Git 不得触及的执行器内部目录；非 Pi 执行器只保护数据目录。
   const taskProtectedPaths = [...new Set([...adapter.protectedPaths, paths.dataDir])];
-  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), nativeTaskIsolation, taskProtectedPaths);
+  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), taskProtectedPaths);
   const taskExecution: TaskExecutionService = new TaskExecutionService({
     tasks, runs: store.taskRuns, requests: store.humanRequests, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),
     stopRequiredProcesses: (id) => managedProcesses.stopRequired(id),
-    requiredProcessesStopped: (id) => managedProcesses.list().filter((item) => item.runId === id && item.requiredWhileRunning).every((item) => ['exited', 'failed'].includes(item.state)),
+    requiredProcessesStopped: (id) => {
+      const run = store.taskRuns.get(id);
+      return managedProcesses.list(true).filter(item => item.runId === id && item.requiredWhileRunning).every(item => ['exited', 'failed'].includes(item.state)) && (!run || mcp.stopped(run.sessionId));
+    },
     directoryOccupied: (directory) => managedProcesses.hasDirectoryLease(directory),
-    confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id) && mcp.stopped(id) && (!webAccess || webAccess.stopped(id)),
+    confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && managedProcesses.list(true).filter(item => item.sessionId === id && item.requiredWhileRunning).every(item => ['exited', 'failed'].includes(item.state)) && taskGit.processesStopped(id) && mcp.stopped(id) && (!webAccess || webAccess.stopped(id)),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     prepareDependencies: (task, directory, signal) => taskDirectories.prepareDependencies(task, directory, signal),
     describeDependencies: describeNodeDependencies,
@@ -899,10 +938,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     runtime: (id) => {
       const record = sessionRegistry.get(id);
       if (!record) throw new AssistantSessionServiceError('NOT_FOUND', '任务执行会话不存在。');
+      if (store.taskRuns.bySession(id)?.executionMode !== 'workspace') throw new Error('旧任务运行保持原执行方式，须先核对停止，再显式继续创建新 Run。');
       return sessionRuntimes.acquire(record);
     },
   });
-  adapter.bindTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes));
+  adapter.bindTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes), id => {
+    const run = store.taskRuns.bySession(id);
+    return run ? run.executionMode ?? 'native-isolated' : null;
+  });
   const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime);
   const taskGit: TaskGitService = new TaskGitService({
     workRoot: workPaths.workRoot,
@@ -954,7 +997,6 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 任务执行、人工请求、成果与外发核对都已接好：先补齐恢复请求与成果核对，再取得调度权并核对上次留下的运行。
   humanRequests.recover();
   artifacts.recover();
-  taskScheduler.start();
   // MCP 复用公共内部工具与任务执行租约；宿主事实不从页面、模型或工具注解取得。
   let vaultPromise: ReturnType<typeof harness.createMcpCredentialVault> | undefined;
   const vault = () => vaultPromise ??= harness.createMcpCredentialVault();
@@ -976,7 +1018,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         // 模型准入前可为本次已接收命令固定候选；实际工具调用仍只接受运行中的任务。
         const preparing = phase === 'prepare' && task.status === 'queued'
           && commandId === run.commandId && command?.status === 'accepted';
-        if (run.stopIntent || run.stopConfirmed || run.status !== 'running'
+        if (run.executionMode !== 'workspace' || run.stopIntent || run.stopConfirmed || run.status !== 'running'
           || task.status !== 'running' && !preparing || task.currentRunId !== run.runId)
           throw new McpError('rule-denied', 'MCP 任务执行已停止或需要恢复核对。');
       }
@@ -987,15 +1029,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return { sessionId, projectId: run ? run.projectId : record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null,
         agentId: host === 'coordinator' ? COORDINATOR_AGENT_ID : run?.agentId ?? command?.agentExecution?.executor.agentId ?? DEFAULT_AGENT_ID,
         taskId: run?.taskId ?? null, runId: run?.runId ?? null, host, accountId: null, transportAllowed: false,
-        hostEffects: host === 'coordinator' ? ['read', 'data-transfer'] : host === 'task' ? ['read', 'local-write'] : ['read', 'local-write', 'external-write', 'data-transfer'],
+        hostEffects: host === 'coordinator' ? ['read', 'data-transfer'] : ['read', 'local-write', 'external-write', 'data-transfer'],
         workingDirectory: directory };
     },
     transport: (service, context) => {
       if (service.transport.kind === 'legacy-sse') return false;
-      // 任务的 stdio 走原生隔离，只支持 macOS 与绝对路径；工作会话与全局对话按 bash 方式托管，可用 npx 等命令。
-      if (service.transport.kind === 'stdio') return (context.host === 'task' ? process.platform === 'darwin' && isAbsolute(service.transport.command) : process.platform !== 'win32')
+      // 各执行宿主使用同一传输准入；服务、账号、范围与逐次许可仍独立核对。
+      if (service.transport.kind === 'stdio') return process.platform !== 'win32'
         && (service.transport.cwd === null || service.transport.cwd === context.workingDirectory);
-      if (context.host === 'task') return false;
       const url = new URL(service.transport.url);
       return url.protocol === 'https:' || url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
     },
@@ -1010,6 +1051,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const mcpConnections = new McpConnections(store.mcp, harness.createMcpWires(mcpHost, mcpAccounts, taskProtectedPaths, store.mcp));
   const mcp = new McpExecutionService(store.mcp, mcpConnections, mcpHost, id => workbenchEvents.publish({ type: 'inbox.changed', id: `mcp:${id}`, origin: { windowId: null, commandId: null } }));
   mcp.recover();
+  taskScheduler.start();
   const mcpResources = new McpResourceService(store.mcp, mcpConnections, mcpHost);
   const mcpManagement = new McpManagementService(store.mcp, mcpAccounts, mcp, mcpHost, { validate(target, readOnly = false) {
     try {
@@ -1126,7 +1168,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     remoteAccess,
     paths,
     workPaths,
-    ready: ready.then(async () => { await managedProcesses.recover(); taskScheduler.reconcileProcessExits(); }),
+    ready: ready.then(async () => { await managedProcesses.recover(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
     close() {
       reminderScheduler.stop();
       remoteAccess.close();

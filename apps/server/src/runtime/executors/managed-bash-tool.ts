@@ -6,7 +6,7 @@ import type { NativeTaskTools } from './native-task-tools.js';
 export type { BashExecutionPort } from '../../modules/processes/bash-execution.js';
 const Parameters = Type.Object({
   command: Type.String({ minLength: 1 }),
-  cwd: Type.Optional(Type.String({ minLength: 1, description: '本次执行目录，省略时使用会话原工作目录。普通工作会话可选择原目录或当前已确认项目主/附目录及合法子目录；相对路径基于会话原目录。隔离任务不支持此参数。' })),
+  cwd: Type.Optional(Type.String({ minLength: 1, description: '本次执行目录，省略时使用会话原工作目录。工作会话与共用后端的新任务可选择原目录或当前已确认项目主/附目录及合法子目录；相对路径基于会话原目录。隔离任务不支持此参数。' })),
   timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 2147483,
     description: '秒。foreground 限制命令运行时间；background 仅限制等待进程启动的时间，启动后不因该参数自动结束。任务仍受自身执行时限和额度限制。' })),
   mode: Type.Optional(Type.Union([Type.Literal('foreground'), Type.Literal('background')])),
@@ -21,7 +21,7 @@ export function managedBashTool(sessionId: string, directory: string, processes:
   return {
     name: 'bash', label: 'bash', description: (native
       ? '在任务独立目录按原隔离规则执行 bash，不支持 cwd 参数。'
-      : '执行 bash，cwd 可选，默认会话原工作目录；普通工作会话可指定当前已确认项目主/附目录及合法子目录。启动前动态核对真实目录和当前范围。cwd 只决定本次启动位置，不改会话目录，不提供文件系统隔离；文件独立授权不授予执行目录许可，全局 Multivac 仍只用原目录。') +
+      : '执行 bash，cwd 可选，默认会话原工作目录；工作会话与共用后端的新任务可指定当前已确认项目主/附目录及合法子目录。启动前动态核对真实目录和当前范围。cwd 只决定本次启动位置，不改会话目录，不提供文件系统隔离；文件独立授权不授予执行目录许可，全局 Multivac 仍只用原目录。') +
       '所有执行均登记。mode 默认 foreground，等待命令结果；持续服务使用 background，返回 processId，可查询日志和停止。后台直接填写持续运行的命令，由管理器保持运行。timeout 为秒，可选：前台限制运行时间，后台只限制启动等待；任务自身时限和额度仍有效。',
     promptSnippet: '执行并管理 bash 命令，支持前台与后台模式。',
     promptGuidelines: ['普通命令默认前台。用户要求启动并保持服务时选择 mode=background；使用返回的 processId 查询日志和停止。切换会话和一轮回答结束不停止后台进程。',

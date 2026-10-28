@@ -30,7 +30,7 @@ test('真实工具接续：同一会话挂载附加 worktree、编辑、指定 c
   const directory = { kind: 'project-mounted' as const, path: primary };
   store.sessions.insertIfAbsent({ sessionId: 'real', title: 'real', kind: 'work', workspaceId: project.projectId, createdAt: new Date().toISOString(), workingDirectory: directory });
   const processes = new ManagedProcessService(store.managedProcesses, join(root, 'logs'), [], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
-  const dependencies = { sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, isTaskSession: () => false };
+  const dependencies = { sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, taskExecutionMode: () => null };
   const scope = projectFileScope(dependencies);
   const port = sessionBashExecution({ ...dependencies, currentExecution: () => 'real-turn',
     currentDirectory: () => store.sessions.get('real')!.workingDirectory!, runs: { bySession: () => null }, bash: processes.bash });

@@ -192,3 +192,31 @@ test('后台启动等待超时清理本次启动，前台运行超时保存准�
     });
   } finally { await f.close(); }
 });
+
+test('共用后端监护器异常退出时不把管道关闭当停止，原服务仍需核对', async () => {
+  const f = await fixture();
+  const { BashProcessService } = await import('../src/application/bash-process-service.js');
+  let supervisor: ReturnType<typeof nodeProcessSupervisors.bash> | undefined;
+  const service = new BashProcessService(f.store.managedProcesses, join(f.root, 'fault-logs'), {
+    ...nodeProcessSupervisors, bash: () => { supervisor = nodeProcessSupervisors.bash(); return supervisor; },
+  }, () => {});
+  let port: number | undefined;
+  try {
+    const command = `exec '${process.execPath}' -e 'const s=require("node:http").createServer((q,r)=>{r.end("owned-test-service");if(q.url==="/shutdown")s.close()});s.listen(0,"127.0.0.1",()=>console.log(s.address().port))'`;
+    const started = await service.execute(f.source, 'supervisor-fault', { command, mode: 'background' }, undefined, () => {});
+    await eventually(async () => {
+      port = Number((await service.logs(started.process.processId)).text.trim()); assert.ok(port);
+      assert.equal(await (await fetch(`http://127.0.0.1:${port}`)).text(), 'owned-test-service');
+    });
+    supervisor!.kill('SIGKILL');
+    await eventually(() => assert.equal(f.service.get(started.process.processId)!.state, 'recovery'));
+    assert.equal(await (await fetch(`http://127.0.0.1:${port}`)).text(), 'owned-test-service');
+    await service.stop(started.process.processId);
+    assert.equal(f.service.get(started.process.processId)!.state, 'recovery');
+    // 通过夹具自己提供的关闭接口收拢服务，不使用旧 PID 猜测归属。
+    await fetch(`http://127.0.0.1:${port}/shutdown`);
+    await eventually(async () => { await assert.rejects(fetch(`http://127.0.0.1:${port}`)); });
+    await service.reconcile(started.process.processId);
+    assert.equal(f.service.get(started.process.processId)!.state, 'recovery');
+  } finally { if (port) await fetch(`http://127.0.0.1:${port}/shutdown`).catch(() => {}); await service.close(); await f.close(); }
+});

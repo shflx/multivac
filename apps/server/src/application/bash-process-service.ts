@@ -13,9 +13,15 @@ import type { BashInput, IsolatedBashExecution } from '../modules/processes/bash
 
 export type { BashInput, IsolatedBashExecution } from '../modules/processes/bash-execution.js';
 export interface BashSource { sessionId: string; executionId: string; directory: string; taskId?: string; runId?: string }
+export interface BashRunControl {
+  start(marker: string, bytes: number): { maxBytes: number; maxMillis: number };
+  check(): void;
+  progress(marker: string, bytes: number): number;
+  settle(marker: string): void;
+}
 interface Live {
   ready: Promise<void>; rootExited: Promise<number | null>; closed: Promise<void>;
-  stop: () => void; outputs: Set<(data: Buffer) => void>; timedOut: boolean; supervisorExited?: boolean;
+  settle?: () => void; stop: () => void; outputs: Set<(data: Buffer) => void>; timedOut: boolean; supervisorExited?: boolean;
 }
 const exec = promisify(execFile);
 const terminal = (item: ManagedProcess) => ['exited', 'failed'].includes(item.state);
@@ -42,7 +48,7 @@ export class BashProcessService {
     }
   }
   async execute(source: BashSource, toolCallId: string, input: BashInput, signal: AbortSignal | undefined,
-    onData: (data: Buffer) => void, isolated?: IsolatedBashExecution, validateBeforeStart?: () => void): Promise<{ process: ManagedProcess; exitCode: number | null }> {
+    onData: (data: Buffer) => void, isolated?: IsolatedBashExecution, validateBeforeStart?: () => void, control?: BashRunControl): Promise<{ process: ManagedProcess; exitCode: number | null }> {
     if (!input.command.trim() || input.command.length > 100000 || (input.timeout !== undefined && (!Number.isFinite(input.timeout) || input.timeout <= 0 || input.timeout > 2147483))) throw new Error('bash 命令或超时参数无效。');
     this.allowed(source);
     if (signal?.aborted) throw new Error('aborted');
@@ -53,14 +59,14 @@ export class BashProcessService {
     if (record && record.fingerprint !== key) throw new TaskServiceError('COMMAND_ID_CONFLICT', '工具调用参数已改变。');
     if (!record) {
       const id = randomUUID();
-      record = { backend: 'bash', commandId, fingerprint: key, directory: source.directory, ownerId: randomUUID(), token: randomUUID(), pid: null,
+      record = { backend: 'bash', executionMode: isolated ? 'native-isolated' : 'workspace', accountedBytes: 0, commandId, fingerprint: key, directory: source.directory, ownerId: randomUUID(), token: randomUUID(), pid: null,
         public: { processId: id, sessionId: source.sessionId, taskId: source.taskId ?? null, runId: source.runId ?? null,
           executionId: source.executionId, toolCallId, mode, pid: null, processGroupId: null, revision: 1,
           name: (input.name || input.command.split('\n')[0] || 'bash').slice(0, 200), command: input.command.slice(0, 1000),
-          state: 'starting', requiredWhileRunning: !!source.taskId, startedAt: null, endedAt: null, port: null, exitCode: null, reason: '正在启动 bash 执行。' } };
+          state: 'starting', requiredWhileRunning: input.requiredWhileRunning ?? !!source.taskId, startedAt: null, endedAt: null, port: null, exitCode: null, reason: '正在启动 bash 执行。' } };
       this.repository.save(record); this.changed();
       // 登记与 live 安装之间不让出执行权，取消和重复调用始终能看到启动意图。
-      this.launch(record, input, source, isolated, validateBeforeStart);
+      this.launch(record, input, source, isolated, validateBeforeStart, control);
     }
     const id = record.public.processId;
     const live = this.live.get(id);
@@ -93,7 +99,7 @@ export class BashProcessService {
       return { process: this.repository.get(id)!.public, exitCode };
     } finally { signal?.removeEventListener('abort', abort); live.outputs.delete(onData); }
   }
-  private launch(record: ManagedProcessRecord, input: BashInput, source: BashSource, isolated?: IsolatedBashExecution, validateBeforeStart?: () => void) {
+  private launch(record: ManagedProcessRecord, input: BashInput, source: BashSource, isolated?: IsolatedBashExecution, validateBeforeStart?: () => void, control?: BashRunControl) {
     const id = record.public.processId;
     let ready!: () => void, exited!: (code: number | null) => void, closed!: () => void;
     const controller = new AbortController();
@@ -128,6 +134,16 @@ export class BashProcessService {
         this.save(id, { state: controller.signal.aborted ? 'exited' : failed || result.code !== 0 ? 'failed' : 'exited', endedAt: new Date().toISOString(), exitCode: result.code, port: null, reason: failed && !controller.signal.aborted ? failureReason : '受限任务 bash 已退出，派生进程由隔离策略禁止。' });
         exited(result.code); ready(); this.live.delete(id); closed(); return;
       }
+      const marker = `bash-process:${id}`;
+      const limits = control?.start(marker, Buffer.byteLength(input.command));
+      if (control) live.settle = () => control.settle(marker);
+      let guard: ReturnType<typeof setInterval> | undefined;
+      if (control) {
+        guard = setInterval(() => {
+          try { control.check(); } catch { if (this.repository.get(id)?.public.state === 'running') void this.stop(id); }
+        }, 100);
+        void live.closed.finally(() => clearInterval(guard));
+      }
       const env: NodeJS.ProcessEnv = {};
       for (const key of ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER', 'LOGNAME', 'TERM']) if (process.env[key]) env[key] = process.env[key];
       // 完成所有异步准备后按最新事实复核，随后使用已钉住的真实目录启动。
@@ -141,7 +157,16 @@ export class BashProcessService {
           try {
             const message = JSON.parse(line) as { pid?: number; rootExited?: boolean; code?: number | null; output?: string; timedOut?: boolean };
             if (message.pid) pidReady(message.pid);
-            if (message.output) for (const output of live.outputs) output(Buffer.from(message.output, 'base64'));
+            if (message.output) {
+              const data = Buffer.from(message.output, 'base64');
+              try {
+                if (control && control.progress(marker, data.length) <= 0) void this.stop(id);
+                const current = this.repository.get(id)!;
+                current.accountedBytes = (current.accountedBytes ?? 0) + data.length; this.repository.save(current);
+              }
+              catch { void this.stop(id); }
+              for (const output of live.outputs) output(data);
+            }
             if (message.rootExited) { this.save(id, { exitCode: message.code ?? null }); exited(message.code ?? null); }
             if (message.timedOut) live.timedOut = true;
           } catch { /* 损坏协议不产生成功事实。 */ }
@@ -155,10 +180,12 @@ export class BashProcessService {
         void this.reconcile(id).finally(() => { this.live.delete(id); ready(); exited(null); closed(); });
       });
       child.stdin.write(JSON.stringify({ ...this.paths(id), token: record.token, directory, command: input.command, env, graceMillis: this.graceMillis,
-        timeoutMillis: input.mode === 'background' || input.timeout === undefined ? null : input.timeout * 1000 }) + '\n');
+        maxBytes: limits?.maxBytes ?? null,
+        timeoutMillis: Math.min(input.mode === 'background' || input.timeout === undefined ? Infinity : input.timeout * 1000, limits?.maxMillis ?? Infinity) === Infinity
+          ? null : Math.min(input.mode === 'background' || input.timeout === undefined ? Infinity : input.timeout * 1000, limits?.maxMillis ?? Infinity) }) + '\n');
       if (controller.signal.aborted) live.stop();
     })().catch(error => {
-      this.save(id, { state: 'failed', endedAt: new Date().toISOString(), reason: error instanceof Error ? error.message.slice(0, 2000) : 'bash 启动失败。' });
+      this.save(id, { state: live.settle ? 'recovery' : 'failed', endedAt: live.settle ? null : new Date().toISOString(), reason: error instanceof Error ? error.message.slice(0, 2000) : 'bash 启动失败。' });
       this.live.delete(id); ready(); exited(null); closed();
     });
   }
@@ -172,10 +199,14 @@ export class BashProcessService {
     const record = this.repository.get(id)!;
     if (terminal(record.public)) return;
     try {
-      const receipt = JSON.parse(await readFile(this.paths(id).receipt, 'utf8')) as { token: string; pid: number; groupStopped: boolean; spawnError: boolean; stopping: boolean; timedOut?: boolean; timeoutMillis?: number; code: number | null; endedAt: string };
+      const receipt = JSON.parse(await readFile(this.paths(id).receipt, 'utf8')) as { token: string; pid: number; groupStopped: boolean; spawnError: boolean; stopping: boolean; timedOut?: boolean; overflow?: boolean; treeStopped?: boolean; bytes?: number; timeoutMillis?: number; code: number | null; endedAt: string };
+      if (record.executionMode === 'workspace' && !receipt.treeStopped) throw new Error('缺少进程树退出证明。');
       if (receipt.token !== record.token || !receipt.groupStopped || (record.pid !== null && receipt.pid !== record.pid)) throw new Error('退出凭据不匹配。');
-      this.save(id, { state: receipt.spawnError || receipt.timedOut || (!receipt.stopping && receipt.code !== 0) ? 'failed' : 'exited', endedAt: receipt.endedAt, exitCode: receipt.code, port: null,
-        reason: receipt.timedOut ? `bash 执行超过 ${receipt.timeoutMillis! / 1000} 秒，托管进程组已核对退出。` : '监护器已核对本次创建的托管进程组退出。' });
+      if (Number.isSafeInteger(receipt.bytes) && receipt.bytes! >= 0) { record.totalOutputBytes = receipt.bytes!; this.repository.save(record); }
+      this.live.get(id)?.settle?.();
+      if (this.live.get(id)) delete this.live.get(id)!.settle;
+      this.save(id, { state: receipt.spawnError || receipt.timedOut || receipt.overflow || (!receipt.stopping && receipt.code !== 0) ? 'failed' : 'exited', endedAt: receipt.endedAt, exitCode: receipt.code, port: null,
+        reason: receipt.overflow ? 'bash 输出超过任务额度，托管进程树已核对退出。' : receipt.timedOut ? `bash 执行超过 ${receipt.timeoutMillis! / 1000} 秒，托管进程组已核对退出。` : '监护器已核对本次创建的托管进程组退出。' });
     } catch { if (!this.live.has(id) || this.live.get(id)?.supervisorExited) this.save(id, { state: 'recovery', reason: '托管进程组退出结果未确认。' }); }
   }
   async observe(id: string) {

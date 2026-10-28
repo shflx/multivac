@@ -6,9 +6,10 @@ export interface BashInput {
   mode?: 'foreground' | 'background';
   timeout?: number;
   name?: string;
+  requiredWhileRunning?: boolean;
 }
 
-/** 任务委托原有受限执行器；普通工作会话使用独立进程组。 */
+/** 历史任务保留原受限执行器；新任务与工作会话共用托管进程后端。 */
 export type IsolatedBashExecution = (command: string, options: {
   signal: AbortSignal;
   timeoutMs?: number;

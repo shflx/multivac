@@ -61,7 +61,7 @@ export class TaskScheduler {
     for (const old of this.runs.active()) {
       if (old.ownerId === this.execution.ownerId) continue;
       this.tasks.transition(old.taskId, { commandId: `recovery:${randomUUID()}`, key: old.runId, kind: 'recovery', summary: '服务启动时核对上次执行记录。' }, (task, facts) => {
-        if (old.schedulerManaged && old.hasStarted === false && !old.stopIntent && task.status === 'queued') {
+        if (old.executionMode === 'workspace' && old.schedulerManaged && old.hasStarted === false && !old.stopIntent && task.status === 'queued') {
           old.ownerId = this.execution.ownerId; old.ownerPid = process.pid; facts.runs.save(old); return task;
         }
         const parentStopped = old.ownerPid !== undefined && !alive(old.ownerPid);

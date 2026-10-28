@@ -11,10 +11,10 @@ export const PROJECT_BODY_LIMIT_BYTES = 16 * 1024;
 export const PROJECT_DIRECTORY_MAX_COUNT = 20;
 
 /** 设置、确认卡和运行时说明共用的目录语义，不代表授权来源。 */
-export const PROJECT_FILE_SCOPE_NOTE = '普通项目工作会话可直接读取、编辑和写入当前已确认的主目录、附加目录及合法子目录，也可用 bash 的 cwd 指定本次执行目录；挂载、卸载和会话归属变化对后续文件及 bash 调用生效。';
+export const PROJECT_FILE_SCOPE_NOTE = '项目内的工作会话与使用共用执行后端的新任务运行可直接读取、编辑和写入当前已确认的主目录、附加目录及合法子目录，也可用 bash 的 cwd 指定本次执行目录；挂载、卸载和会话归属变化对后续文件及 bash 调用生效。';
 export const PROJECT_CWD_CHANGE_NOTE = '主目录用于新建会话的默认工作目录；调整主目录不会迁移已有会话的工作目录。bash 省略 cwd 时仍在原会话目录执行，指定 cwd 只改变本次启动位置，不提供文件系统隔离。';
 export const PROJECT_UNMOUNT_NOTE = '卸载仅移除项目挂载这一权限来源；已有会话工作目录和有效的独立授权仍按原规则生效。';
-export const PROJECT_SCOPE_LIMIT_NOTE = '项目目录规则仅适用于普通项目工作会话，后台隔离任务、全局 Multivac、书伴和笔记助手维持原范围；文件独立授权不授予 bash 执行目录许可。';
+export const PROJECT_SCOPE_LIMIT_NOTE = '项目目录规则适用于工作会话与使用共用执行后端的新任务运行，旧隔离运行、全局 Multivac、书伴和笔记助手维持原范围；文件独立授权不授予 bash 执行目录许可。';
 
 /** 项目 id 由服务端生成；项目的同名工作区使用同一个 id。 */
 export const ProjectIdSchema = Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' });

@@ -12,7 +12,9 @@ export interface BashDirectoryPlan {
 }
 
 /** bash 目录来源只有会话 cwd 和当前项目目录，不接收文件独立授权。 */
-export function projectBashScope(dependencies: Parameters<typeof projectFileScope>[0]) {
+export function projectBashScope(dependencies: Parameters<typeof projectFileScope>[0] & {
+  taskExecutionMode?: (sessionId: string) => 'workspace' | 'native-isolated' | null;
+}) {
   const projectDirectories = projectFileScope(dependencies);
   return (sessionId: string, runtimeDirectory: WorkingDirectory, requestedCwd?: string): BashDirectoryPlan => {
     if (!isAbsolute(runtimeDirectory.path)) throw new Error('会话工作目录不是有效的绝对路径。');
@@ -28,8 +30,9 @@ export function projectBashScope(dependencies: Parameters<typeof projectFileScop
         throw new Error('会话执行目录已变化。');
       }
       if (session?.host) throw new Error('此宿主没有 bash 执行权限。');
+      const taskMode = dependencies.taskExecutionMode?.(sessionId);
       const ordinary = sessionId !== GLOBAL_ASSISTANT_SESSION_ID && session?.kind === 'work' &&
-        !['task-isolated', 'worktree'].includes(runtimeDirectory.kind) && !dependencies.isTaskSession(sessionId);
+        (taskMode === 'workspace' || (!taskMode && !['task-isolated', 'worktree'].includes(runtimeDirectory.kind)));
       // 其他宿主只保留原 cwd，不因新增参数获得项目目录或子目录选择能力。
       if (!ordinary && requested !== resolve(runtimeDirectory.path)) throw new Error('此会话只能在原工作目录执行 bash。');
       const target = existingDirectory(requested);

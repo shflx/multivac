@@ -1018,7 +1018,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const toolCallId = `bash-${randomUUID()}`;
     let answer = '';
     try {
-      if (!this.bashProcesses || session.config.readingOnly || ['task-isolated', 'worktree'].includes(session.workingDirectory.kind)) throw new Error('测试场景仅允许普通工作会话 bash。');
+      if (!this.bashProcesses || session.config.readingOnly) throw new Error('当前测试宿主没有 bash 执行能力。');
       const tool = managedBashTool(session.binding.assistantSessionId, session.workingDirectory.path, this.bashProcesses);
       const args = JSON.parse(text.split('bash执行：')[1]!.split('\n')[0]!);
       if (!Check(tool.parameters, args)) throw new Error('bash 参数无效。');

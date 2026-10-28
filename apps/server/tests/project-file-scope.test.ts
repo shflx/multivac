@@ -37,8 +37,7 @@ async function fixture() {
     return record;
   };
   const old = addSession('old');
-  const tasks = new Set<string>();
-  const scopeDependencies = { sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, isTaskSession: (id: string) => tasks.has(id) };
+  const scopeDependencies = { sessions: store.sessions, workspaces: store.workspaces, projects: store.projects };
   const scope = projectFileScope(scopeDependencies);
   const bashScope = projectBashScope(scopeDependencies);
   const authorization = new ToolAuthorizationService({
@@ -63,7 +62,7 @@ async function fixture() {
   };
   const mount = () => projects.updateProject(a.projectId, { directories: [paths.primary!, paths.extra!] });
   const unmount = () => projects.updateProject(a.projectId, { directories: [paths.primary!] });
-  return { root, paths, store, projects, a, b, old, addSession, tasks, scope, bashScope, toolsFor, invoke, mount, unmount, authorization,
+  return { root, paths, store, projects, a, b, old, addSession, scope, bashScope, toolsFor, invoke, mount, unmount, authorization,
     approve: (value: typeof approval) => { approval = value; },
     cleanup: async () => { authorization.dispose(); store.close(); await rm(root, { recursive: true, force: true }); },
   };
@@ -218,7 +217,7 @@ test('Pi 真实文件队列：排队期间卸载时，出队后的 write/edit �
   } finally { await f.cleanup(); }
 });
 
-test('身份来自真实记录和运行模式：全局、任务 Run、worktree/task-isolated 不获得项目范围', async () => {
+test('真实会话记录决定项目范围：任务与普通会话共用，全局和归档宿主仍拒绝', async () => {
   const f = await fixture();
   try {
     f.mount();
@@ -227,15 +226,13 @@ test('身份来自真实记录和运行模式：全局、任务 Run、worktree/t
     assert.deepEqual(f.scope(GLOBAL_ASSISTANT_SESSION_ID, directory), []);
     assert.deepEqual(f.scope('unknown', directory), []);
     for (const kind of ['task-isolated', 'worktree'] as const) {
-      assert.deepEqual(f.scope('old', { kind, path: directory.path }), []);
+      assert.equal(f.scope('old', { kind, path: directory.path }).length, 2);
       f.store.sessions.setWorkingDirectory('old', { kind, path: directory.path });
-      assert.deepEqual(f.scope('old', directory), []);
+      assert.equal(f.scope('old', directory).length, 2);
     }
     f.store.sessions.setWorkingDirectory('old', directory);
-    f.tasks.add('old');
-    assert.deepEqual(f.scope('old', directory), []);
-    assert.equal((await judgeToolCall('read', { path: join(f.paths.extra!, 'x') }, directory.path, {}, () => f.scope('old', directory))).type, 'outside');
-    f.tasks.delete('old');
+    assert.equal(f.scope('old', directory).length, 2);
+    assert.equal((await judgeToolCall('read', { path: join(f.paths.extra!, 'x') }, directory.path, {}, () => f.scope('old', directory))).type, 'allow');
     f.store.sessions.archive('old', new Date().toISOString());
     assert.deepEqual(f.scope('old', directory), []);
   } finally { await f.cleanup(); }

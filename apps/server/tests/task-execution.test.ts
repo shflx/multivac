@@ -13,7 +13,6 @@ import { TaskExecutionService } from '../src/application/task-execution-service.
 import { TaskService } from '../src/application/task-service.js';
 import { AssistantEventStream } from '../src/application/assistant-event-stream.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
-import { nativeTaskIsolation } from '../src/runtime/executors/process-runtime.js';
 
 test('准备阶段取消等待真实准备收尾，不创建或发送会话', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-prepare-'));
@@ -140,7 +139,7 @@ test('Git 任务从固定 HEAD 创建独占 worktree，保留 dirty 用户工作
     await writeFile(join(source, 'example.txt'), 'baseline'); await git(['add', '.']); await git(['commit', '-m', 'baseline']);
     const baseline = await git(['rev-parse', 'HEAD']);
     await writeFile(join(source, 'example.txt'), 'user-dirty');
-    const directories = new TaskWorkingDirectories(work, () => ({ projectId: 'p', name: '项目', directories: [{ kind: 'mounted', path: source }], defaultConstraints: '', createdAt: '' }), nativeTaskIsolation);
+    const directories = new TaskWorkingDirectories(work, () => ({ projectId: 'p', name: '项目', directories: [{ kind: 'mounted', path: source }], defaultConstraints: '', createdAt: '' }));
     const result = await directories.prepare({ taskId: 'task', projectId: 'p', title: '修复任务日志展示' } as any, 'run', new AbortController().signal);
     assert.equal(result.baseline, baseline);
     assert.equal(result.directory.kind, 'worktree');

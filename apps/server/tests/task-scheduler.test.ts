@@ -158,3 +158,36 @@ test('构造调度器不取得调度权也不接入执行；只能显式启动�
     assert.equal(f.store.taskRuntime.owner(), null);
   } finally { await f.close(); }
 });
+
+test('缺少执行方式的历史排队 Run 不静默采用新后端，停止核对后显式继续才建 workspace Run', async () => {
+  const f = await fixture();
+  let execution: TaskExecutionService | undefined;
+  let scheduler: TaskScheduler | undefined;
+  try {
+    const dependency = f.tasks.create({ commandId: 'legacy-dependency', title: '前置', goal: '等待前置' }).task;
+    const task = f.tasks.create({ commandId: 'legacy-task', title: '历史排队任务', goal: '保留旧方式', dependencyIds: [dependency.taskId] }).task;
+    await f.execution.control(task.taskId, { commandId: 'queue-old', revision: task.revision, action: 'start' });
+    f.scheduler.dispose(); f.execution.dispose();
+    const old = f.store.taskRuns.get(f.tasks.get(task.taskId).currentRunId!)!;
+    delete old.executionMode;
+    old.ownerPid = 99999999;
+    old.directory = { kind: 'worktree', path: join(f.root, 'old-worktree') };
+    f.store.taskRuns.save(old);
+    execution = new TaskExecutionService({ settleArtifacts: async () => {}, tasks: f.tasks, runs: f.store.taskRuns, events: new AssistantEventStream(),
+      prepare: async () => { throw new Error('不能重放旧执行'); }, createSession: async () => {}, runtime: () => { throw new Error('不能派发'); } });
+    scheduler = new TaskScheduler(f.tasks, execution, f.store.taskRuns, f.store.taskRuntime).start();
+    scheduler.drain();
+    assert.equal(f.tasks.get(task.taskId).status, 'recovery');
+    assert.equal(f.store.taskRuns.get(old.runId)!.executionMode, undefined);
+    assert.equal(f.store.taskRuns.get(old.runId)!.stopConfirmed, true);
+    assert.equal(f.launches.length, 0);
+    await execution.control(task.taskId, { commandId: 'explicit-resume', revision: f.tasks.get(task.taskId).revision, action: 'resume' });
+    const next = f.store.taskRuns.get(f.tasks.get(task.taskId).currentRunId!)!;
+    assert.notEqual(next.runId, old.runId);
+    assert.equal(next.executionMode, 'workspace');
+    assert.equal(next.sessionId, old.sessionId);
+    assert.deepEqual(next.directory, old.directory);
+    assert.equal(f.store.taskRuns.get(old.runId)!.executionMode, undefined);
+    assert.equal(f.launches.length, 0);
+  } finally { scheduler?.dispose(); execution?.dispose(); await f.close(); }
+});

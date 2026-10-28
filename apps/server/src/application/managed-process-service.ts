@@ -1,4 +1,4 @@
-import { BashProcessService } from './bash-process-service.js';
+import { BashProcessService, type BashRunControl } from './bash-process-service.js';
 import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
@@ -23,7 +23,7 @@ export interface ManagedBoundary {
 interface Live { child: ChildProcessWithoutNullStreams; closed: Promise<void> }
 const exec = promisify(execFile);
 
-/** 统一管理自身启动的会话 bash 进程组与受限任务进程，不接管已有系统进程。 */
+/** 统一管理自身启动的会话/任务 bash 进程与历史受限进程，不接管已有系统进程。 */
 export class ManagedProcessService {
   readonly bash: BashProcessService;
   private readonly ownerId = randomUUID();
@@ -148,6 +148,19 @@ export class ManagedProcessService {
   private save(record: ManagedProcessRecord, patch: Partial<ManagedProcess>) {
     record.public = { ...record.public, ...patch, revision: record.public.revision + 1 };
     this.repository.save(record); this.changed();
+  }
+  /** 新任务的显式长期服务也走共用 bash；旧记录仍通过原监护器只读核对。 */
+  async startWorkspace(input: ManagedStart, boundary: ManagedBoundary, executionId: string, control: BashRunControl): Promise<ManagedProcess> {
+    if (!input.name || !input.script || isAbsolute(input.script) || input.script.length > 1024) throw new TaskServiceError('INVALID_REQUEST', '托管启动参数无效。');
+    const directory = await realpath(boundary.directory);
+    const script = await realpath(join(directory, input.script));
+    const rel = relative(directory, script);
+    if (rel.startsWith('..') || isAbsolute(rel)) throw new TaskServiceError('INVALID_REQUEST', '脚本不在任务目录内。');
+    this.validateBoundary(boundary);
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    const result = await this.bash.execute({ sessionId: boundary.sessionId, taskId: boundary.taskId, runId: boundary.runId, executionId, directory }, input.commandId,
+      { command: `exec ${quote(process.execPath)} ${quote(script)}`, name: input.name, mode: 'background', requiredWhileRunning: input.requiredWhileRunning }, undefined, () => {}, undefined, control);
+    return result.process;
   }
   start(input: ManagedStart, boundary: ManagedBoundary): Promise<ManagedProcess> {
     const key = fingerprint({ input, taskId: boundary.taskId, runId: boundary.runId, sessionId: boundary.sessionId, directory: boundary.directory });

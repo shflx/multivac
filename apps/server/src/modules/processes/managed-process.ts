@@ -7,6 +7,9 @@ export interface ManagedProcessRecord {
   fingerprint: string;
   directory: string;
   backend?: 'bash';
+  executionMode?: 'workspace' | 'native-isolated';
+  accountedBytes?: number;
+  totalOutputBytes?: number;
   token: string;
   pid: number | null;
   ownerId: string;

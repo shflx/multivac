@@ -70,7 +70,7 @@ async function fixture() {
   let run: TaskRun | null = null;
   let directoryReads = 0;
   const port = sessionBashExecution({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
-    isTaskSession: () => !!run, runs: { bySession: () => run }, currentExecution: () => execution,
+    runs: { bySession: () => run }, currentExecution: () => execution,
     currentDirectory: id => { directoryReads++; return store.sessions.get(id)!.workingDirectory!; }, bash: processes.bash });
   const tool = managedBashTool('session', primary, port);
   const mount = () => projects.updateProject(project.projectId, { directories: [primary, extra] });

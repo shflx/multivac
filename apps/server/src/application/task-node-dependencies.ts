@@ -63,7 +63,7 @@ export async function describeNodeDependencies(directory: string): Promise<strin
   catch { return null; }
   try {
     const marker = JSON.parse(await readFile(join(directory, MARKER), 'utf8')) as { lockSha256?: unknown };
-    if (marker.lockSha256 === lockHash(lock)) return '依赖：已按项目主目录的 package-lock.json 准备 node_modules（未联网、未执行依赖脚本），不能新增或升级依赖。';
+    if (marker.lockSha256 === lockHash(lock)) return '依赖：已按项目主目录的 package-lock.json 准备 node_modules（未联网、未执行依赖脚本），可按项目要求使用共用 bash 安装或更新依赖，仍受任务预算约束。';
   } catch { /* 没有准备标记。 */ }
-  return '依赖：任务目录未准备 node_modules（锁文件与项目主目录不一致，或主目录尚未安装依赖），依赖相关的检查无法运行；需要时用 request_task_input 说明。';
+  return '依赖：任务目录未准备 node_modules（锁文件与项目主目录不一致，或主目录尚未安装依赖），可使用共用 bash 安装项目依赖后运行检查；失败时记录真实原因并修复。';
 }

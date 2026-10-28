@@ -25,7 +25,7 @@ export const submitTaskResultTool = defineInternalTool({
 });
 export const startManagedProcessTool = defineInternalTool({
   name: 'start_managed_process', effect: 'manage', requires: ['managedStart'],
-  description: '仅在当前真实任务目录中启动不派生子进程的 Node 脚本。禁止外连和凭据继承，可声明一个回环监听端口；端口声明不等于可用。requiredWhileRunning 表示随本轮停止，false 表示独立长期进程（仍受预算和服务退出约束）。不支持 npm、Vite 或任意 shell。',
+  description: '在当前真实任务目录启动 Node 脚本，使用工作会话共用的环境白名单与进程托管，可联网和派生子进程；端口声明不等于可用。requiredWhileRunning 表示随本轮停止，false 声明独立长期生命周期（仍受启动时限、输出额度和服务退出约束）。任意开发命令与 npm/Vite 可用 bash background；不自动继承服务端模型秘密。',
   parameters: Type.Omit(ManagedStartSchema, ['commandId'], { additionalProperties: false }),
   async execute(params, context) {
     const process = await context.services.managedStart.startSession(context.sessionId, { ...params, commandId: context.commandId });

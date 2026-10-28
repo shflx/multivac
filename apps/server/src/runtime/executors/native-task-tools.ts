@@ -9,7 +9,7 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 
 const FILE_LIMIT = 4 * 1024 * 1024;
 const OUTPUT_LIMIT = 512 * 1024;
-export type NativeTaskLease = (phase: 'starting' | 'settled', marker: string, bytes: number) => number;
+export type NativeTaskLease = (phase: 'starting' | 'settled' | 'check' | 'progress', marker: string, bytes: number) => number;
 const WORKER = `const fs=require('node:fs');const [op,path]=process.argv.slice(1);
 if(op==='read'){const fd=fs.openSync(path,'r');try{const s=fs.fstatSync(fd);if(!s.isFile()||s.size>${FILE_LIMIT})throw Error('读取上限');const b=fs.readFileSync(fd);if(b.length>${FILE_LIMIT})throw Error('读取上限');process.stdout.write(b);}finally{fs.closeSync(fd);}}
 else if(op==='write')fs.writeFileSync(path,fs.readFileSync(0));

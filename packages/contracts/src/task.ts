@@ -193,6 +193,8 @@ export const TaskControlSchema = Type.Object({
 }, { additionalProperties: false });
 export type TaskControl = Type.Static<typeof TaskControlSchema>;
 export const TaskRunSchema = Type.Object({
+  /** 缺省表示历史原生隔离方式；新运行显式固定共用工作会话后端。 */
+  executionMode: Type.Optional(Type.Union([Type.Literal('workspace'), Type.Literal('native-isolated')])),
   // 用户主动继续时重置任务树可用额度；历史运行与消耗保留，用检查点划分新一轮预算。
   budgetRenewal: Type.Optional(Type.Object({
     limit: TaskBudgetSchema, previousLimit: TaskBudgetSchema,
