@@ -20,10 +20,10 @@ export const WORKING_DIRECTORY_KINDS: Record<WorkingDirectoryKind, { label: stri
   'task-isolated': { label: '任务独立目录', rule: '任务默认独立目录；新运行使用工作会话共用执行规则，保留预算与暂停取消，目录不构成 shell 沙箱。' },
 };
 
-/** 目录外的规则：与目录边界的判定一致，只有读取、修改、写入文件由程序拦截并请你确认。 */
-export const OUTSIDE_WORKING_DIRECTORY_RULE = '读取、修改或写入目录外的文件需要你确认。';
+/** 文件范围外的规则：工作目录、当前项目范围及有效独立授权之外的读取、修改、写入由程序拦截并请你确认。 */
+export const OUTSIDE_WORKING_DIRECTORY_RULE = '读取、修改或写入当前获准范围外的文件需要你确认。';
 
-/** 一类目录的完整规则：目录内怎么执行、会不会被清理，目录外需要确认。 */
+/** 一类目录的完整规则：目录内怎么执行、会不会被清理，获准范围外需要确认。 */
 export function workingDirectoryRule(kind: WorkingDirectoryKind): string {
   return `${WORKING_DIRECTORY_KINDS[kind].rule}${OUTSIDE_WORKING_DIRECTORY_RULE}`;
 }

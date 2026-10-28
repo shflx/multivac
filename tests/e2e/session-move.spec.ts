@@ -120,7 +120,7 @@ test('标题栏菜单归入项目：卡上写明目录与边界的变化，临�
   const change = card.locator('.move-change');
   await expect(change.locator('[data-directory-kind="session-temp"]')).toContainText(`现在临时目录${tempDir}`);
   await expect(change.locator('[data-directory-kind="project-managed"]')).toContainText(`归入后项目托管目录${projectDir}`);
-  await expect(card).toContainText('之后按「移入目标」的项目目录执行：由 Multivac 托管，长期保留、不会自动清理，目录内的读写与命令自动执行。读取、修改或写入目录外的文件需要你确认。');
+  await expect(card).toContainText('之后按「移入目标」的项目目录执行：由 Multivac 托管，长期保留、不会自动清理，目录内的读写与命令自动执行。读取、修改或写入当前获准范围外的文件需要你确认。');
   await expect(card).toContainText('本会话内记住的授权继续有效；「移入目标」中“本项目内始终允许”的授权随即适用。');
   const moveFiles = card.getByRole('checkbox', { name: '把临时目录里的 3 项一并移入项目目录' });
   await expect(moveFiles).toBeChecked();
