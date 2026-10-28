@@ -1,0 +1,56 @@
+import { chmodSync, closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { checkedIlinkBase } from '../modules/notifications/wechat/client.js';
+
+export interface WechatBindingIdentity {
+  channelId: string; generation: number; botId: string; userId: string; apiBase: string;
+}
+export interface PrivateWechatBinding extends WechatBindingIdentity {
+  token: string; cursor: string; seenIds: string[]; contextToken: string | null; contextObservedAt: string | null;
+}
+export function sameWechatIdentity(a: WechatBindingIdentity, b: WechatBindingIdentity): boolean {
+  return a.channelId === b.channelId && a.generation === b.generation && a.botId === b.botId && a.userId === b.userId && a.apiBase === b.apiBase;
+}
+/** 与公开业务库分开，整份原子替换确保去重、上下文和游标一起保存。不会保存入站正文。 */
+export class PrivateWechatStore {
+  constructor(private readonly root: string) {}
+  private path(): string { return join(this.root, 'binding.json'); }
+  load(): PrivateWechatBinding | null {
+    try {
+      const directory = lstatSync(this.root);
+      if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o077)) throw new Error();
+      const stat = lstatSync(this.path());
+      if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)) throw new Error();
+      const value = JSON.parse(readFileSync(this.path(), 'utf8')) as PrivateWechatBinding;
+      if (!value || ![value.channelId, value.botId, value.userId, value.token].every(s => typeof s === 'string' && s.trim()) ||
+        !Number.isSafeInteger(value.generation) || value.generation < 1 || checkedIlinkBase(value.apiBase) !== value.apiBase ||
+        typeof value.cursor !== 'string' || !Array.isArray(value.seenIds) || !value.seenIds.every(id => typeof id === 'string') ||
+        !(value.contextToken === null || typeof value.contextToken === 'string' && value.contextToken.trim()) ||
+        !(value.contextObservedAt === null || typeof value.contextObservedAt === 'string' && Number.isFinite(Date.parse(value.contextObservedAt))) ||
+        (!!value.contextToken !== !!value.contextObservedAt)) throw new Error();
+      return value;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw new Error('微信私有资料不可用，请在本机重新绑定。');
+    }
+  }
+  save(value: PrivateWechatBinding): void {
+    mkdirSync(this.root, { recursive: true, mode: 0o700 });
+    const stat = lstatSync(this.root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('微信私有目录不可用。');
+    chmodSync(this.root, 0o700);
+    const temporary = join(this.root, `.binding-${randomUUID()}.tmp`);
+    const fd = openSync(temporary, 'wx', 0o600);
+    try { writeFileSync(fd, JSON.stringify(value)); fsyncSync(fd); }
+    finally { closeSync(fd); }
+    try {
+      renameSync(temporary, this.path());
+      const directory = openSync(this.root, 'r');
+      try { fsyncSync(directory); } finally { closeSync(directory); }
+    } finally { try { unlinkSync(temporary); } catch { /* 已原子移动。 */ } }
+  }
+  clear(): void {
+    try { unlinkSync(this.path()); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('微信私有资料清除失败。'); }
+  }
+}
