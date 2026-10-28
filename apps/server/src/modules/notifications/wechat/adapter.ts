@@ -9,12 +9,28 @@ interface WechatBindingAccess {
   binding(channel: NotificationChannel): { apiBase: string; userId: string; token: string; contextToken: string | null } | null;
 }
 
+const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+/** 计划时间按提醒自身时区的本地时间展示，如“10月15日 周三 19:37”；跨年时补年份。 */
+function plannedTime(content: NotificationContent): string {
+  const [date = '', time = ''] = content.localTime.split('T');
+  const [year, month, day] = date.split('-').map(Number);
+  if (!year || !month || !day) return content.localTime;
+  const weekday = WEEKDAYS[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
+  const sameYear = content.createdAt.startsWith(String(year));
+  return `${sameYear ? '' : `${year}年`}${month}月${day}日 周${weekday} ${time.slice(0, 5)}`;
+}
+
+/** 微信文本：首行是提醒内容，末行是计划时间与来源；超长时截断正文，总长不超过 1000 个字符。 */
 export function formatWechatNotification(content: NotificationContent): string {
-  const footer = `\n原计划时间：${content.localTime}（${content.timeZone}）\n请到Multivac Inbox查看。`;
-  const text = Array.from(content.text), ending = Array.from(footer);
-  if (text.length + ending.length <= 1000) return content.text + footer;
-  const truncated = '\n（内容已截断，全文保留在 Inbox。）';
-  return text.slice(0, Math.max(0, 1000 - ending.length - Array.from(truncated).length)).join('') + truncated + footer;
+  // 测试消息不是提醒，没有计划时间。
+  if (content.notificationId.startsWith('test:')) return content.text;
+  const footer = `\n\n${plannedTime(content)} · Multivac`;
+  const head = '⏰ ';
+  const text = Array.from(content.text), budget = 1000 - Array.from(head).length - Array.from(footer).length;
+  if (text.length <= budget) return head + content.text + footer;
+  const truncated = '…\n（全文见 Multivac Inbox）';
+  return head + text.slice(0, Math.max(0, budget - Array.from(truncated).length)).join('') + truncated + footer;
 }
 
 /** 首版不声明远端幂等或送达查询；HTTP接受不等于本人手机收到。 */

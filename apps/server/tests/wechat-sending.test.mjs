@@ -15,10 +15,11 @@ async function initialize(f){
 }
 
 test('Unicode格式不截断emoji，总长1000，保留原时间、截断和Inbox提示',()=>{
-  const content={text:'😀'.repeat(1200),scheduledAt:now,localTime:'2026-10-28T08:00:00',timeZone:'Asia/Shanghai'};
+  const content={notificationId:'notification:r:1',text:'😀'.repeat(1200),scheduledAt:now,localTime:'2026-10-28T08:00:00',timeZone:'Asia/Shanghai',createdAt:now};
   const formatted=formatWechatNotification(content);
-  assert.equal(Array.from(formatted).length,1000);assert.ok(formatted.includes('全文保留在 Inbox'));assert.ok(formatted.includes(content.localTime));
-  assert.ok(formatted.endsWith('请到Multivac Inbox查看。'));assert.equal(formatted.includes('\ufffd'),false);
+  assert.equal(Array.from(formatted).length,1000);assert.ok(formatted.includes('全文见 Multivac Inbox'));
+  assert.ok(formatted.endsWith('10月28日 周三 08:00 · Multivac'));assert.equal(formatted.includes('\ufffd'),false);
+  assert.equal(formatWechatNotification({...content,text:'开会',localTime:'2027-01-04T19:37:00'}),'⏰ 开会\n\n2027年1月4日 周一 19:37 · Multivac');
 });
 
 test('本人身份、持久编号和原始上下文请求，兼容省略状态码，拒绝及未知结果独立分类',async()=>{
