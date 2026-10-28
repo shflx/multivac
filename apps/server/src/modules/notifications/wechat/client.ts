@@ -23,8 +23,10 @@ export function checkedQrUrl(value: string): string {
   return url.href;
 }
 export function stringField(value: unknown): string | null { return typeof value === 'string' && value.trim() ? value : null; }
-export function explicitSuccess(reply: IlinkReply): boolean {
-  return reply.status >= 200 && reply.status < 300 && reply.body.ret === 0 &&
+/** 与参考实现一致：HTTP 2xx 且未返回非零 ret／errcode 即成功；成功响应可以省略 ret。 */
+export function ilinkSucceeded(reply: IlinkReply): boolean {
+  return reply.status >= 200 && reply.status < 300 &&
+    (reply.body.ret === undefined || reply.body.ret === 0) &&
     (reply.body.errcode === undefined || reply.body.errcode === 0);
 }
 export function invalidCredentials(reply: IlinkReply): boolean {
