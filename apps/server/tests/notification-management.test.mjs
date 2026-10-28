@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { wechatFixture } from './wechat-binding.test.mjs';
-import { NotificationChannelManagementService } from '../dist/application/notification-channel-management-service.js';
-import { createNotificationChannelRequestHandler } from '../dist/adapters/http/notification-channel-routes.js';
-import { remoteRouteAllowed, markRemoteRequest } from '../dist/adapters/http/remote-policy.js';
-import { WECHAT_CHANNEL_ID } from '../dist/application/wechat-binding-service.js';
+import { wechatFixture } from './fixtures/notification-channels.mjs';
+import { NotificationChannelManagementService } from '../src/application/notification-channel-management-service.js';
+import { createNotificationChannelRequestHandler } from '../src/adapters/http/notification-channel-routes.js';
+import { remoteRouteAllowed, markRemoteRequest } from '../src/adapters/http/remote-policy.js';
+import { WechatBindingService, WECHAT_CHANNEL_ID } from '../src/application/wechat-binding-service.js';
+import { IlinkClient } from '../src/modules/notifications/wechat/client.js';
 const now='2026-10-28T00:00:00.000Z';
 
 test('本机管理真实HTTP：只读不分发、测试去重、手机确认门禁、秘密保护及微信专有流程',async()=>{
@@ -38,6 +39,23 @@ test('本机管理真实HTTP：只读不分发、测试去重、手机确认门�
     assert.equal(f.outbox.deliveries(id).total,1); // 查看不产生新测试或补发。
     assert.equal((await(await get('/commands/bind')).json()).state,'done');
   }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));f.close();}
+});
+
+test('关闭取消在途二维码请求，管理回执落库后才允许释放存储',async()=>{
+  const f=wechatFixture();let started;
+  const entered=new Promise(resolve=>{started=resolve;});
+  const client=new IlinkClient(async(_url,options)=>new Promise((_resolve,reject)=>{
+    started();options.signal.addEventListener('abort',()=>reject(new Error('fixture cancellation')),{once:true});
+  }));
+  const bindings=new WechatBindingService(f.outbox,f.identities,f.secrets,client,()=>now,false);
+  const service=new NotificationChannelManagementService(f.outbox,bindings,()=>now);
+  try{
+    const request=service.manageWechat(WECHAT_CHANNEL_ID,'bind',{commandId:'closing-bind',version:1});
+    const rejected=assert.rejects(request,/服务已关闭/);await entered;
+    assert.equal(service.hasActivity,true);
+    await Promise.all([bindings.close(),service.close(),rejected]);
+    assert.equal(service.hasActivity,false);assert.equal(service.operation('closing-bind').state,'unknown');
+  }finally{await bindings.close();f.close();}
 });
 
 test('远程默认拒绝所有通知管理与图片路径；遗留异步管理意图只读核对未知',()=>{

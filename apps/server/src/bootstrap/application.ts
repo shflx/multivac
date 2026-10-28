@@ -1189,8 +1189,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ready: ready.then(async () => { await managedProcesses.recover(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
     close() {
       reminderScheduler.stop();
-      const hadNotifications = notificationDelivery.hasActivity || wechatNotifications.hasActivity;
-      const notificationsStopped = Promise.allSettled([notificationDelivery.close(), wechatNotifications.close()]);
+      const hadNotifications = notificationDelivery.hasActivity || wechatNotifications.hasActivity || notificationChannels.hasActivity;
+      const notificationsStopped = Promise.allSettled([notificationDelivery.close(), wechatNotifications.close(), notificationChannels.close()]);
       remoteAccess.close();
       images.dispose();
       noteImages.dispose();

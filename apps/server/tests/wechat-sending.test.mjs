@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { wechatFixture } from './wechat-binding.test.mjs';
-import { WechatNotificationAdapter, formatWechatNotification } from '../dist/modules/notifications/wechat/adapter.js';
-import { IlinkClient } from '../dist/modules/notifications/wechat/client.js';
-import { NotificationDeliveryService } from '../dist/application/notification-delivery-service.js';
-import { WECHAT_CHANNEL_ID } from '../dist/application/wechat-binding-service.js';
+import { wechatFixture } from './fixtures/notification-channels.mjs';
+import { WechatNotificationAdapter, formatWechatNotification } from '../src/modules/notifications/wechat/adapter.js';
+import { IlinkClient } from '../src/modules/notifications/wechat/client.js';
+import { NotificationDeliveryService } from '../src/application/notification-delivery-service.js';
+import { WECHAT_CHANNEL_ID } from '../src/application/wechat-binding-service.js';
 const now='2026-10-28T00:00:00.000Z';
 
 async function initialize(f){

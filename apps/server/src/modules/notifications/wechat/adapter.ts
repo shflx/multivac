@@ -1,7 +1,13 @@
 import type { NotificationChannel, NotificationContent } from '@multivac/contracts';
 import type { ChannelReadiness, ChannelSendContext, ChannelSendResult, NotificationChannelAdapter } from '../channel.js';
-import type { WechatBindingService } from '../../../application/wechat-binding-service.js';
-import { explicitSuccess, invalidCredentials, stringField } from './client.js';
+import { explicitSuccess, invalidCredentials, stringField, type IlinkClient } from './client.js';
+
+/** 微信适配器只取得发送所需的私有资料端口，不依赖应用服务实现。 */
+interface WechatBindingAccess {
+  readonly client: IlinkClient;
+  readiness(channel: NotificationChannel): ChannelReadiness;
+  binding(channel: NotificationChannel): { apiBase: string; userId: string; token: string; contextToken: string | null } | null;
+}
 
 export function formatWechatNotification(content: NotificationContent): string {
   const footer = `\n原计划时间：${content.localTime}（${content.timeZone}）\n请到Multivac Inbox查看。`;
@@ -15,7 +21,7 @@ export function formatWechatNotification(content: NotificationContent): string {
 export class WechatNotificationAdapter implements NotificationChannelAdapter {
   readonly type = 'wechat';
   readonly capabilities = { idempotency: false, resultQuery: false } as const;
-  constructor(private readonly bindings: WechatBindingService) {}
+  constructor(private readonly bindings: WechatBindingAccess) {}
   readiness(channel: NotificationChannel): ChannelReadiness { return this.bindings.readiness(channel); }
   format(content: NotificationContent): string { return formatWechatNotification(content); }
   async send(text: string, context: ChannelSendContext): Promise<ChannelSendResult> {

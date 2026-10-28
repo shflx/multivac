@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fixture } from './notification-outbox.test.mjs';
-import { NotificationDeliveryService } from '../dist/application/notification-delivery-service.js';
+import { fixture } from './fixtures/notification-channels.mjs';
+import { NotificationDeliveryService } from '../src/application/notification-delivery-service.js';
 const now = '2026-10-28T00:00:00.000Z';
 const adapter = (type, send, ready = () => ({ state: 'ready' })) => ({ type, capabilities: { idempotency: false, resultQuery: false }, readiness: ready, format: c => c.text, send });
 
