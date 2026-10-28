@@ -1,3 +1,4 @@
+import { noteCodecFor } from './note-record-codec.js';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { runInTransaction } from './sqlite-transaction.js';
 import type { AssistantPageState, AssistantQuote, CoordinatorSessionBinding } from '@multivac/contracts';
@@ -157,6 +158,11 @@ export class SqliteAssistantPageStateRepository implements AssistantPageStateRep
       FROM assistant_page_state
       WHERE assistant_id = ?
     `).get(assistantSessionId) as unknown as PageStateRow | undefined;
+    const codec = noteCodecFor(this.database), owner = codec?.owner(assistantSessionId);
+    if (owner && codec?.state(owner) && row) {
+      row.draft = codec.decode<string>(owner, 'page-draft', assistantSessionId, row.draft);
+      row.quote_json = row.quote_json ? JSON.stringify(codec.decode(owner, 'page-quote', assistantSessionId, row.quote_json)) : null;
+    }
     return pageStateFromRow(row);
   }
 
@@ -177,13 +183,15 @@ export class SqliteAssistantPageStateRepository implements AssistantPageStateRep
       }
 
       const next: AssistantPageState = { ...state, revision: state.revision + 1 };
+      const codec = noteCodecFor(this.database), owner = codec?.owner(assistantSessionId);
+      const protectedState = owner && codec?.state(owner);
       const values: SQLInputValue[] = [
         assistantSessionId,
-        next.draft,
+        protectedState ? codec!.encode(owner!, 'page-draft', assistantSessionId, next.draft) : next.draft,
         next.agentId ?? null,
         next.anchorEntryId,
         next.anchorOffsetPx,
-        next.quote ? JSON.stringify(next.quote) : null,
+        next.quote ? protectedState ? codec!.encode(owner!, 'page-quote', assistantSessionId, next.quote) : JSON.stringify(next.quote) : null,
         next.revision,
         this.now(),
       ];

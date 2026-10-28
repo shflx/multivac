@@ -1,3 +1,4 @@
+import { NoteRecordCodec, NOTE_PROTECTION_MIGRATION } from './note-record-codec.js';
 import { SqliteNoteSecurityRepository, NOTE_SECURITY_MIGRATION } from './sqlite-note-security-repository.js';
 import { CONTEXT_COMPACTION_MIGRATION, SqliteContextCompactionRepository } from './sqlite-context-compaction-repository.js';
 import { SqliteNoteSuggestionsRepository, NOTE_SUGGESTIONS_MIGRATION } from './sqlite-note-suggestions-repository.js';
@@ -334,6 +335,7 @@ const MIGRATIONS = [
   NOTIFICATION_CHANNEL_MIGRATION,
   WECHAT_BINDING_MIGRATION,
   NOTE_SECURITY_MIGRATION,
+  NOTE_PROTECTION_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -413,6 +415,7 @@ export class SqliteAssistantStore {
   readonly wechatBindings: SqliteWechatBindingRepository;
   readonly artifacts: SqliteArtifactRepository;
   readonly reading: SqliteReadingRepository;
+  readonly noteCodec: NoteRecordCodec;
   readonly noteSecurity: SqliteNoteSecurityRepository;
   readonly notes: SqliteNotesRepository;
   readonly noteAssistant: SqliteNoteAssistantRepository;
@@ -448,6 +451,7 @@ export class SqliteAssistantStore {
       this.database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
       this.backupBeforeMigration(databasePath);
       this.migrate();
+      this.noteCodec = new NoteRecordCodec(this.database);
       this.contextCompactions = new SqliteContextCompactionRepository(this.database);
       this.projects = new SqliteProjectRepository(this.database, (workspaceId) => this.workspaces.get(workspaceId));
       this.selections = new SqliteSessionSelectionRepository(this.database, () => this.now());
@@ -480,12 +484,12 @@ export class SqliteAssistantStore {
       this.artifacts = new SqliteArtifactRepository(this.database);
       this.taskFacts = new SqliteTaskFacts(this.database, { tasks: this.tasks, runs: this.taskRuns, requests: this.humanRequests, artifacts: this.artifacts, runtime: this.taskRuntime, externalOperations: this.inbox });
       this.reading = new SqliteReadingRepository(this.database);
-      this.noteImages = new SqliteNoteImagesRepository(this.database);
+      this.noteImages = new SqliteNoteImagesRepository(this.database, this.noteCodec);
       this.projectResources = new SqliteProjectResourceRepository(this.database);
       this.noteSecurity = new SqliteNoteSecurityRepository(this.database);
-      this.notes = new SqliteNotesRepository(this.database);
-      this.noteAssistant = new SqliteNoteAssistantRepository(this.database);
-      this.noteSuggestions = new SqliteNoteSuggestionsRepository(this.database);
+      this.notes = new SqliteNotesRepository(this.database, this.noteCodec);
+      this.noteAssistant = new SqliteNoteAssistantRepository(this.database, this.noteCodec);
+      this.noteSuggestions = new SqliteNoteSuggestionsRepository(this.database, this.noteCodec);
       this.readingNotes = new SqliteReadingNotesRepository(this.database);
       this.skills = new SqliteSkillRepository(this.database);
       this.mcp = new SqliteMcpRepository(this.database);

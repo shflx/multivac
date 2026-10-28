@@ -1,3 +1,4 @@
+import { noteCodecFor } from './note-record-codec.js';
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 import { type ToolAuthorizationRow, approvalFromColumns } from './sqlite-tool-authorization-repository.js';
 import { type EventRow, eventFromRow, appendEventRow, readCommand, requireCommand } from './sqlite-assistant-event-rows.js';
@@ -44,18 +45,18 @@ const TOOL_EVENT_TYPES = `'assistant.tool.started', 'assistant.tool.updated', 'a
 /** 工具记录只读取输入与内部工具公开的结果；旧投影缺少字段时按空处理，不读取输出正文。 */
 const TOOL_EXECUTION_SELECT = `
   command_id AS command_id,
-  json_extract(payload_json, '$.toolCallId') AS tool_call_id,
+  json_extract(note_event_json(assistant_id, source_key, payload_json), '$.toolCallId') AS tool_call_id,
   MAX(cursor) AS cursor,
-  MAX(json_extract(payload_json, '$.toolName')) AS tool_name,
+  MAX(json_extract(note_event_json(assistant_id, source_key, payload_json), '$.toolName')) AS tool_name,
   MIN(occurred_at) AS started_at,
   CASE WHEN SUM(event_type = 'assistant.tool.ended') > 0 THEN MAX(occurred_at) END AS ended_at,
-  CASE WHEN SUM(event_type = 'assistant.tool.ended') > 0 THEN MAX(json_extract(payload_json, '$.isError')) END AS is_error,
+  CASE WHEN SUM(event_type = 'assistant.tool.ended') > 0 THEN MAX(json_extract(note_event_json(assistant_id, source_key, payload_json), '$.isError')) END AS is_error,
   MAX(CASE WHEN event_type = 'assistant.tool.started'
-    THEN json_extract(payload_json, '$.inputText') END) AS input_text,
+    THEN json_extract(note_event_json(assistant_id, source_key, payload_json), '$.inputText') END) AS input_text,
   MAX(CASE WHEN event_type = 'assistant.tool.started'
-    THEN json_extract(payload_json, '$.inputTruncated') END) AS input_truncated,
+    THEN json_extract(note_event_json(assistant_id, source_key, payload_json), '$.inputTruncated') END) AS input_truncated,
   MAX(CASE WHEN event_type = 'assistant.tool.ended'
-    THEN json_extract(payload_json, '$.result') END) AS result_json
+    THEN json_extract(note_event_json(assistant_id, source_key, payload_json), '$.result') END) AS result_json
 `;
 
 function toolExecutionFromRow(
@@ -111,7 +112,7 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
           ('assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled')
         GROUP BY command_id
       )
-      SELECT d.cursor, d.assistant_id, d.command_id, d.event_type, d.payload_json, d.occurred_at
+      SELECT d.source_key, d.cursor, d.assistant_id, d.command_id, d.event_type, d.payload_json, d.occurred_at
       FROM assistant_event_projection d
       LEFT JOIN terminal t ON t.command_id IS d.command_id
       WHERE d.assistant_id = ? AND d.event_type = 'assistant.message.delta'
@@ -121,7 +122,7 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
             AND r.error_code = 'COMMAND_INTERRUPTED')
       ORDER BY d.cursor
     `).all(assistantSessionId, assistantSessionId) as unknown as EventRow[];
-    return rows.map(eventFromRow);
+    return rows.map(row => eventFromRow(row, this.database));
   }
 
   earliestCursor(): string {
@@ -160,7 +161,7 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
           this.database.prepare(`
             UPDATE assistant_command_receipt
             SET phase = 'terminal', terminal_outcome = ?, error_code = ?,
-                error_message = ?, updated_at = ?
+                error_message = note_command_error(assistant_id,command_id,?), updated_at = ?
             WHERE command_id = ? AND phase != 'terminal'
           `).run(receiptUpdate.terminalOutcome,
             receiptUpdate.terminalOutcome === 'failed' ? (event.type === 'assistant.run.failed' ? event.data.error?.code : undefined) ?? null : null,
@@ -182,20 +183,24 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
     }
     const rows = (assistantSessionId === undefined
       ? this.database.prepare(`
-          SELECT cursor, assistant_id, command_id, event_type, payload_json, occurred_at
+          SELECT source_key, cursor, assistant_id, command_id, event_type, payload_json, occurred_at
           FROM assistant_event_projection
           WHERE cursor > ?
           ORDER BY cursor
           LIMIT ?
         `).all(after, limit)
       : this.database.prepare(`
-          SELECT cursor, assistant_id, command_id, event_type, payload_json, occurred_at
+          SELECT source_key, cursor, assistant_id, command_id, event_type, payload_json, occurred_at
           FROM assistant_event_projection
           WHERE assistant_id = ? AND cursor > ?
           ORDER BY cursor
           LIMIT ?
         `).all(assistantSessionId, after, limit)) as unknown as EventRow[];
-    return rows.map(eventFromRow);
+    return rows.filter(row => {
+      const codec = noteCodecFor(this.database), owner = codec?.owner(row.assistant_id);
+      if (!owner || !codec?.state(owner)) return true;
+      try { codec.assert(owner); return true; } catch { return false; }
+    }).map(row => eventFromRow(row, this.database));
   }
 
   /** 截取 before 之前最近的 limit 条工具调用，返回时按 cursor 升序。 */
@@ -279,13 +284,13 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
         WHERE assistant_id = ? AND command_id IS NOT NULL AND (
           event_type IN ('assistant.run.processing', 'assistant.thinking.delta',
             'assistant.tool.started', 'assistant.run.succeeded', 'assistant.run.failed', 'assistant.run.cancelled')
-          OR (event_type = 'assistant.command.handed_to_pi' AND json_extract(payload_json, '$.dispatchMode') = 'prompt')
+          OR (event_type = 'assistant.command.handed_to_pi' AND json_extract(note_event_json(assistant_id, source_key, payload_json), '$.dispatchMode') = 'prompt')
         )
         GROUP BY command_id
         ORDER BY latest_cursor DESC
         LIMIT ?
       ), selected_commands AS (SELECT command_id FROM recent_commands ${extraCommands})
-      SELECT e.cursor, e.assistant_id, e.command_id, e.event_type, e.payload_json, e.occurred_at
+      SELECT e.source_key, e.cursor, e.assistant_id, e.command_id, e.event_type, e.payload_json, e.occurred_at
       FROM assistant_event_projection e
       JOIN selected_commands r ON r.command_id = e.command_id
       WHERE e.assistant_id = ? AND e.event_type IN (
@@ -300,7 +305,7 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
 
     for (const row of rows) {
       if (!row.command_id) continue;
-      const event = eventFromRow(row);
+      const event = eventFromRow(row, this.database);
       if (event.type === 'assistant.command.reconciled') {
         // 命令已终结而运行没有终态事件（如等待授权时服务重启、按中断对账）：轨迹随命令结束，
         // 不再显示为运行中。对账时间不是运行的结束时间，结束时间留空（摘要显示“已结束”）。
@@ -385,7 +390,7 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
 
     // 各助手消息首个正文增量的位置：只取每条消息一行，正文增量本身不参与轨迹。
     const markers = traces.size === 0 ? [] : this.database.prepare(`
-      SELECT command_id, MIN(cursor) AS cursor, json_extract(payload_json, '$.messageId') AS message_id
+      SELECT command_id, MIN(cursor) AS cursor, json_extract(note_event_json(assistant_id, source_key, payload_json), '$.messageId') AS message_id
       FROM assistant_event_projection
       WHERE assistant_id = ? AND event_type = 'assistant.message.delta' AND command_id IN (${[...traces.keys()].map(() => '?').join(', ')})
       GROUP BY command_id, message_id

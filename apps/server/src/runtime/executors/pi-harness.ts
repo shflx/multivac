@@ -19,6 +19,7 @@ export const createPiHarness: HarnessFactory = (context) => {
   return {
     id: PI_HARNESS,
     adapter: new PiCoordinatorAdapter({
+      ...(context.protectedTranscripts ? { protectedTranscripts: context.protectedTranscripts } : {}),
       usageRecorder: context.usageRecorder,
       executionDiagnostics: context.executionDiagnostics,
       taskProtectedPaths: [paths.dataDir],

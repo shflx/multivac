@@ -1,3 +1,4 @@
+import { noteCodecFor } from './note-record-codec.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { runInTransaction } from './sqlite-transaction.js';
 import type { NewSessionRecord, SessionOrigin, SessionRecord, SessionRegistryRepository, SessionWorkspaceMove } from '../modules/sessions/session-registry.js';
@@ -123,7 +124,18 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
   get(sessionId: string): SessionRecord | undefined {
     const row = this.database.prepare(`${SESSION_SELECT} WHERE r.session_id = ?`)
       .get(sessionId) as unknown as SessionRow | undefined;
-    return row ? sessionFromRow(row) : undefined;
+    return row ? this.decodeSession(row) : undefined;
+  }
+
+  private decodeSession(row: SessionRow): SessionRecord {
+    const codec = noteCodecFor(this.database);
+    if (row.host_note_id && codec?.state(row.host_note_id)) {
+      // 注册表还承担启动恢复与普通列表投影；锁定时只暴露无内容占位。
+      let title = '加密笔记讨论';
+      try { title = codec.decode<string>(row.host_note_id, 'session-title', row.session_id, row.title); } catch { /* 内容入口另行强制验证凭证。 */ }
+      return sessionFromRow({ ...row, title, host_note_title: '加密笔记', origin_json: null });
+    }
+    return sessionFromRow(row);
   }
 
   /** workspaceId 为 null 时跨全部工作区列出。 */
@@ -133,7 +145,7 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
         AND d.session_id IS NULL AND nd.session_id IS NULL
       ORDER BY r.created_at, r.session_id
     `).all(workspaceId, workspaceId, kind, includeArchived ? 1 : 0) as unknown as SessionRow[];
-    return rows.map(sessionFromRow);
+    return rows.map(row => this.decodeSession(row));
   }
 
   insertIfAbsent(record: NewSessionRecord): { record: SessionRecord; inserted: boolean } {
@@ -153,9 +165,14 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
     return { record: winner, inserted: result.changes === 1 };
   }
 
+  private encodeTitle(sessionId: string, title: string): string {
+    const codec = noteCodecFor(this.database), owner = codec?.owner(sessionId);
+    return owner && codec?.state(owner) ? codec.encode(owner, 'session-title', sessionId, title) : title;
+  }
+
   rename(sessionId: string, title: string): SessionRecord | undefined {
     this.database.prepare('UPDATE assistant_session_registry SET title = ? WHERE session_id = ?')
-      .run(title, sessionId);
+      .run(this.encodeTitle(sessionId, title), sessionId);
     return this.get(sessionId);
   }
 
@@ -181,7 +198,7 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
   listAll(): SessionRecord[] {
     const rows = this.database.prepare(`${SESSION_SELECT} ORDER BY r.created_at, r.session_id`)
       .all() as unknown as SessionRow[];
-    return rows.map(sessionFromRow);
+    return rows.map(row => this.decodeSession(row));
   }
 
   setWorkingDirectory(sessionId: string, workingDirectory: WorkingDirectory): SessionRecord | undefined {

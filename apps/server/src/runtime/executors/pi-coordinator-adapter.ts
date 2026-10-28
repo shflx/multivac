@@ -1,3 +1,4 @@
+import type { ProtectedTranscriptStore } from '../../modules/notes/protected-transcript.js';
 import { reconcilePiCompaction, unknownCompaction } from './pi-context-compaction.js';
 import { readPiContext } from './pi-context-snapshot.js';
 import type { CoordinatorContextManagementPort } from '../../modules/sessions/coordinator-adapter.js';
@@ -94,6 +95,7 @@ interface ActivePiSession {
  * 会话工作目录（cwd）随每次创建或恢复传入，不在适配器上固定。
  */
 export interface PiCoordinatorAdapterOptions {
+  protectedTranscripts?: ProtectedTranscriptStore;
   usageRecorder?: import('../../modules/usage/model-usage.js').ModelUsageRecorder;
   executionDiagnostics?: import('../../application/execution-diagnostics.js').ExecutionDiagnostics;
   bashProcesses?: BashExecutionPort;
@@ -230,6 +232,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly persistedSelections = new Map<string, { key: string; value: CoordinatorModelState | null }>();
   private readonly agentDir: string;
   private readonly modelsPath: string | null;
+  private readonly protectedTranscripts: ProtectedTranscriptStore | undefined;
   private readonly sessionDir: string | undefined;
   private readonly sessionFactory: PiCoordinatorSessionFactory;
   private readonly now: () => string;
@@ -247,6 +250,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     this.bashProcesses = options.bashProcesses;
     this.taskProtectedPaths = options.taskProtectedPaths ?? [];
     this.agentDir = options.agentDir ?? resolvePiInstancePaths(resolveRuntimeConfig(), getAgentDir).agentDir;
+    this.protectedTranscripts = options.protectedTranscripts;
     this.sessionDir = options.sessionDir;
     this.modelsPath = options.modelsPath === undefined ? this.agentDir + '/models.json' : options.modelsPath;
     this.sessionFactory =
@@ -406,7 +410,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     if (identity.harness !== this.harness) return failure(FOREIGN_HARNESS);
     try {
       // 只读：自行读出文件内容交给内存中的 SessionManager，不经 SessionManager.open（它在文件为空时会写入会话头）。
-      const manager = SessionManager.inMemory(cwd, undefined, parseSessionEntries(readFileSync(identity.runtimeSessionRef, 'utf8')));
+      const manager = SessionManager.inMemory(cwd, undefined, parseSessionEntries(this.protectedTranscripts?.has(identity.runtimeSessionRef) ? this.protectedTranscripts.read(identity.runtimeSessionRef) : readFileSync(identity.runtimeSessionRef, 'utf8')));
       if (manager.getSessionId() !== identity.runtimeSessionId) {
         return failure({ code: 'SESSION_BINDING_MISMATCH', message: 'Pi session 身份不一致。' });
       }
@@ -450,6 +454,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
 
   /** stat 同时观察 inode 与 ctime，覆盖同路径替换及保留 mtime 的改写。 */
   private persistedSelectionVersion(path: string): string {
+    if (this.protectedTranscripts?.has(path)) return this.protectedTranscripts.version(path);
     const real = realpathSync(path);
     const value = statSync(real, { bigint: true });
     if (!value.isFile()) throw new Error('Pi session 不是普通文件。');
@@ -469,7 +474,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       }
       this.persistedSelections.delete(path);
       // 显式传入 cwd，SessionManager.open 不会读取会话头中的 cwd。
-      const manager = SessionManager.open(path, this.sessionDir, cwd);
+      const manager = this.protectedTranscripts?.has(path) ? SessionManager.inMemory(cwd, undefined, parseSessionEntries(this.protectedTranscripts.read(path))) : SessionManager.open(path, this.sessionDir, cwd);
       if (manager.getSessionId() !== identity.runtimeSessionId) return failure<CoordinatorModelState | null>({ code: 'SESSION_BINDING_MISMATCH', message: 'Pi session 身份不一致。' });
       const context = buildSessionContext(manager.getBranch());
       if (!COORDINATOR_THINKING_LEVELS.includes(context.thinkingLevel as CoordinatorThinkingLevel)) {
@@ -766,6 +771,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         projectDirectories: () => this.optionsProjectFileScope!(assistantSessionId, workingDirectory),
       } : {}),
       assistantSessionId,
+      ...(this.protectedTranscripts ? { protectedTranscripts: this.protectedTranscripts } : {}),
       ...(this.executionDiagnostics ? { executionDiagnostics: this.executionDiagnostics } : {}),
       ...(this.usageRecorder ? { usageRecorder: this.usageRecorder } : {}),
       ...(this.bashProcesses ? { bashProcesses: this.bashProcesses } : {}),

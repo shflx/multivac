@@ -41,6 +41,7 @@ export interface HarnessRuntime {
 
 /** 装配 harness 时由 Multivac 提供的依赖。 */
 export interface HarnessContext {
+  readonly protectedTranscripts?: import('../../modules/notes/protected-transcript.js').ProtectedTranscriptStore;
   readonly environment: NodeJS.ProcessEnv;
   readonly instance: MultivacRuntimeConfig;
   readonly paths: MultivacDataPaths;
