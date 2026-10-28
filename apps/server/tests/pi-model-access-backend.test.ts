@@ -60,7 +60,13 @@ for (const action of ['configure', 'revoke'] as const) {
 test('真实 Pi Cloudflare 多字段 API Key 入口不宣称可配置，普通 Key Provider 仍可配置', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-pi-cloudflare-'));
   const authPath = join(root, 'auth.json');
-  const backend = new PiModelAccessBackend({ authPath });
+  const backend = new PiModelAccessBackend({ authPath, createRuntime: async options => {
+    const runtime = await ModelRuntime.create(options);
+    const refresh = runtime.refresh.bind(runtime);
+    // 占位模型会触发目录刷新；凭据能力用例只使用真实 SDK 的本地目录，避免依赖公网刷新耗时。
+    runtime.refresh = options => refresh({ ...options, allowNetwork: false });
+    return runtime;
+  } });
   const signal = AbortSignal.timeout(10000);
   try {
     await securePiAuthFile(authPath);
