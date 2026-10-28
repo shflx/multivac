@@ -1,5 +1,6 @@
 import { CompactFeedback, ContextPanel } from './context-panel.js';
 import { MessageActions } from './message-copy.js';
+import { CANCELLED_SEND_ERRORS } from './command-feedback.js';
 import type { ComposerCommand } from '../skills/skill-picker.js';
 import type { SessionContext } from './session-context.js';
 import { McpSessionTools } from '../mcp/mcp-session-tools.js';
@@ -583,7 +584,9 @@ function AssistantSessionView({
   const composerCollapsed = composerCollapsedNow;
   // 运行失败已有所属轨迹时不重复展示同一错误；未进入运行的发送错误仍在内容区反馈。
   const failedTrace = session.runTraces.find(trace => trace.commandId === session.runFeedbackCommandId && trace.status === 'failed');
-  const contentSendError = runFeedback.phase === 'failed' && failedTrace &&
+  // 取消（含授权等待超时）已由输入区状态条说明原因，内容区不再重复同一句话。
+  const cancelledShown = runFeedback.phase === 'cancelled' && CANCELLED_SEND_ERRORS.has(sendError);
+  const contentSendError = cancelledShown || runFeedback.phase === 'failed' && failedTrace &&
     (sendError === failedTrace.error?.message || sendError === runFeedback.failureReason || sendError === '消息处理失败，请重试。') ? '' : sendError;
   // 运行状态条：展开时位于输入区卡片顶部，折叠时跟在一行入口之后。
   const runStatusBar = runFeedback.phase !== 'idle' && runFeedback.phase !== 'failed' && settledFeedback !== runFeedback && (

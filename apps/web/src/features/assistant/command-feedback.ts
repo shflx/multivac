@@ -62,6 +62,11 @@ export function terminalFeedback(
   return null;
 }
 
+const AUTHORIZATION_EXPIRED_ERROR = '授权等待超时，本轮已结束。';
+const CANCELLED_ERROR = '消息处理已取消。';
+/** 取消结束本轮时的固定说明；状态条已表达同一结果，内容区据此去重。 */
+export const CANCELLED_SEND_ERRORS: ReadonlySet<string> = new Set([AUTHORIZATION_EXPIRED_ERROR, CANCELLED_ERROR]);
+
 /** 本次发送未成功结算时留给输入区的说明。 */
 export function unsuccessfulSendError(
   outcome: NonNullable<AssistantCommandReceipt['terminalOutcome']>,
@@ -70,7 +75,7 @@ export function unsuccessfulSendError(
 ): string {
   if (error) return error.message;
   if (outcome !== 'cancelled') return '消息处理失败，请重试。';
-  return authorizationExpired ? '授权等待超时，本轮已结束。' : '消息处理已取消。';
+  return authorizationExpired ? AUTHORIZATION_EXPIRED_ERROR : CANCELLED_ERROR;
 }
 
 /** 服务端对账出的终态（重启中断、等待授权时结束等）。 */
