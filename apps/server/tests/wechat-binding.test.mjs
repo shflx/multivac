@@ -10,7 +10,7 @@ import { IlinkClient, checkedIlinkBase, checkedQrUrl } from '../dist/modules/not
 import { parseWeixinApiJson } from '../dist/modules/notifications/wechat/lossless-json.js';
 
 const now='2026-10-28T00:00:00.000Z';
-function wechatFixture() {
+export function wechatFixture() {
   const f=fixture(); f.db.exec(WECHAT_BINDING_MIGRATION);
   mkdirSync('.tmp',{recursive:true}); const root=mkdtempSync('.tmp/wechat-test-');
   const secrets=new PrivateWechatStore(root), identities=new SqliteWechatBindingRepository(f.db);
