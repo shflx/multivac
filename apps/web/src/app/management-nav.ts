@@ -1,4 +1,4 @@
-import { Layers, Activity, Inbox, Cpu, Folder, Archive, SlidersHorizontal, ListTodo, BookOpen, NotebookPen, ChartColumn, UserCog, type LucideIcon } from 'lucide-react';
+import { Bell, Layers, Activity, Inbox, Cpu, Folder, Archive, SlidersHorizontal, ListTodo, BookOpen, NotebookPen, ChartColumn, UserCog, type LucideIcon } from 'lucide-react';
 
 /**
  * 管理导航的分组：工作（定期过一遍的事务）、应用（可长时间停留的应用页）、设置（改完就不用再管的配置）。
@@ -76,6 +76,7 @@ export const MANAGEMENT_PAGES = [
     icon: SlidersHorizontal,
     width: 'limited',
   },
+  { id: 'notifications', group: 'settings', label: '通知渠道', icon: Bell, width: 'limited' },
   { id: 'usage', group: 'settings', label: '统计', icon: ChartColumn, width: 'full' },
 ] as const satisfies readonly ManagementPageDefinition[];
 

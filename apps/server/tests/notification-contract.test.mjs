@@ -23,7 +23,7 @@ test('投递唯一身份不包含绑定代次，测试编号与正式通知分�
 
 test('公开渠道契约拒绝秘密与私有存储引用；外发期限为已确认的24小时', () => {
   const channel = { id: 'wechat', type: 'wechat', enabled: false, version: 1, bindingGeneration: 1,
-    scope: 'notification', readiness: 'waiting', diagnostic: null, testedDeliveryId: null, phoneConfirmedAt: null };
+    scope: 'notification', readiness: 'waiting', diagnostic: null, testedDeliveryId: null, receivedConfirmedAt: null };
   assert.equal(Value.Check(NotificationChannelSchema, channel), true);
   for (const name of ['token', 'context_token', 'secretRef', 'qrSession']) {
     assert.equal(Value.Check(NotificationChannelSchema, { ...channel, [name]: 'secret' }), false);
