@@ -711,7 +711,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     return {
       ...(this.skillsFor && !config.readingOnly ? { skills: this.skillsFor(assistantSessionId) } : {}),
       cwd: workingDirectory.path,
-      ...(!config.readingOnly && this.optionsProjectFileScope ? {
+      ...(!config.readingOnly && taskMode !== 'native-isolated' && this.optionsProjectFileScope ? {
         projectDirectories: () => this.optionsProjectFileScope!(assistantSessionId, workingDirectory),
       } : {}),
       assistantSessionId,

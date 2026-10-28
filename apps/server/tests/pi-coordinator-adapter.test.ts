@@ -418,11 +418,12 @@ test('PiCoordinatorAdapter 按每次传入的会话工作目录构建运行时�
   adapter.dispose();
 });
 
-test('PiCoordinatorAdapter 动态目录来源跨创建与恢复生效，真实隔离模式不注入项目范围', async () => {
+test('PiCoordinatorAdapter 动态目录来源跨创建与恢复生效，按真实 Run 区分共用与历史隔离模式', async () => {
   const factory = new StubFactory(resources(new StubSession()));
   let current = ['/project/a'];
   const calls: string[] = [];
   const adapter = new PiCoordinatorAdapter({ sessionFactory: factory, projectFileScope: (id) => { calls.push(id); return current; } });
+  adapter.bindTaskLease(() => 10000, id => id === 'workspace-task' ? 'workspace' : ['task-isolated', 'worktree'].includes(id) ? 'native-isolated' : null);
   try {
     await adapter.createSession({ assistantSessionId: 'work-a', config, workingDirectory: { kind: 'session-temp', path: '/work/a' } });
     const source = factory.calls[0]!.input.projectDirectories!;
@@ -435,6 +436,10 @@ test('PiCoordinatorAdapter 动态目录来源跨创建与恢复生效，真实�
       assert.equal(factory.calls.at(-1)!.input.projectDirectories, undefined);
       assert.equal(factory.calls.at(-1)!.input.taskIsolation, true);
     }
+    await adapter.createSession({ assistantSessionId: 'workspace-task', config, workingDirectory: { kind: 'worktree', path: '/workspace-task' } });
+    assert.deepEqual(factory.calls.at(-1)!.input.projectDirectories!(), ['/project/b']);
+    assert.equal(factory.calls.at(-1)!.input.taskExecution, true);
+    assert.equal(factory.calls.at(-1)!.input.taskIsolation, undefined);
     await adapter.continueSession({ binding: { assistantSessionId: 'restored', harness: 'pi', runtimeSessionId: 'pi-1', runtimeSessionRef: '/sessions/pi-1.jsonl', updatedAt: '2026-09-14T07:00:00.000Z' }, config, workingDirectory: { kind: 'session-temp', path: '/work/restored' } });
     assert.deepEqual(factory.calls.at(-1)!.input.projectDirectories!(), ['/project/b']);
   } finally { adapter.dispose(); }
