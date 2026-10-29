@@ -9,6 +9,7 @@ const NoteListRow = memo(function NoteListRow({ id, title, updatedAt, selected, 
   onChoose(id: string): void; onDeleteRoot(root: HTMLSpanElement | null): void;
 }) {
   const date = useMemo(() => {
+    if (!updatedAt) return { short: '已加密', full: '输入共用密码后查看' };
     const value = new Date(updatedAt);
     const full = value.toLocaleString();
     return { short: Number.isNaN(value.getTime()) ? full : dateFormat.format(value), full };

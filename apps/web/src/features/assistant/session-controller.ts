@@ -252,7 +252,7 @@ export class AssistantSessionController {
       lifecycle: () => this.lifecycle,
       isActive: (lifecycle) => this.isActive(lifecycle),
       persistDraftVersion: (version) => this.persistence.writeDraftVersion(version),
-      changed: () => this.update({ page: this.saver.page, saveFeedback: this.saver.feedback }),
+      changed: () => { this.persistence.writeProtectedPage(this.saver.page); this.update({ page: this.saver.page, saveFeedback: this.saver.feedback }); },
     }, this.persistence.readDraftVersion());
 
     this.state = {
@@ -443,7 +443,12 @@ export class AssistantSessionController {
       const authorizationList = await this.api.listAuthorizations(this.sessionId);
       if (!isCurrent()) return;
 
-      const { pending, restoredState, restoredPendingDraft, legacyPendingError } = this.restoreDraft(state);
+      const localPage = this.persistence.readProtectedPage();
+      let { pending, restoredState, restoredPendingDraft, legacyPendingError } = this.restoreDraft(state);
+      if (!pending && localPage && (localPage.draft !== state.draft || JSON.stringify(localPage.quote) !== JSON.stringify(state.quote))) {
+        // 保留原 revision；远端有新输入时由既有冲突流程核对，不能自动覆盖。
+        restoredState = localPage; restoredPendingDraft = true;
+      }
 
       this.historySnapshotCursor = Number(page.eventCursor);
       this.lastEventCursor = Number(page.eventCursor);

@@ -161,7 +161,8 @@ export class NoteEncryptionService {
           database.prepare('UPDATE app_note_protected_file SET cleanup_pending=0 WHERE path=?').run(path);
           this.fault?.('after-cleanup');
         }
-        database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+        const checkpoint = database.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
+        if (Number(checkpoint?.busy) !== 0) throw new NotesError('数据库日志仍在使用中，请稍后恢复转换。', 409);
         database.prepare("UPDATE app_note_protection SET state='encrypted' WHERE note_id=?").run(noteId);
       } else if (state === 'decrypting') {
         // 先可靠写回普通会话文件，最后一次事务才恢复普通数据库记录。

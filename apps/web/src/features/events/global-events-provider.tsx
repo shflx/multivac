@@ -1,3 +1,4 @@
+import { onNoteAccessChange, verifyNoteAccess } from '../../data/note-access.js';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { GlobalEventStream } from './global-event-stream.js';
 
@@ -12,7 +13,9 @@ export function GlobalEventsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     stream.open();
-    return () => stream.close();
+    const unwatch = stream.subscribeWorkbench(event => { if (event.type === 'workbench.connected') void verifyNoteAccess(); });
+    const unsubscribe = onNoteAccessChange(() => { stream.close(); stream.open(); });
+    return () => { unwatch(); unsubscribe(); stream.close(); };
   }, [stream]);
 
   return <GlobalEventsContext.Provider value={stream}>{children}</GlobalEventsContext.Provider>;

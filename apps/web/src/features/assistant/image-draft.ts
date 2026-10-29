@@ -1,3 +1,5 @@
+import { protectedNote, sessionNoteOwner, noteFetch } from '../../data/note-access.js';
+import { noteVaultStorage } from '../notes/note-vault.js';
 import { useEffect, useRef, useState } from 'react';
 import { newCommandId } from '../../data/command-id.js';
 import { IMAGE_LIMITS, ImageAttachmentSchema, type ImageAttachment } from '@multivac/contracts';
@@ -8,9 +10,10 @@ export interface DraftImage { key: string; name: string; image?: ImageAttachment
 
 export function useImageDraft(sessionId: string, changed: () => void) {
   const storageKey = `multivac.image-draft:${sessionId}`;
+  const storage = () => { const owner = sessionNoteOwner(sessionId); return owner && protectedNote(owner) ? noteVaultStorage(owner, 'local') : localStorage; };
   const [items, setItems] = useState<DraftImage[]>(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem(storageKey) ?? '[]') as DraftImage[];
+      const stored = JSON.parse(storage().getItem(storageKey) ?? '[]') as DraftImage[];
       return stored.filter(item => typeof item.key === 'string' && typeof item.name === 'string').slice(0, IMAGE_LIMITS.count).map(item => {
         const image = item.image && Check(ImageAttachmentSchema, item.image) && item.image.sessionId === sessionId ? item.image : undefined;
         return { key: item.key, name: item.name, image, status: image ? 'ready' : 'error', error: image ? undefined : '上传未完成，请重新选择图片。' };
@@ -23,7 +26,7 @@ export function useImageDraft(sessionId: string, changed: () => void) {
   const requests = useRef(new Map<string, AbortController>());
   function update(next: DraftImage[]) {
     current.current = next; setItems(next);
-    localStorage.setItem(storageKey, JSON.stringify(next.map(({ key, name, image, status }) => ({ key, name, image, status }))));
+    storage().setItem(storageKey, JSON.stringify(next.map(({ key, name, image, status }) => ({ key, name, image, status }))));
   }
   useEffect(() => {
     alive.current = true;
@@ -65,7 +68,7 @@ export function useImageDraft(sessionId: string, changed: () => void) {
     requests.current.get(key)?.abort();
     if (item?.preview) URL.revokeObjectURL(item.preview);
     update(current.current.filter(value => value.key !== key)); changed(); setError('');
-    if (item?.image) void fetch(`/api/sessions/${encodeURIComponent(sessionId)}/images/${item.image.id}`, { method: 'DELETE' });
+    if (item?.image) void noteFetch(`/api/sessions/${encodeURIComponent(sessionId)}/images/${item.image.id}`, { method: 'DELETE' });
   }
   function clear(ids: readonly string[]) {
     for (const item of current.current) if (item.image && ids.includes(item.image.id) && item.preview) URL.revokeObjectURL(item.preview);

@@ -1,3 +1,4 @@
+import { loadNoteImageContent } from '../../data/note-image-content.js';
 import type { Editor, Node } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
 import { Fragment, Slice } from '@tiptap/pm/model';
@@ -39,13 +40,19 @@ export class NoteImageUploads {
             image.referrerPolicy = 'no-referrer'; image.draggable = false;
             const status = document.createElement('span'); status.className = 'note-image-status'; status.setAttribute('role', 'status');
             const retry = document.createElement('button'); retry.className = 'note-image-retry'; retry.type = 'button'; retry.textContent = '重试加载'; retry.hidden = true;
-            const load = () => { dom.dataset.state = 'loading'; retry.hidden = true; button.hidden = true; button.disabled = true; status.textContent = `${image.alt} · 图片加载中…`; image.src = url; };
+            let controller: AbortController | null = null, blob: string | null = null, disposed = false;
+            const release = () => { controller?.abort(); if (blob) URL.revokeObjectURL(blob); blob = null; };
+            const load = () => {
+              release(); const attempt = new AbortController(); controller = attempt;
+              dom.dataset.state = 'loading'; retry.hidden = true; button.hidden = true; button.disabled = true; status.textContent = `${image.alt} · 图片加载中…`;
+              void loadNoteImageContent(url, attempt.signal).then(result => { if (disposed || controller !== attempt) URL.revokeObjectURL(result); else { blob = result; image.src = result; } }, () => { if (!disposed && !attempt.signal.aborted) image.onerror?.(new Event('error')); });
+            };
             image.onload = () => { dom.dataset.state = 'ready'; button.hidden = false; button.disabled = false; status.textContent = ''; };
             image.onerror = () => { dom.dataset.state = 'error'; button.hidden = true; retry.hidden = false; status.textContent = `${image.alt} · 图片加载失败`; };
             retry.onclick = load;
-            button.onclick = () => { button.focus({ preventScroll: true }); host.preview({ url, alt: image.alt }); };
+            button.onclick = () => { button.focus({ preventScroll: true }); host.preview({ url: blob ?? '', alt: image.alt }); };
             button.append(image); dom.append(button, status, retry); load();
-            return { dom, stopEvent: event => event.target instanceof Element && !!event.target.closest('button'), ignoreMutation: () => true };
+            return { dom, destroy: () => { disposed = true; release(); image.removeAttribute('src'); }, stopEvent: event => event.target instanceof Element && !!event.target.closest('button'), ignoreMutation: () => true };
           };
         },
       });

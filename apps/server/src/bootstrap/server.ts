@@ -1,3 +1,4 @@
+import { createNoteVaultRequestHandler } from '../adapters/http/note-vault-routes.js';
 import { createNoteEncryptionRequestHandler } from '../adapters/http/note-encryption-routes.js';
 import { notesFailure } from '../adapters/http/notes-routes.js';
 import type { NoteEncryptionService } from '../application/note-encryption-service.js';
@@ -184,6 +185,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
   const noteImageRoutes = options.noteImages ? createNoteImagesRequestHandler(options.noteImages) : undefined;
   const noteEncryptionRoutes = options.noteEncryption ? createNoteEncryptionRequestHandler(options.noteEncryption) : undefined;
+  const noteVaultRoutes = options.noteSecurity ? createNoteVaultRequestHandler(options.noteSecurity) : undefined;
   const noteSecurityRoutes = options.noteSecurity ? createNoteSecurityRequestHandler(options.noteSecurity) : undefined;
   const notesRoutes = options.notes ? createNotesRequestHandler(options.notes) : undefined;
   const mcpRoutes = options.mcpManagement ? createMcpRequestHandler(options.mcpManagement, options.mcpResources) : undefined;
@@ -281,6 +283,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (skillRoutes && await skillRoutes(request, response)) return;
       if (mcpRoutes && await mcpRoutes(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
+      if (noteVaultRoutes && await noteVaultRoutes(request, response)) return;
       if (noteEncryptionRoutes && await noteEncryptionRoutes(request, response)) return;
       if (noteSecurityRoutes && await noteSecurityRoutes(request, response)) return;
       if (noteImageRoutes && await noteImageRoutes(request, response)) return;

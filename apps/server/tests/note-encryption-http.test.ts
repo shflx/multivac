@@ -88,3 +88,26 @@ test('解锁后的显式讨论继续密文落库，Agent 工具不能继承窗�
     } finally { lockedStream.close(); unlockedStream.close(); }
   } finally { await f.close(); }
 });
+
+test('浏览器草稿密文绑定笔记与包身份，更换密码后仍可恢复；锁定后拒绝读取', async () => {
+  const f = await fixture();
+  try {
+    for (const id of ['one', 'two']) await f.request('/api/notes', 'POST', { id, commandId: id, title: id, body: '' });
+    await f.request('/api/note-security/password', 'POST', { password: '原密码' });
+    let token = (await f.request('/api/notes/one/unlock', 'POST', { password: '原密码' })).body.token;
+    await f.request('/api/notes/one/protection', 'POST', { action: 'encrypt', expectedRevision: 1 }, token);
+    const content = JSON.stringify({ draft: '未保存正文哨兵', pending: { commandId: '稳定命令' } });
+    const sealed = await f.request('/api/notes/one/vault', 'POST', { action: 'seal', id: 'window-draft', content }, token);
+    assert.equal(sealed.status, 200); assert.ok(!JSON.stringify(sealed.body).includes('哨兵'));
+    const open = (cipher: unknown, id = 'window-draft', note = 'one') => f.request(`/api/notes/${note}/vault`, 'POST', { action: 'open', id, content: cipher }, token);
+    assert.equal((await open(sealed.body.content)).body.content, content);
+    assert.equal((await open(sealed.body.content, 'other-draft')).status, 403);
+    assert.equal((await open(sealed.body.content, 'window-draft', 'two')).status, 423);
+    assert.equal((await open({ ...sealed.body.content, tag: 'AAAAAAAAAAAAAAAAAAAAAA==' })).status, 403);
+    assert.equal((await f.request('/api/notes/one/vault', 'POST', { action: 'open', id: 'window-draft', content: sealed.body.content })).status, 423);
+    assert.equal((await f.request('/api/note-security/password', 'PUT', { currentPassword: '原密码', password: '新密码' })).status, 200);
+    assert.equal((await open(sealed.body.content)).status, 423);
+    token = (await f.request('/api/notes/one/unlock', 'POST', { password: '新密码' })).body.token;
+    assert.equal((await open(sealed.body.content)).body.content, content);
+  } finally { await f.close(); }
+});

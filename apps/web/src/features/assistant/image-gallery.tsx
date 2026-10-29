@@ -1,3 +1,4 @@
+import { useImageContent } from './use-image-content.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, LoaderCircle, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
@@ -9,9 +10,11 @@ function ImageThumbnail({ source, open }: { source: ImageSource; open: () => voi
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [attempt, setAttempt] = useState(0);
   useEffect(() => setStatus('loading'), [source.url]);
+  const content = useImageContent(source.url, attempt);
+  useEffect(() => { if (content.error) setStatus('error'); }, [content.error]);
   return <span className="message-image-item">
     <button type="button" className="message-image" aria-label={`查看图片 ${source.alt}`} disabled={status !== 'ready'} onClick={open}>
-      <img key={attempt} src={source.url} alt={source.alt} loading="lazy" referrerPolicy="no-referrer" onLoad={() => setStatus('ready')} onError={() => setStatus('error')} />
+      <img key={attempt} src={content.url} alt={source.alt} loading="lazy" referrerPolicy="no-referrer" onLoad={() => setStatus('ready')} onError={() => setStatus('error')} />
       {status === 'loading' && <span role="status"><LoaderCircle size={16} className="spin" />加载中</span>}
     </button>
     {status === 'error' && <span className="image-load-error" role="alert">图片不可用<button type="button" title="重新加载图片" aria-label="重新加载图片" onClick={() => { setStatus('loading'); setAttempt(value => value + 1); }}><RefreshCw size={14} /></button></span>}
@@ -148,6 +151,8 @@ export function ImagePreview({ sources, start, close, portalRoot }: { sources: I
   }
 
   const source = sources[index]!;
+  const content = useImageContent(source.url, attempt);
+  useEffect(() => { if (content.error) setFailed(true); }, [content.error]);
   const fitted = natural && box ? fitSize(natural, box) : null;
   const pannable = zoom > MIN_ZOOM;
   return createPortal(<div className="image-preview-overlay" role="dialog" aria-modal="true" aria-label="图片预览"
@@ -219,7 +224,7 @@ export function ImagePreview({ sources, start, close, portalRoot }: { sources: I
         <div ref={canvas} className="image-preview-canvas">
           {failed
             ? <p className="image-preview-failed" role="alert">图片不可用<button type="button" aria-label="重新加载图片" title="重新加载图片" onClick={retry}><RefreshCw /></button></p>
-            : <img ref={image} key={`${source.url}:${attempt}`} src={source.url} alt={source.alt} referrerPolicy="no-referrer" draggable={false}
+            : <img ref={image} key={`${source.url}:${attempt}`} src={content.url} alt={source.alt} referrerPolicy="no-referrer" draggable={false}
               title={pannable ? '拖动查看，双击还原' : '双击放大'}
               style={fitted ? { width: fitted.width * zoom, height: fitted.height * zoom } : { visibility: 'hidden' }}
               onLoad={event => setNatural({ width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1 })}

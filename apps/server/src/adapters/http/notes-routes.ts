@@ -4,12 +4,12 @@ import { CreateNoteSchema, UpdateNoteSchema, DeleteNoteSchema } from '@multivac/
 import type { NotesService } from '../../application/notes-service.js';
 import { NotesError } from '../../modules/notes/note.js';
 
-export async function readNotesInput(request: IncomingMessage): Promise<unknown> {
+export async function readNotesInput(request: IncomingMessage, maxBytes = 800_000): Promise<unknown> {
   if (!request.headers['content-type']?.startsWith('application/json')) throw new NotesError('笔记请求必须使用 JSON。', 415);
   const chunks: Buffer[] = []; let bytes = 0;
   for await (const chunk of request) {
     const buffer = Buffer.from(chunk); bytes += buffer.length;
-    if (bytes > 800_000) throw new NotesError('笔记请求超过大小限制。', 413);
+    if (bytes > maxBytes) throw new NotesError('笔记请求超过大小限制。', 413);
     chunks.push(buffer);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;

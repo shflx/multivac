@@ -1,3 +1,6 @@
+import { NoteEncryptionActions } from './note-security.js';
+import { protectedNote } from '../../data/note-access.js';
+import { flushNoteVault, noteVaultStatus, retryNoteVault } from './note-vault.js';
 import { createPortal } from 'react-dom';
 import { Check as checkSchema } from 'typebox/value';
 import { useCallback, useEffect, useId, useReducer, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
@@ -32,6 +35,9 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
   const setError = useCallback((message: string) => dispatchError({ type: 'save-error', message }), []);
   const [storageError, setStorageError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [securing, setSecuring] = useState(false);
+  const [vaultStatus, setVaultStatus] = useState(() => noteVaultStatus(initial.id));
+  useEffect(() => { const changed = () => setVaultStatus(noteVaultStatus(initial.id)); window.addEventListener('note-vault-changed', changed); return () => window.removeEventListener('note-vault-changed', changed); }, [initial.id]);
   const imageInput = useRef<((files: File[]) => void) | null>(null);
   const uploadCount = useRef(0);
   const [uploads, setUploads] = useState(0);
@@ -133,6 +139,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
     put({ ...local, pending: request }); setBusy(true); setError('');
     const operation = (async () => {
       try {
+        await flushNoteVault(initial.id);
         const saved = await updateNote(initial.id, request);
         put(noteSaved(current.current, saved, request));
         // 原请求可能已提交并收到同步事件；回执只清除不晚于它的远端版本，不能吞掉之后的并发修改。
@@ -194,12 +201,12 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
       }
     }}>
       <div className="note-editor-toolbar">
-        <NoteRichTextTools editor={richEditor} disabled={deleting || !!pendingDeletion} onImages={files => imageInput.current?.(files)} />
-        <div className="note-document-actions"><span ref={setCompanionToggleRoot} /><button type="button" className="note-history-toggle" disabled={deleting || !!pendingDeletion} aria-label="版本历史" title="版本历史" onClick={() => { clearSelection(); setHistoryOpen(true); }}><History size={16} aria-hidden="true" /></button><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} aria-label={saveLabel} title={dirty && !draft.pending && !busy ? '保存笔记（Ctrl/⌘+S）' : saveLabel} aria-keyshortcuts="Control+s Meta+s" disabled={uploads > 0 || deleting || !!pendingDeletion || busy || !!remote && !draft.pending || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={16} aria-hidden="true" /> : dirty || draft.pending || uploads ? <Save size={16} aria-hidden="true" /> : <><Check size={13} aria-hidden="true" /><span>已保存</span></>}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
+        <NoteRichTextTools editor={richEditor} disabled={securing || deleting || !!pendingDeletion} onImages={files => imageInput.current?.(files)} />
+        <div className="note-document-actions"><NoteEncryptionActions note={draft.base} save={save} blocked={busy || deleting || !!pendingDeletion || uploads > 0 || !!remote} onBusy={setSecuring} /><span ref={setCompanionToggleRoot} /><button type="button" className="note-history-toggle" disabled={securing || deleting || !!pendingDeletion} aria-label="版本历史" title="版本历史" onClick={() => { clearSelection(); setHistoryOpen(true); }}><History size={16} aria-hidden="true" /></button><button type="button" className={`note-save ${dirty || draft.pending ? 'pending' : 'saved'}`} aria-label={saveLabel} title={dirty && !draft.pending && !busy ? '保存笔记（Ctrl/⌘+S）' : saveLabel} aria-keyshortcuts="Control+s Meta+s" disabled={uploads > 0 || securing || deleting || !!pendingDeletion || busy || !!remote && !draft.pending || !dirty && !draft.pending} onClick={() => void save()}>{busy ? <LoaderCircle size={16} aria-hidden="true" /> : dirty || draft.pending || uploads ? <Save size={16} aria-hidden="true" /> : <><Check size={13} aria-hidden="true" /><span>已保存</span></>}</button><button type="button" className="note-focus-toggle" aria-pressed={focused} aria-label={focused ? '退出专注写作' : '专注写作'} title={focused ? '退出专注写作' : '专注写作'} onClick={() => setFocused(value => !value)}>{focused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button></div>
       </div>
       {deleteError && <div className="notes-error" role="alert">{deleteError}</div>}
       {pendingDeletion && <p className="notes-hint">删除结果待核对，请重试原删除请求；核对期间暂停编辑与保存。</p>}
-      <NoteEditErrorNotice error={editingError} disabled={deleting || !!pendingDeletion || !richEditor} onReturn={() => {
+      <NoteEditErrorNotice error={editingError} disabled={securing || deleting || !!pendingDeletion || !richEditor} onReturn={() => {
         focusBody(); dispatchError({ type: 'edit-dismissed' });
       }} />
       {storageError && <div className="notes-error" role="alert">{storageError}{(dirty || draft.pending) && <button type="button" disabled={busy} onClick={() => void save()}>保存到服务端</button>}</div>}
@@ -212,7 +219,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
           <label className="note-title-row">
             <span className="note-title-field">
               <span className="note-title-measure" aria-hidden="true">{draft.title || '未命名笔记'}{'\u00a0'}</span>
-              <textarea className="note-title" disabled={deleting || !!pendingDeletion} aria-label="笔记标题" aria-describedby={titleHelpId} placeholder="未命名笔记" rows={1} maxLength={200} value={draft.title} onFocus={() => { titleStart.current = { title: current.current.title, revision: current.current.base.revision }; }} onBlur={event => { event.currentTarget.scrollTop = 0; }} onChange={event => {
+              <textarea className="note-title" disabled={securing || deleting || !!pendingDeletion} aria-label="笔记标题" aria-describedby={titleHelpId} placeholder="未命名笔记" rows={1} maxLength={200} value={draft.title} onFocus={() => { titleStart.current = { title: current.current.title, revision: current.current.base.revision }; }} onBlur={event => { event.currentTarget.scrollTop = 0; }} onChange={event => {
                 put({ ...current.current, title: event.target.value.replace(/[\r\n]+/g, ' '), edit: current.current.edit + 1 }); setSelection(null);
               }} onKeyDown={event => {
                 if (event.nativeEvent.isComposing || !['Enter', 'Escape'].includes(event.key)) return;
@@ -229,7 +236,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
           <div className="note-document-meta"><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
         </header>
         <div className="note-writing-surface" onPointerDown={selectionToolbar.onPointerDown} onKeyDown={selectionToolbar.onEditorKeyDown}>
-          <NoteRichText noteId={initial.id} active={active} imageInputRef={imageInput} onUploadsChange={uploadsChanged} body={draft.body} disabled={deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={error => dispatchError({ type: 'edit-error', error })} onChange={body => {
+          <NoteRichText noteId={initial.id} active={active} imageInputRef={imageInput} onUploadsChange={uploadsChanged} body={draft.body} disabled={securing || deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={error => dispatchError({ type: 'edit-error', error })} onChange={body => {
             dispatchError({ type: 'edit-accepted' }); dismissedSelection.current = null; put({ ...current.current, body, edit: current.current.edit + 1 }); setSelection(null);
           }} onSelection={picked => {
             const dismissed = dismissedSelection.current;
@@ -239,10 +246,10 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
           <div className="note-selection-slot" ref={setSelectionToolbarRoot} />
         </div>
       </div></div>
-      <footer className="note-editor-footer"><span>笔记<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
+      <footer className="note-editor-footer">{protectedNote(initial.id) && <span role="status">{vaultStatus}{vaultStatus.includes("未保存") && <button type="button" onClick={() => void retryNoteVault(initial.id).catch(error => setStorageError((error as Error).message))}>重试加密草稿</button>}</span>}<span>笔记<span className="note-editing-indicator"> · 正在编辑</span><time dateTime={draft.base.updatedAt} title={new Date(draft.base.updatedAt).toLocaleString()}>{new Date(draft.base.updatedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}</time></span><span>{draft.body.length.toLocaleString()} 字符{dirty ? ' · 未保存' : ''}</span></footer>
     </section>
     {historyOpen && <NoteVersions current={draft.base} knownRevision={Math.max(draft.base.revision, remote?.revision ?? 0)} blocked={uploads ? '请先处理未完成的图片。' : busy ? '请等待当前保存完成。' : remote ? '请先核对笔记的版本冲突。' : draft.pending ? '请先核对原保存结果。' : dirty ? '请先保存当前草稿，再恢复历史版本。' : ''} onRestore={restoreVersion} onClose={() => setHistoryOpen(false)} />}
     {deleteRoot && createPortal(<button type="button" className="note-delete" aria-label={deleteLabel} title={draft.pending ? '请先核对原保存结果' : remote ? '请先核对版本冲突' : deleteLabel} disabled={busy || deleting || !!draft.pending || !!remote && !pendingDeletion} onClick={() => void remove()}><Trash2 size={15} aria-hidden="true" /></button>, deleteRoot)}
-    {companion?.({ note: draft.base, active: active && !focused, busy: busy || deleting || !!pendingDeletion || uploads > 0, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save })}
+    {companion?.({ note: draft.base, active: active && !focused, busy: busy || securing || deleting || !!pendingDeletion || uploads > 0, selection, selectionToolbarRoot, selectionToolbarKeyDown: selectionToolbar.onToolbarKeyDown, companionToggleRoot, clearSelection, revealCompanion: () => setFocused(false), save })}
   </div>;
 }
