@@ -83,7 +83,7 @@ test('解锁后的显式讨论继续密文落库，Agent 工具不能继承窗�
       await f.request('/api/notes/one/lock', 'POST', undefined, token); await unlockedStream.waitForEnd();
       await f.request('/api/__e2e/assistant/prompt-completion/release', 'POST', {});
       assert.equal((await late).status, 423);
-      assert.ok(!JSON.stringify(lockedStream.messages).includes('锁定中讨论')); 
+      assert.ok(!JSON.stringify(lockedStream.messages).includes('锁定中讨论'));
       assert.equal((await f.request(`/api/sessions/${id}/session`, 'GET', undefined, token)).status, 423);
     } finally { lockedStream.close(); unlockedStream.close(); }
   } finally { await f.close(); }
