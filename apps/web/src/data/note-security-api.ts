@@ -5,6 +5,7 @@ export async function noteSecurityRequest<T>(path: string, method = 'GET', body?
   const response = await fetch(path, { method, cache: 'no-store', headers: { 'content-type': 'application/json', ...noteHeaders(path) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   if (path.endsWith('/vault')) noteResponse(path, response, started);
   const value = await response.json() as { error?: { message?: string } };
+  if (path.endsWith('/vault')) noteResponse(path, response, started);
   if (!response.ok) throw new Error(value.error?.message ?? '笔记安全操作失败，请核对当前状态。');
   return value as T;
 }

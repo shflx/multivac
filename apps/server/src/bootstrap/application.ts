@@ -777,24 +777,27 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const noteId = store.noteCodec.owner(record.sessionId);
     if (noteId) store.noteCodec.assert(noteId);
     const releaseWriter = noteId && store.noteCodec.state(noteId) ? store.noteCodec.retainWriter(noteId) : () => {};
-    const runtime = new AssistantSessionRuntime(runtimeDependencies, {
-      canReadContent: () => !noteId || store.noteCodec.canRead(noteId),
-      ...policy,
-      sessionId: record.sessionId,
-      supportsContextManagement: () => !record.host && !store.taskRuns.bySession(record.sessionId),
-      kind: 'work',
-      beforeSend: () => { store.noteCodec.assertSession(record.sessionId); managedProcesses.bash.resumeSession(record.sessionId); },
-      resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
-      sessionDir: paths.workSessionDir,
-      ...(record.initialModel ? { initialModel: record.initialModel } : {}),
-      resolveNewSessionRuntimeConfig: resolveNewSessionRuntimeConfig ?? createNewSessionRuntimeConfigResolver(modelSettingsService, policy.runtimeConfig, record.initialModel),
-      resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
-      resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
-      resolveMcpQuote: quote => mcpResources.quote(record.sessionId, quote),
-      assertMcpQuoteForDispatch: (quote, commandId) => { mcpResources.quote(record.sessionId, quote, commandId); },
-      resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
-      resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
-    });
+    let runtime: AssistantSessionRuntime;
+    try {
+      runtime = new AssistantSessionRuntime(runtimeDependencies, {
+        canReadContent: () => !noteId || store.noteCodec.canRead(noteId),
+        ...policy,
+        sessionId: record.sessionId,
+        supportsContextManagement: () => !record.host && !store.taskRuns.bySession(record.sessionId),
+        kind: 'work',
+        beforeSend: () => { store.noteCodec.assertSession(record.sessionId); managedProcesses.bash.resumeSession(record.sessionId); },
+        resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
+        sessionDir: paths.workSessionDir,
+        ...(record.initialModel ? { initialModel: record.initialModel } : {}),
+        resolveNewSessionRuntimeConfig: resolveNewSessionRuntimeConfig ?? createNewSessionRuntimeConfigResolver(modelSettingsService, policy.runtimeConfig, record.initialModel),
+        resolveQuoteSource: (sessionId) => resolveQuoteSource(sessionId),
+        resolveBookQuote: async quote => readingService.resolveBookQuote(quote),
+        resolveMcpQuote: quote => mcpResources.quote(record.sessionId, quote),
+        assertMcpQuoteForDispatch: (quote, commandId) => { mcpResources.quote(record.sessionId, quote, commandId); },
+        resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
+        resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
+      });
+    } catch (error) { releaseWriter(); throw error; }
     const dispose = runtime.dispose.bind(runtime);
     runtime.dispose = () => { try { dispose(); } finally { releaseWriter(); } };
     return runtime;

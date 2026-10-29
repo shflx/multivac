@@ -30,10 +30,14 @@ export class NoteHttpAccess {
     const session = /^\/api\/sessions\/([^/]+)(?:\/|$)/u.exec(path);
     return session ? this.codec.owner(decodeURIComponent(session[1]!)) : undefined;
   }
+  private deleted(noteId: string): boolean {
+    return !!this.codec.database.prepare("SELECT id FROM app_note WHERE id=? AND json_extract(record_json,'$.deleted')=1").get(noteId);
+  }
   async run(request: IncomingMessage, response: ServerResponse, operation: () => Promise<void>): Promise<void> {
     const path = new URL(request.url ?? '/', 'http://localhost').pathname;
     if (path === '/api/events') return this.codec.runMany(this.grants(request), operation);
     const noteId = this.noteId(path);
+    if (noteId && this.deleted(noteId) && !(request.method === 'DELETE' && /^\/api\/notes\/[^/]+$/u.test(path))) throw new NotesError('笔记已删除。', 404);
     const securityPath = /^\/api\/notes\/[^/]+\/(?:unlock|lock|activity|access|protection)$/u.test(path);
     return this.codec.run(noteId ? noteRequestAccess(request) : undefined, async () => {
       if (noteId && !securityPath) this.codec.assert(noteId);
@@ -41,7 +45,10 @@ export class NoteHttpAccess {
       // 异步操作返回前重查当前状态，不能把早先算好的明文交给已失效的窗口。
       if (noteId && !securityPath) response.writeHead = function (this: ServerResponse, ...args: Parameters<ServerResponse['writeHead']>) {
         response.writeHead = writeHead;
-        if (Number(args[0]) < 400) thisAccess.codec.assert(noteId);
+        if (Number(args[0]) < 400) {
+          if (thisAccess.deleted(noteId) && request.method !== 'DELETE') throw new NotesError('笔记已删除。', 404);
+          thisAccess.codec.assert(noteId);
+        }
         return writeHead.apply(this, args);
       } as ServerResponse['writeHead'];
       const thisAccess = this;
@@ -50,6 +57,7 @@ export class NoteHttpAccess {
   }
   allowEvent(request: IncomingMessage, event: AssistantPublicEvent): boolean {
     const owner = this.codec.owner(event.assistantSessionId);
+    if (owner && this.deleted(owner)) return false;
     if (!owner || !this.codec.state(owner)) return true;
     try { this.security.assertAccess(owner, this.grants(request).get(owner)); return this.codec.state(owner) === 'encrypted'; }
     catch { return false; }

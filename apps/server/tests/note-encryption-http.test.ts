@@ -111,3 +111,22 @@ test('浏览器草稿密文绑定笔记与包身份，更换密码后仍可恢�
     assert.equal((await open(sealed.body.content)).body.content, content);
   } finally { await f.close(); }
 });
+
+test('删除加密笔记保留无正文墓碑，不破坏讨论密文，也不重放原内容', async () => {
+  const f = await fixture();
+  try {
+    await f.request('/api/notes', 'POST', { id: 'deleted', commandId: 'created', title: '删除标题哨兵', body: '删除正文哨兵' });
+    const discussion = await f.request('/api/notes/deleted/companion', 'POST');
+    await f.request('/api/note-security/password', 'POST', { password: '密码' });
+    const token = (await f.request('/api/notes/deleted/unlock', 'POST', { password: '密码' })).body.token;
+    assert.equal((await f.request('/api/notes/deleted/protection', 'POST', { action: 'encrypt', expectedRevision: 1 }, token)).status, 200);
+    const removed = await f.request('/api/notes/deleted', 'DELETE', { commandId: 'delete', expectedRevision: 1 }, token);
+    assert.equal(removed.status, 200, JSON.stringify(removed));
+    for (const [path, method, body] of [['/api/notes/deleted', 'GET'], ['/api/notes/deleted/unlock', 'POST', { password: '密码' }], ['/api/notes/deleted/vault', 'POST', { action: 'seal', id: 'draft', content: '正文' }], [`/api/sessions/${discussion.body.sessionId}/session`, 'GET']] as const) {
+      assert.equal((await f.request(path, method, body, token)).status, 404, path);
+    }
+    const replay = await f.request('/api/notes/deleted', 'DELETE', { commandId: 'delete', expectedRevision: 1 }, token);
+    assert.equal(replay.status, 200, JSON.stringify(replay)); assert.deepEqual(replay.body, { id: 'deleted', deleted: true });
+    assert.deepEqual((await f.request('/api/notes')).body.notes, []);
+  } finally { await f.close(); }
+});
