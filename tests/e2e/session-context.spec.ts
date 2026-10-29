@@ -70,6 +70,13 @@ for (const width of [320, 1440]) test(`${width}px 受控统计来源、长模型
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
   expect(bounds.y).toBeGreaterThanOrEqual(0);
   await page.screenshot({ path: info.outputPath(`context-${width}.png`) });
+  const resizedWidth = width === 320 ? 1440 : 320;
+  await page.setViewportSize({ width: resizedWidth, height: 800 });
+  await expect.poll(async () => {
+    const resized = await panel.boundingBox();
+    return resized !== null && resized.x >= 0 && resized.x + resized.width <= resizedWidth;
+  }).toBe(true);
+  await page.screenshot({ path: info.outputPath(`context-resized-${resizedWidth}.png`) });
   await page.keyboard.press('Escape');
   await expect(panel).toBeHidden();
   await expect(trigger).toBeFocused();
