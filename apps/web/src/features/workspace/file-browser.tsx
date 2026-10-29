@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Columns2, FileText, Folder, Maximize2, MessageSquare, RefreshCw, Search, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Columns2, FileText, Folder, LoaderCircle, Maximize2, MessageSquare, RefreshCw, Search, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { AssistantFileQuote, SessionFileEntry, SessionFileList } from '@multivac/contracts';
 import { listSessionFiles } from '../../data/session-files-api.js';
@@ -25,17 +25,19 @@ function DirectoryBranch({ sessionId, root, path, query, selected, onSelect, exp
     }, query ? 200 : 0);
     return () => { clearTimeout(timer); abort.abort(); };
   }, [sessionId, root, path, query, retry]);
-  if (error) return <div className="browser-empty" role="alert">{error}<button className="icon-button" aria-label="重试目录读取" title="重试" onClick={() => setRetry(retry + 1)}><RefreshCw /></button></div>;
-  if (!listing) return <p className="browser-empty" role="status">正在读取目录…</p>;
+  // 读取、空目录、失败与上限说明都以树内紧凑行呈现，与子项同一缩进。
+  if (error) return <div className="browser-tree-note error" role="alert"><span>{error}</span><button className="icon-button" aria-label="重试目录读取" title="重试" onClick={() => setRetry(retry + 1)}><RefreshCw /></button></div>;
+  if (!listing) return <p className="browser-tree-note" role="status"><LoaderCircle className="spin" aria-hidden="true" />正在读取…</p>;
   return <><ul className="browser-tree">{listing.entries.map((entry) => <li key={entry.path}>
     <FileActions sessionId={sessionId} root={root} path={entry.path} kind={entry.kind} onNotice={onNotice}><button type="button" title={`${root}/${entry.path}`} aria-current={selected === entry.path ? 'true' : undefined}
       {...(entry.kind === 'directory' ? { 'aria-expanded': expanded.includes(entry.path) } : {})}
       onClick={() => entry.kind === 'file' ? onSelect(entry) : onToggle(entry.path)}>
-      {entry.kind === 'directory' ? <>{expanded.includes(entry.path) ? <ChevronDown /> : <ChevronRight />}<Folder /></> : <FileText />}
+      {/* 文件用占位代替展开箭头，使同级文件与目录图标对齐。 */}
+      {entry.kind === 'directory' ? <>{expanded.includes(entry.path) ? <ChevronDown /> : <ChevronRight />}<Folder /></> : <><span className="browser-tree-spacer" aria-hidden="true" /><FileText /></>}
       <span>{entry.name}{query && <small>{entry.path}</small>}</span>
     </button></FileActions>
     {entry.kind === 'directory' && expanded.includes(entry.path) && <DirectoryBranch sessionId={sessionId} root={root} path={entry.path} query="" selected={selected} onSelect={onSelect} expanded={expanded} onToggle={onToggle} onNotice={onNotice} />}
-  </li>)}</ul>{!listing.entries.length && <p className="browser-empty">{query ? '没有匹配的文件' : '此目录为空'}</p>}{listing.limited && <p className="browser-empty">已达到浏览上限，请缩小搜索范围或展开子目录。</p>}</>;
+  </li>)}</ul>{!listing.entries.length && <p className="browser-tree-note">{query ? '没有匹配的文件' : '空目录'}</p>}{listing.limited && <p className="browser-tree-note">已达到浏览上限，请缩小搜索范围或展开子目录。</p>}</>;
 }
 
 /** 成功提示的停留时长。 */
