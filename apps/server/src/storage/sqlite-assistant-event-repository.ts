@@ -185,10 +185,11 @@ export class SqliteAssistantEventRepository implements AssistantEventRepository 
       ? this.database.prepare(`
           SELECT source_key, cursor, assistant_id, command_id, event_type, payload_json, occurred_at
           FROM assistant_event_projection
-          WHERE cursor > ?
+          WHERE cursor > ? AND (NOT EXISTS (SELECT 1 FROM app_note_discussion d JOIN app_note_protection p ON p.note_id=d.note_id WHERE d.session_id=assistant_event_projection.assistant_id)
+            OR assistant_id IN (SELECT session_id FROM app_note_discussion WHERE note_id IN (SELECT value FROM json_each(?))))
           ORDER BY cursor
           LIMIT ?
-        `).all(after, limit)
+        `).all(after, JSON.stringify(noteCodecFor(this.database)?.authorizedNotes() ?? []), limit)
       : this.database.prepare(`
           SELECT source_key, cursor, assistant_id, command_id, event_type, payload_json, occurred_at
           FROM assistant_event_projection

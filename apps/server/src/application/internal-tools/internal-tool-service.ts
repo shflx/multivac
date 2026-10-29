@@ -352,6 +352,15 @@ export class InternalToolService implements CoordinatorInternalTools {
     };
     if (tool.effect === 'query') return this.execute(tool, checked.value, context);
 
+    // 回执重放也须重新检查笔记保护状态，不能把加密前的成功结果当成读取旁路。
+    if (tool.name === 'create_note' || tool.name === 'update_note') {
+      const input = checked.value as { noteId?: string; requestId: string };
+      try {
+        if (input.noteId) this.options.services.notes?.get(input.noteId);
+        this.options.services.notes?.operation(internalToolCommandId(context.sessionId, `note-operation:${input.requestId}`));
+      } catch { return { ok: false, reason: '笔记当前不可访问，无法执行或重放此操作。' }; }
+    }
+
     // 从这里到登记进行中的调用之间没有 await：同一调用的并发重放一定能看到彼此。
     const running = this.inFlight.get(commandId);
     if (running) return running;

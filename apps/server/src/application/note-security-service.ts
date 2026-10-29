@@ -24,7 +24,7 @@ export class NoteSecurityService {
     if (!grant) return;
     this.grants.delete(token);
     // 先禁止新访问，再通知订阅者停止交付；每份凭证独立持有可清零的密钥。
-    for (const listener of this.listeners) listener(grant.noteId, token);
+    for (const listener of this.listeners) { try { listener(grant.noteId, token); } catch { /* 单个订阅失败不能阻止凭证撤销和密钥释放。 */ } }
     grant.master.fill(0);
   }
   private expire(): void {

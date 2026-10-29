@@ -69,6 +69,7 @@ export const createFakeHarness: HarnessFactory<FakeHarnessRuntime> = (context) =
   const failedFakePrompts = new Set<string>();
   const accessBackend = new FakeModelAccessBackend();
   const adapter = new FakeCoordinatorAdapter({
+    ...(context.protectedTranscripts ? { protectedTranscripts: context.protectedTranscripts } : {}),
     bashProcesses: context.bashProcesses,
     // 动态事件与命令服务使用同一时钟；演示历史仍保留固定日期。
     now: () => new Date().toISOString(),

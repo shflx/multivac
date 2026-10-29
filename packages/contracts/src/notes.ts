@@ -9,6 +9,7 @@ export const NoteSchema = Type.Object({
   title: Type.String({ maxLength: 200 }),
   body: Type.String({ maxLength: NOTE_BODY_LIMIT }),
   revision: Type.Integer({ minimum: 1 }),
+  protection: Type.Optional(Type.Union([Type.Literal('encrypting'), Type.Literal('encrypted'), Type.Literal('decrypting')])),
   createdAt: Type.String(), updatedAt: Type.String(),
 }, { additionalProperties: false });
 export type Note = Static<typeof NoteSchema>;

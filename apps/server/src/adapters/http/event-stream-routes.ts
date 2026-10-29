@@ -1,3 +1,4 @@
+import type { NoteHttpAccess } from './note-access.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   GLOBAL_EVENTS_PATH,
@@ -35,6 +36,7 @@ export const GLOBAL_EVENT_STREAM_MAX_QUEUED_EVENTS = 1024;
 export const GLOBAL_EVENT_STREAM_MAX_QUEUED_BYTES = 1024 * 1024;
 
 export interface EventStreamRoutesOptions {
+  noteAccess?: NoteHttpAccess;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
   /** 工作台变更；提供时全局事件流同时推送变更，并以查询参数中的窗口 id 登记连接。 */
@@ -63,11 +65,11 @@ function parseWindowId(url: URL): { windowId: string | null } | null {
  * 工作台变更接入事件流：以窗口 id 登记（定向推送与“窗口是否在线”据此判断），先发 `workbench.connected`，
  * 之后按投递范围转发。不回放：连接前的变更由窗口在收到 `workbench.connected` 后整体重读。返回注销函数。
  */
-function streamWorkbenchEvents(sink: SseSink, events: WorkbenchEvents, windowId: string | null): () => void {
+function streamWorkbenchEvents(sink: SseSink, events: WorkbenchEvents, windowId: string | null, allow?: (event: WorkbenchEvent) => boolean): () => void {
   const send = (event: WorkbenchEvent) => sink.send(formatSseEvent(WORKBENCH_SSE_EVENT_NAME, event));
   const unsubscribe = events.subscribe((event, delivery) => {
     if (delivery.targetWindowId !== undefined && delivery.targetWindowId !== windowId) return;
-    send(event);
+    if (!allow || allow(event)) send(event);
   }, windowId);
   send({ type: 'workbench.connected', seq: events.nextSeq(), windowId });
   return unsubscribe;
@@ -84,14 +86,15 @@ export function createEventStreamRequestHandler(options: EventStreamRoutesOption
   const maxQueuedEvents = options.maxQueuedEvents ?? GLOBAL_EVENT_STREAM_MAX_QUEUED_EVENTS;
   const maxQueuedBytes = options.maxQueuedBytes ?? GLOBAL_EVENT_STREAM_MAX_QUEUED_BYTES;
 
-  const open = (sink: SseSink, cursor: string, windowId: string | null, sessionId?: string) => {
+  const open = (request: IncomingMessage, sink: SseSink, cursor: string, windowId: string | null, sessionId?: string) => {
     // 先登记窗口并发出 workbench.connected，再回放会话事件：回放是同步的，期间不会插入其他事件。
     const releaseWorkbench = options.workbenchEvents && sessionId === undefined
-      ? streamWorkbenchEvents(sink, options.workbenchEvents, windowId)
+      ? streamWorkbenchEvents(sink, options.workbenchEvents, windowId, options.noteAccess ? event => options.noteAccess!.allowWorkbench(event) : undefined)
       : () => {};
     try {
       const releasePublic = streamPublicEvents(sink, {
         initialCursor: cursor,
+        allow: options.noteAccess ? event => options.noteAccess!.allowEvent(request, event) : undefined,
         eventRepository: options.eventRepository,
         eventStream: options.eventStream,
         ...(sessionId === undefined ? {} : { sessionId }),
@@ -128,16 +131,18 @@ export function createEventStreamRequestHandler(options: EventStreamRoutesOption
       options.eventRepository.listAfter(cursor, 1, scope?.sessionId);
       let connection!: SseConnection;
       let releaseLogin = () => {};
+      let releaseNotes = () => {};
       connection = createSseConnection({
         request,
         response,
         heartbeatMs,
         maxQueuedEvents,
         maxQueuedBytes,
-        onClose: () => { releaseLogin(); activeConnections.delete(connection); },
-        open: (sink) => open(sink, cursor, scope ? null : windowQuery.windowId, scope?.sessionId),
+        onClose: () => { releaseLogin(); releaseNotes(); activeConnections.delete(connection); },
+        open: (sink) => open(request, sink, cursor, scope ? null : windowQuery.windowId, scope?.sessionId),
       });
       activeConnections.add(connection);
+      releaseNotes = options.noteAccess?.bindStream(request, () => connection.close()) ?? (() => {});
       if (scope) releaseLogin = scope.bind(() => connection.close());
       connection.start();
     } catch (error) {

@@ -50,7 +50,7 @@ export interface EventRow {
 
 export function commandFromRow(row: CommandRow, database?: DatabaseSync): StoredAssistantCommandReceipt {
   const codec = database && noteCodecFor(database), owner = codec && codec.owner(row.assistant_id);
-  const message = row.error_message && owner && codec?.state(owner) ? codec.decode<string>(owner, 'command-error', row.command_id, row.error_message) : row.error_message;
+  const message = row.error_message && owner && codec?.state(owner) ? codec.canRead(owner) ? codec.decode<string>(owner, 'command-error', row.command_id, row.error_message) : '讨论已锁定。' : row.error_message;
   return {
     commandId: row.command_id,
     assistantSessionId: row.assistant_id,
@@ -159,7 +159,8 @@ export function appendEventRow(database: DatabaseSync, input: AppendAssistantPub
     SELECT source_key, cursor, assistant_id, command_id, event_type, payload_json, occurred_at
     FROM assistant_event_projection WHERE source_key = ?
   `).get(input.sourceKey) as unknown as EventRow;
-  return eventFromRow(row, database);
+  // 本次输入已经由投影白名单处理；写入租约在锁定收尾期间只允许加密，不再解密回读。
+  return { cursor: String(row.cursor), eventId: `assistant-event:${row.cursor}`, assistantSessionId: input.assistantSessionId, commandId: input.commandId, type: input.type, data, occurredAt: input.occurredAt } as AssistantPublicEvent;
 }
 
 export function readCommand(database: DatabaseSync, commandId: string): StoredAssistantCommandReceipt | undefined {

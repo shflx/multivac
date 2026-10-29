@@ -172,6 +172,7 @@ export function createSseConnection(options: SseConnectionOptions): SseConnectio
 }
 
 export interface PublicEventSourceOptions {
+  allow?: ((event: AssistantPublicEvent) => boolean) | undefined;
   initialCursor: string;
   eventRepository: AssistantEventRepository;
   eventStream: AssistantEventStream;
@@ -187,6 +188,7 @@ export function streamPublicEvents(sink: SseSink, options: PublicEventSourceOpti
   let lastSent = Number(options.initialCursor);
   const forward = (event: AssistantPublicEvent) => {
     if (options.sessionId !== undefined && event.assistantSessionId !== options.sessionId) return;
+    if (options.allow && !options.allow(event)) return;
     const cursor = Number(event.cursor);
     if (sink.isClosed() || cursor <= lastSent) return;
     lastSent = cursor;

@@ -1,3 +1,5 @@
+import { NoteHttpAccess } from '../adapters/http/note-access.js';
+import { NoteEncryptionService } from '../application/note-encryption-service.js';
 import { SqliteProtectedTranscripts } from '../storage/sqlite-protected-transcripts.js';
 import { NoteSecurityService } from '../application/note-security-service.js';
 import { projectFileScope } from '../application/project-file-scope.js';
@@ -119,7 +121,7 @@ import {
   type ProjectProposalDependencies,
 } from '../application/proposals/project-proposals.js';
 import { PreferencesService } from '../application/preferences-service.js';
-import { SessionTranscriptReader } from '../application/session-transcripts.js';
+import { SessionTranscriptReader, SessionTranscriptUnavailableError } from '../application/session-transcripts.js';
 import { TempDirectoryRemovalPolicy } from '../application/temp-directory-removal.js';
 import { TempDirectoryCleaner } from '../application/temp-directory-cleaner.js';
 import {
@@ -392,7 +394,13 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     () => workbenchEvents.publish({ type: 'web-settings.changed' }));
   const internalToolServices: InternalToolServices = {
     web: { search: (id, input, signal) => webAccess.search(id, input, signal), fetch: (id, input, signal) => webAccess.fetch(id, input, signal) },
-    notes: notesService,
+    notes: {
+      list: () => store.noteCodec.run(undefined, () => notesService.list()),
+      get: (id, revision) => store.noteCodec.run(undefined, () => notesService.get(id, revision)),
+      create: input => store.noteCodec.run(undefined, () => notesService.create(input)),
+      update: (id, input) => store.noteCodec.run(undefined, () => notesService.update(id, input)),
+      operation: id => store.noteCodec.run(undefined, () => notesService.operation(id)),
+    },
     mcpManagement: { list: (offset, limit) => mcpManagement.list(offset, limit), detail: id => mcpManagement.detail(id), receipt: (sessionId, id) => {
       const proposal = proposals.list(sessionId).find(item => item.proposalId === id && item.kind === 'mcp.manage');
       if (!proposal) throw new Error('MCP 提议不存在。');
@@ -598,6 +606,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // Multivac 读取其他会话的最近内容：只读，打开中的读内存，未打开或已归档的读 Pi session 文件，不建立运行时。
   const sessionTranscripts = new SessionTranscriptReader({
     registry: sessionRegistry, bindings: runtimeDependencies.bindingRepository, adapter,
+    assertReadable: id => { const owner = store.noteCodec.owner(id); if (owner && store.noteCodec.state(owner)) throw new SessionTranscriptUnavailableError('加密笔记讨论不向通用会话工具开放。'); },
   });
   // 偏好保存在服务端；临时目录的清理计划随会话归档、恢复与归入项目登记或取消。
   const cleanupPlans = store.tempDirectoryCleanups;
@@ -765,12 +774,16 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   };
   const sessionRuntimes = new SessionRuntimeRegistry<AssistantSessionRuntime>((record) => {
     const { resolveNewSessionRuntimeConfig, ...policy } = sessionPolicy(record);
-    return new AssistantSessionRuntime(runtimeDependencies, {
+    const noteId = store.noteCodec.owner(record.sessionId);
+    if (noteId) store.noteCodec.assert(noteId);
+    const releaseWriter = noteId && store.noteCodec.state(noteId) ? store.noteCodec.retainWriter(noteId) : () => {};
+    const runtime = new AssistantSessionRuntime(runtimeDependencies, {
+      canReadContent: () => !noteId || store.noteCodec.canRead(noteId),
       ...policy,
       sessionId: record.sessionId,
       supportsContextManagement: () => !record.host && !store.taskRuns.bySession(record.sessionId),
       kind: 'work',
-      beforeSend: () => managedProcesses.bash.resumeSession(record.sessionId),
+      beforeSend: () => { store.noteCodec.assertSession(record.sessionId); managedProcesses.bash.resumeSession(record.sessionId); },
       resolveWorkingDirectory: workingDirectoryOf(record.sessionId),
       sessionDir: paths.workSessionDir,
       ...(record.initialModel ? { initialModel: record.initialModel } : {}),
@@ -782,7 +795,37 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       resolveFileQuote: (quote) => sessionFiles.validateQuote(quote),
       resolveInitialContext: async () => parentContext(sessionRegistry, record.sessionId),
     });
+    const dispose = runtime.dispose.bind(runtime);
+    runtime.dispose = () => { try { dispose(); } finally { releaseWriter(); } };
+    return runtime;
   }, [coordinator]);
+  const stoppingProtected = new Set<string>();
+  const stopChecks = new Set<ReturnType<typeof setTimeout>>();
+  const releaseStopped = (sessionId: string) => {
+    const runtime = sessionRuntimes.get(sessionId);
+    if (!runtime || !runtime.isRunning()) { sessionRuntimes.release(sessionId); stoppingProtected.delete(sessionId); return; }
+    const timer = setTimeout(() => { stopChecks.delete(timer); releaseStopped(sessionId); }, 25); timer.unref(); stopChecks.add(timer);
+  };
+  const unsubscribeNoteLocks = noteSecurity.onRevoke(noteId => {
+    notesService.changed(noteId);
+    for (const row of store.noteCodec.database.prepare('SELECT session_id FROM app_note_discussion WHERE note_id=?').all(noteId)) {
+      const id = String(row.session_id), runtime = sessionRuntimes.get(id);
+      if (!runtime || stoppingProtected.has(id)) continue;
+      stoppingProtected.add(id);
+      // 先撤销浏览器访问；仅保留运行收尾所需的加密写入租约，不允许解密读取。
+      void adapter.abort(id).then(() => releaseStopped(id), () => releaseStopped(id));
+    }
+  });
+  const noteEncryption = new NoteEncryptionService(store.noteCodec, noteSecurity, notesService, {
+    check: noteId => {
+      for (const row of store.noteCodec.database.prepare('SELECT session_id FROM app_note_discussion WHERE note_id=?').all(noteId)) {
+        const id = String(row.session_id);
+        if (sessionRuntimes.get(id)?.isRunning() || images.hasPendingUploads(id) || stoppingProtected.has(id)) throw new NotesError('讨论或图片上传尚未结束，请先停止或等待结束。', 409);
+      }
+    },
+    release: noteId => { for (const row of store.noteCodec.database.prepare('SELECT session_id FROM app_note_discussion WHERE note_id=?').all(noteId)) sessionRuntimes.release(String(row.session_id)); },
+  }, paths.assistantSessionDir);
+  const noteAccess = new NoteHttpAccess(store.noteCodec, noteSecurity);
   // 项目与工作区：项目自动带一个同名工作区，项目托管目录在工作文件根目录的 projects/ 下。
   const projectService = new ProjectService({
     projects: projectRepository,
@@ -869,6 +912,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // 跨会话引用：任一会话都可以引用工作区中其他会话已落入可读历史的消息。
   const resolveQuoteSource = createQuoteSourceResolver(sessionAccess);
   const resolveSession = (sessionId: string) => {
+    store.noteCodec.assertSession(sessionId);
+    if (stoppingProtected.has(sessionId)) throw new NotesError('讨论正在停止，请稍后重试。', 409);
     const record = workspaceSessionService.resolve(sessionId);
     const runtime = sessionRuntimes.acquire(record);
     return { service: runtime.session, commandService: runtime.commands, selectionService: runtime.selection,
@@ -1152,6 +1197,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     reading: readingService,
     notes: notesService,
     noteSecurity,
+    noteAccess,
+    noteEncryption,
     noteImages,
     noteAssistant,
     noteSuggestions,
@@ -1228,6 +1275,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         taskExecution.dispose(); taskScheduler.dispose();
         coordinator.dispose(); sessionRuntimes.releaseAll();
         eventStream.clear(); workbenchEvents.clear(); adapter.dispose();
+        unsubscribeNoteLocks();
+        for (const timer of stopChecks) clearTimeout(timer);
         noteSecurity.close();
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
