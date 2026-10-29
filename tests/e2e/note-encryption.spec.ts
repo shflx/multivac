@@ -16,7 +16,11 @@ const editor = (page: Page) => page.locator('.notes-open-document:visible');
 
 test('逐篇加密、跨窗口隔离、密文草稿恢复、讨论、换密码与取消加密', async ({ page, context, request }, testInfo) => {
   test.setTimeout(45_000);
-  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  const errors: string[] = [], contextRequests: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('request', request => {
+    if (/\/api\/sessions\/[^/]+\/context$/u.test(new URL(request.url()).pathname)) contextRequests.push(request.url());
+  });
   const id = crypto.randomUUID(), ordinary = crypto.randomUUID(), title = `秘密标题-${id}`, body = `秘密正文-${id}`, password = `共用密码-${id}`;
   for (const input of [{ id, title, body }, { id: ordinary, title: `普通笔记-${ordinary}`, body: '普通正文' }]) {
     expect((await request.post(`${fakeApiRoot}/api/notes`, { data: { ...input, commandId: input.id } })).ok()).toBeTruthy();
@@ -113,5 +117,6 @@ test('逐篇加密、跨窗口隔离、密文草稿恢复、讨论、换密码�
   await expect(page.getByRole('button', { name: /^解锁(?:笔记|并恢复转换)$/ })).toBeVisible();
   await expect(page.getByText(`未保存密文草稿-${id}`, { exact: true })).toHaveCount(0);
   await peer.close();
+  expect(contextRequests).toEqual([]);
   expect(errors).toEqual([]);
 });
