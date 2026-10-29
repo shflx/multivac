@@ -14,7 +14,6 @@ export const NOTE_PROTECTION_MIGRATION = `
     path TEXT PRIMARY KEY, note_id TEXT NOT NULL REFERENCES app_note(id), session_id TEXT NOT NULL,
     content TEXT NOT NULL, cleanup_pending INTEGER NOT NULL DEFAULT 1, restore_temp TEXT
   ) STRICT;
-  ALTER TABLE app_note_command ADD COLUMN note_id TEXT;
 `;
 interface Envelope { noteEncrypted: 1; payload: NoteCiphertext }
 
