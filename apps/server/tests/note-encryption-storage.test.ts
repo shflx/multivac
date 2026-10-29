@@ -138,3 +138,24 @@ for (const stage of ['after-commit', 'before-cleanup', 'restore-written', 'after
     assert.equal(readFileSync(f.path, 'utf8'), f.transcript);
   } finally { f.close(); }
 });
+
+test('删除加密笔记清理旧正文回执并保持归档讨论密文有效', async () => {
+  const f = await fixture();
+  try {
+    f.encryption.encrypt('one', 2, f.access);
+    f.store.noteCodec.run(f.access, () => {
+      const deletion = { commandId: 'delete-encrypted', expectedRevision: 2 };
+      assert.deepEqual(f.notes.remove('one', deletion), { id: 'one', deleted: true });
+      assert.deepEqual(f.notes.remove('one', deletion), { id: 'one', deleted: true });
+      assert.throws(() => f.notes.operation('create'), /已删除/u);
+      assert.throws(() => f.notes.operation('update'), /已删除/u);
+      assert.throws(() => f.notes.get('one'), /已删除/u);
+      const archived = f.store.noteAssistant.discussions('one')[0]!;
+      assert.equal(archived.title, '已删除笔记'); assert.equal(archived.topic, null);
+      assert.equal(f.store.sessions.get(archived.sessionId)?.title, '已删除笔记');
+      assert.ok(f.store.sessions.get(archived.sessionId)?.archivedAt);
+    });
+    assert.equal(f.notes.get('other').body, '普通内容');
+    assert.deepEqual(f.store.notes.database.prepare('PRAGMA foreign_key_check').all(), []);
+  } finally { f.close(); }
+});

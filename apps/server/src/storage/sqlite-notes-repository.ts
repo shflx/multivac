@@ -37,6 +37,7 @@ export class SqliteNotesRepository implements NotesRepository {
       ? this.database.prepare('SELECT record_json FROM app_note WHERE id=?').get(id)
       : this.database.prepare('SELECT record_json FROM app_note_version WHERE note_id=? AND revision=?').get(id, revision);
     if (!row) throw new NotesError('笔记或正文版本不存在。', 404);
+    if (revision === undefined && JSON.parse(String(row.record_json))?.deleted === true) throw new NotesError('笔记已删除。', 404);
     const value: unknown = this.codec?.decode(id, revision === undefined ? 'note' : 'version', revision === undefined ? id : String(revision), row.record_json) ?? JSON.parse(String(row.record_json));
     if (value && typeof value === 'object' && 'deleted' in value && value.deleted === true) throw new NotesError('笔记已删除。', 404);
     if (!Check(NoteSchema, value)) throw new Error('独立笔记存储无效。');
@@ -166,12 +167,24 @@ export class SqliteNotesRepository implements NotesRepository {
       this.database.prepare('DELETE FROM app_note_summary WHERE id=?').run(id);
       this.database.prepare('DELETE FROM app_note_version_summary WHERE note_id=?').run(id);
       this.database.prepare('DELETE FROM app_note_version WHERE note_id=?').run(id);
-      this.database.prepare(`UPDATE app_note_command SET result_json=json_object('deletedNoteId',?)
-        WHERE (json_extract(result_json, '$.id')=? AND json_type(result_json, '$.body')='text')
-          OR EXISTS (SELECT 1 FROM json_tree(result_json) WHERE key='noteId' AND atom=?)`).run(id, id, id);
-      this.database.prepare(`UPDATE assistant_session_registry SET archived_at=COALESCE(archived_at,?), title='已删除笔记'
-        WHERE session_id IN (SELECT session_id FROM app_note_discussion WHERE note_id=?)`).run(new Date().toISOString(), id);
-      this.database.prepare(`UPDATE app_note_discussion SET record_json=json_set(record_json, '$.title','已删除笔记','$.topic',json('null')) WHERE note_id=?`).run(id);
+      if (this.codec?.state(id)) {
+        // 删除只留下无正文回执；不能用 JSON 字段更新密文信封。
+        for (const row of this.database.prepare('SELECT command_id FROM app_note_command WHERE note_id=?').all(id)) {
+          this.database.prepare('UPDATE app_note_command SET result_json=? WHERE command_id=?').run(this.codec.encode(id, 'command', String(row.command_id), { deletedNoteId: id }), String(row.command_id));
+        }
+        for (const row of this.database.prepare('SELECT session_id,record_json FROM app_note_discussion WHERE note_id=?').all(id)) {
+          const sessionId = String(row.session_id), discussion = this.codec.decode<Record<string, unknown>>(id, 'discussion', sessionId, row.record_json);
+          this.database.prepare('UPDATE assistant_session_registry SET archived_at=COALESCE(archived_at,?),title=? WHERE session_id=?').run(new Date().toISOString(), this.codec.encode(id, 'session-title', sessionId, '已删除笔记'), sessionId);
+          this.database.prepare('UPDATE app_note_discussion SET record_json=? WHERE session_id=?').run(this.codec.encode(id, 'discussion', sessionId, { ...discussion, title: '已删除笔记', topic: null }), sessionId);
+        }
+      } else {
+        this.database.prepare(`UPDATE app_note_command SET result_json=json_object('deletedNoteId',?)
+          WHERE (json_extract(result_json, '$.id')=? AND json_type(result_json, '$.body')='text')
+            OR EXISTS (SELECT 1 FROM json_tree(result_json) WHERE key='noteId' AND atom=?)`).run(id, id, id);
+        this.database.prepare(`UPDATE assistant_session_registry SET archived_at=COALESCE(archived_at,?), title='已删除笔记'
+          WHERE session_id IN (SELECT session_id FROM app_note_discussion WHERE note_id=?)`).run(new Date().toISOString(), id);
+        this.database.prepare(`UPDATE app_note_discussion SET record_json=json_set(record_json, '$.title','已删除笔记','$.topic',json('null')) WHERE note_id=?`).run(id);
+      }
       this.database.prepare('UPDATE app_note SET record_json=? WHERE id=?').run(JSON.stringify({ id, deleted: true }), id);
       return { id, deleted: true };
     });
