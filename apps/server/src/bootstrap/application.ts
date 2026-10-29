@@ -1,5 +1,5 @@
 import { NoteHttpAccess } from '../adapters/http/note-access.js';
-import { NoteEncryptionService } from '../application/note-encryption-service.js';
+import { SqliteNoteEncryption } from '../storage/sqlite-note-encryption.js';
 import { SqliteProtectedTranscripts } from '../storage/sqlite-protected-transcripts.js';
 import { NoteSecurityService } from '../application/note-security-service.js';
 import { projectFileScope } from '../application/project-file-scope.js';
@@ -819,7 +819,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       void adapter.abort(id).then(() => releaseStopped(id), () => releaseStopped(id));
     }
   });
-  const noteEncryption = new NoteEncryptionService(store.noteCodec, noteSecurity, notesService, {
+  const noteEncryption = new SqliteNoteEncryption(store.noteCodec, noteSecurity, notesService, {
     check: noteId => {
       for (const row of store.noteCodec.database.prepare('SELECT session_id FROM app_note_discussion WHERE note_id=?').all(noteId)) {
         const id = String(row.session_id);

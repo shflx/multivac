@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import type { NoteSecurityRepository } from '../modules/notes/security-repository.js';
 import type { NoteCiphertext, NotePasswordRecord } from '../modules/notes/note-crypto.js';
 import { NotesError } from '../modules/notes/note.js';
 import { runInTransaction } from './sqlite-transaction.js';
@@ -13,7 +14,7 @@ export const NOTE_SECURITY_MIGRATION = `
 `;
 
 /** 密码记录用版本比较后原子替换；数据库失败时旧密码记录保持可用。 */
-export class SqliteNoteSecurityRepository {
+export class SqliteNoteSecurityRepository implements NoteSecurityRepository {
   constructor(readonly database: DatabaseSync) {}
   password(): NotePasswordRecord | undefined {
     const row = this.database.prepare('SELECT record_json FROM app_note_password WHERE singleton=1').get();

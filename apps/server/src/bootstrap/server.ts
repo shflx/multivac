@@ -1,7 +1,7 @@
 import { createNoteVaultRequestHandler } from '../adapters/http/note-vault-routes.js';
 import { createNoteEncryptionRequestHandler } from '../adapters/http/note-encryption-routes.js';
 import { notesFailure } from '../adapters/http/notes-routes.js';
-import type { NoteEncryptionService } from '../application/note-encryption-service.js';
+import type { NoteEncryption } from '../modules/notes/encryption.js';
 import type { NoteHttpAccess } from '../adapters/http/note-access.js';
 import { createNoteSecurityRequestHandler } from '../adapters/http/note-security-routes.js';
 import type { NoteSecurityService } from '../application/note-security-service.js';
@@ -121,7 +121,7 @@ export interface MultivacHttpServerOptions {
   reading?: ReadingService;
   usage?: UsageStatisticsService;
   noteSecurity?: NoteSecurityService;
-  noteEncryption?: NoteEncryptionService;
+  noteEncryption?: NoteEncryption;
   noteAccess?: NoteHttpAccess;
   notes?: NotesService;
   noteAssistant?: NoteAssistantService;

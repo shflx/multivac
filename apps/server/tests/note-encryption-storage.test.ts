@@ -7,7 +7,7 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { NotesService } from '../src/application/notes-service.js';
 import { NoteAssistantService } from '../src/application/note-assistant-service.js';
 import { NoteSecurityService } from '../src/application/note-security-service.js';
-import { NoteEncryptionService } from '../src/application/note-encryption-service.js';
+import { SqliteNoteEncryption } from '../src/storage/sqlite-note-encryption.js';
 import { SqliteProtectedTranscripts } from '../src/storage/sqlite-protected-transcripts.js';
 import { protectedPiSession } from '../src/runtime/executors/pi-protected-session.js';
 import { noteDiscussions, noteSources } from './fixtures/note-discussions.js';
@@ -19,7 +19,7 @@ async function fixture(fault?: (stage: string) => void) {
   const security = new NoteSecurityService(store.noteSecurity); store.noteCodec.bind(security);
   const notes = new NotesService(store.notes, noteDiscussions());
   const assistant = new NoteAssistantService(store.noteAssistant, notes, root, noteSources());
-  const encryption = new NoteEncryptionService(store.noteCodec, security, notes, noteDiscussions(), root, fault);
+  const encryption = new SqliteNoteEncryption(store.noteCodec, security, notes, noteDiscussions(), root, fault);
   notes.create({ commandId: 'create', id: 'one', title: '私密标题哨兵', body: '私密正文哨兵' });
   notes.update('one', { commandId: 'update', expectedRevision: 1, body: '第二版私密正文哨兵' });
   notes.create({ commandId: 'ordinary', id: 'other', title: '普通标题', body: '普通内容' });
@@ -96,7 +96,7 @@ for (const stage of ['before-commit', 'after-commit', 'before-cleanup', 'after-c
       f.security.close(); const restarted = new NoteSecurityService(f.store.noteSecurity); f.store.noteCodec.bind(restarted);
       try {
         const access = { ...(await restarted.unlock('one', '共用密码', 'b'.repeat(43))), window: 'b'.repeat(43) };
-        const service = new NoteEncryptionService(f.store.noteCodec, restarted, f.notes, noteDiscussions(), join(f.dir, 'sessions'));
+        const service = new SqliteNoteEncryption(f.store.noteCodec, restarted, f.notes, noteDiscussions(), join(f.dir, 'sessions'));
         service.recover('one', access);
         f.store.noteCodec.run(access, () => assert.equal(f.notes.get('one').body, '第二版私密正文哨兵'));
       } finally { restarted.close(); }
@@ -126,7 +126,7 @@ for (const stage of ['after-commit', 'before-cleanup', 'restore-written', 'after
   try {
     f.encryption.encrypt('one', 2, f.access);
     let armed = true;
-    const service = new NoteEncryptionService(f.store.noteCodec, f.security, f.notes, noteDiscussions(), join(f.dir, 'sessions'), actual => {
+    const service = new SqliteNoteEncryption(f.store.noteCodec, f.security, f.notes, noteDiscussions(), join(f.dir, 'sessions'), actual => {
       if (armed && actual === stage) { armed = false; throw new Error('injected reverse fault'); }
     });
     assert.throws(() => service.decrypt('one', 2, f.access), /injected/u);
