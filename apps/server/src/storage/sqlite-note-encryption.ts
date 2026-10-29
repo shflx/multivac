@@ -3,22 +3,23 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import type { NoteAccess } from '@multivac/contracts';
 import { NotesError } from '../modules/notes/note.js';
-import type { NoteRecordCodec } from '../storage/note-record-codec.js';
-import type { NoteSecurityService } from './note-security-service.js';
-import type { NotesService } from './notes-service.js';
-import { runInTransaction } from '../storage/sqlite-transaction.js';
+import type { NoteRecordCodec } from './note-record-codec.js';
+import type { NoteEncryption } from '../modules/notes/encryption.js';
+import type { NoteSecurityService } from '../application/note-security-service.js';
+import type { NotesService } from '../application/notes-service.js';
+import { runInTransaction } from './sqlite-transaction.js';
 
 const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 type FaultStage = 'before-commit' | 'after-commit' | 'before-cleanup' | 'after-cleanup' | 'restore-written';
 interface FileSnapshot { path: string; sessionId: string; bytes: Buffer }
 
 /** SQLite 记录与图片共用事务，Pi 文件使用先保存密文、再清理旧副本的恢复协议。 */
-export class NoteEncryptionService {
+export class SqliteNoteEncryption implements NoteEncryption {
   constructor(readonly codec: NoteRecordCodec, private readonly security: NoteSecurityService, private readonly notes: NotesService,
     private readonly lifecycle: { check(noteId: string): void; release(noteId: string): void },
     private readonly sessionRoot: string, private readonly fault?: (stage: FaultStage) => void, private readonly imageRoot = join(dirname(sessionRoot), 'images')) {}
 
-  status(noteId: string) { return { state: this.codec.state(noteId) ?? 'plain' }; }
+  status(noteId: string): ReturnType<NoteEncryption['status']> { return { state: this.codec.state(noteId) ?? 'plain' }; }
   private file(path: string): Buffer {
     const full = resolve(path), root = [this.sessionRoot, this.imageRoot].map(value => resolve(value)).find(value => full.startsWith(value + sep));
     if (!root) throw new NotesError('讨论文件不在当前实例会话目录，无法安全转换。', 409);

@@ -1,10 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { NoteEncryptionService } from '../../application/note-encryption-service.js';
+import type { NoteEncryption } from '../../modules/notes/encryption.js';
 import { NotesError } from '../../modules/notes/note.js';
 import { notesFailure, notesResponse, readNotesInput } from './notes-routes.js';
 import { noteRequestAccess } from './note-security-routes.js';
 
-export function createNoteEncryptionRequestHandler(service: NoteEncryptionService) {
+export function createNoteEncryptionRequestHandler(service: NoteEncryption) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const match = /^\/api\/notes\/([^/]+)\/protection$/u.exec(new URL(request.url ?? '/', 'http://localhost').pathname);
     if (!match) return false;

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { decryptNoteBytes, encryptNoteBytes, protectNoteMaster, unprotectNoteMaster } from '../modules/notes/note-crypto.js';
 import { NotesError } from '../modules/notes/note.js';
-import type { SqliteNoteSecurityRepository } from '../storage/sqlite-note-security-repository.js';
+import type { NoteSecurityRepository } from '../modules/notes/security-repository.js';
 
 import { NOTE_IDLE_TIMEOUT_MS, type NoteAccess } from '@multivac/contracts';
 export { NOTE_IDLE_TIMEOUT_MS, NOTE_ACCESS_HEADER, NOTE_WINDOW_HEADER, type NoteAccess } from '@multivac/contracts';
@@ -13,7 +13,7 @@ export class NoteSecurityService {
   private readonly listeners = new Set<(noteId: string, token: string) => void>();
   private readonly timer: ReturnType<typeof setInterval>;
   private deriving = false;
-  constructor(readonly repository: SqliteNoteSecurityRepository, private readonly now = Date.now) {
+  constructor(readonly repository: NoteSecurityRepository, private readonly now = Date.now) {
     this.timer = setInterval(() => this.expire(), 1000);
     this.timer.unref();
   }
