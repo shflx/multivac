@@ -40,13 +40,15 @@ export class SqliteNotesRepository implements NotesRepository {
     const value: unknown = this.codec?.decode(id, revision === undefined ? 'note' : 'version', revision === undefined ? id : String(revision), row.record_json) ?? JSON.parse(String(row.record_json));
     if (value && typeof value === 'object' && 'deleted' in value && value.deleted === true) throw new NotesError('笔记已删除。', 404);
     if (!Check(NoteSchema, value)) throw new Error('独立笔记存储无效。');
-    return value;
+    const { protection: _storedProtection, ...note } = value;
+    return note;
   }
 
   private readSummary(json: unknown, id: string, revision?: number): NoteSummary {
     const value: unknown = this.codec?.decode(id, revision === undefined ? 'summary' : 'version-summary', revision === undefined ? id : String(revision), json) ?? JSON.parse(String(json));
     if (!Check(NoteSummarySchema, value)) throw new Error('笔记摘要存储无效。');
-    return value;
+    const { protection: _storedProtection, ...summary } = value;
+    return summary;
   }
 
   summary(id: string): NoteSummary {
@@ -116,6 +118,7 @@ export class SqliteNotesRepository implements NotesRepository {
 
   /** 仅供本仓库及建议应用在已有事务中写入；每个正文版本不可变。 */
   writeVersion(note: Note): void {
+    const { protection: _protection, ...content } = note; note = content;
     if (!Check(NoteSchema, note)) throw new NotesError('笔记内容超过限制或无效。');
     const existing = this.database.prepare("SELECT id FROM app_note WHERE id=? AND json_extract(record_json,'$.deleted')=1").get(note.id);
     if (existing) throw new NotesError('笔记已删除，不能重新写入正文版本。', 404);

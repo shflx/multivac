@@ -1,3 +1,4 @@
+import { noteHeaders, noteGeneration, protectedNote, unlockedNote, sessionNoteOwner } from './note-access.js';
 import {
   AssistantApiErrorResponseSchema,
   AssistantCommandReceiptSchema,
@@ -311,9 +312,10 @@ export async function streamGlobalEvents(
   signal: AbortSignal,
   handlers: GlobalEventHandlers,
 ): Promise<void> {
+  const generation = noteGeneration();
   const query = new URLSearchParams({ after, windowId: windowId() });
   const response = await fetch(`${GLOBAL_EVENTS_PATH}?${query}`, {
-    headers: { accept: 'text/event-stream' },
+    headers: { accept: 'text/event-stream', ...noteHeaders(GLOBAL_EVENTS_PATH) },
     signal,
   });
   if (!response.ok) {
@@ -342,6 +344,8 @@ export async function streamGlobalEvents(
     if (!Check(AssistantPublicEventSchema, body)) {
       throw new AssistantApiError('INTERNAL_ERROR', '公共事件不符合契约。', response.status);
     }
+    const owner = sessionNoteOwner(body.assistantSessionId);
+    if (signal.aborted || generation !== noteGeneration() || owner && protectedNote(owner) && !unlockedNote(owner)) return;
     handlers.onAssistantEvent(body);
   });
   if (!signal.aborted) window.dispatchEvent(new Event('multivac.access-check'));

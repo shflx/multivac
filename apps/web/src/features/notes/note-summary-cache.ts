@@ -6,7 +6,7 @@ export function reuseNoteSummaries(previous: NoteSummary[] | null, incoming: Not
   const known = new Map(previous.map(note => [note.id, note]));
   const result = incoming.map(note => {
     const old = known.get(note.id);
-    return old && old.title === note.title && old.revision === note.revision && old.createdAt === note.createdAt && old.updatedAt === note.updatedAt ? old : note;
+    return old && old.protection === note.protection && old.title === note.title && old.revision === note.revision && old.createdAt === note.createdAt && old.updatedAt === note.updatedAt ? old : note;
   });
   return result.length === previous.length && result.every((note, index) => note === previous[index]) ? previous : result;
 }

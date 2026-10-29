@@ -1,3 +1,4 @@
+import { noteFetch } from './note-access.js';
 import { Check } from 'typebox/value';
 import type { Static, TSchema } from 'typebox';
 import { WINDOW_ID_HEADER } from '@multivac/contracts';
@@ -28,7 +29,7 @@ function withWindowId(init: RequestInit | undefined): RequestInit | undefined {
  * 访问失效（登录过期等）统一通知；失败按 errors 映射为领域错误。
  */
 export async function requestJson<S extends TSchema>(url: string, schema: S, init: RequestInit | undefined, errors: JsonRequestErrors): Promise<Static<S>> {
-  const response = await fetch(url, withWindowId(init));
+  const response = await noteFetch(url, withWindowId(init));
   notifyAccessFailure(response);
   let body: unknown;
   try { body = await response.json(); } catch { throw errors.unreadable(response.status); }

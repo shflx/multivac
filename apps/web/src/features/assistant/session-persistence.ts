@@ -1,4 +1,7 @@
-import { GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
+import { protectedNote, sessionNoteOwner } from '../../data/note-access.js';
+import { noteVaultStorage } from '../notes/note-vault.js';
+import { Check } from 'typebox/value';
+import { AssistantPageStateSchema, type AssistantPageState, GLOBAL_ASSISTANT_SESSION_ID } from '@multivac/contracts';
 import {
   isCommandId, isGeneration, parsePendingCommand,
   type CommandIdentity, type PendingCommand, type StoredPendingCommand,
@@ -25,9 +28,9 @@ export class SessionPersistence {
   };
 
   constructor(
-    sessionId: string,
-    private readonly session: KeyValueStorage = sessionStorage,
-    private readonly local: KeyValueStorage = localStorage,
+    private readonly sessionId: string,
+    private readonly ordinarySession: KeyValueStorage = sessionStorage,
+    private readonly ordinaryLocal: KeyValueStorage = localStorage,
   ) {
     // 全局会话沿用原有键名，已有的浏览器现场无需迁移；其他会话在键名后追加会话 id。
     const suffix = sessionId === GLOBAL_ASSISTANT_SESSION_ID ? '' : `:${sessionId}`;
@@ -39,6 +42,21 @@ export class SessionPersistence {
       commandGeneration: `multivac.assistant.command-generation${suffix}`,
       draftVersion: `multivac.assistant.draft-version${suffix}`,
     };
+  }
+
+  private get session(): KeyValueStorage { const owner = sessionNoteOwner(this.sessionId); return owner && protectedNote(owner) ? noteVaultStorage(owner, 'session') : this.ordinarySession; }
+  private get local(): KeyValueStorage { const owner = sessionNoteOwner(this.sessionId); return owner && protectedNote(owner) ? noteVaultStorage(owner, 'local') : this.ordinaryLocal; }
+
+  readProtectedPage(): AssistantPageState | null {
+    const owner = sessionNoteOwner(this.sessionId); if (!owner || !protectedNote(owner)) return null;
+    const raw = this.session.getItem(`multivac.assistant.protected-page:${this.sessionId}`); if (!raw) return null;
+    const value: unknown = JSON.parse(raw); if (!Check(AssistantPageStateSchema, value)) throw new Error('讨论的加密草稿无法恢复，原密文已保留。');
+    return value;
+  }
+  writeProtectedPage(page: AssistantPageState): void {
+    const owner = sessionNoteOwner(this.sessionId); if (!owner || !protectedNote(owner)) return;
+    const key = `multivac.assistant.protected-page:${this.sessionId}`, raw = JSON.stringify(page);
+    if (this.session.getItem(key) !== raw) this.session.setItem(key, raw);
   }
 
   readPendingCommand(): StoredPendingCommand | null {

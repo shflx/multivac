@@ -1,3 +1,4 @@
+import { onNoteAccessChange, protectedNote, unlockedNote, sessionNoteOwner } from '../../data/note-access.js';
 import { useSessionContextController, type SessionContext } from './session-context.js';
 import {
   createContext,
@@ -327,6 +328,14 @@ export function AssistantSessionsProvider({ children }: { children: ReactNode })
   useEffect(() => () => {
     for (const timer of releaseTimersRef.current.values()) window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => onNoteAccessChange(() => {
+    setOpenSessionIds(current => current.filter(id => {
+      const owner = sessionNoteOwner(id);
+      if (!owner || !protectedNote(owner) || unlockedNote(owner)) return true;
+      store.remove(id); return false;
+    }));
+  }), [store]);
 
   const value = useMemo(() => ({ store, retain, release }), [release, retain, store]);
   return (

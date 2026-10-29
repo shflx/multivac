@@ -1,3 +1,5 @@
+import { protectedNote } from '../../data/note-access.js';
+import { noteVaultStorage } from './note-vault.js';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Quote, X, Send, Square, Sparkles } from 'lucide-react';
@@ -15,6 +17,7 @@ import type { NoteEditorBridge } from './note-editor.js';
 type DraftQuote = { revision: number; selection: NoteSelection };
 export function NoteAssistant({ bridge }: { bridge: NoteEditorBridge }) {
   const noteId = bridge.note.id;
+  const quoteStorage = () => protectedNote(noteId) ? noteVaultStorage(noteId, 'session') : sessionStorage;
   const [open, setOpen] = useState(() => { try { return sessionStorage.getItem(`multivac:note-assistant:${noteId}`) === 'open'; } catch { return false; } });
   const [started, setStarted] = useState(open);
   const [discussion, setDiscussion] = useState<NoteDiscussion | null>(null);
@@ -33,7 +36,7 @@ export function NoteAssistant({ bridge }: { bridge: NoteEditorBridge }) {
       let restoreError = '';
       if (!discussionRef.current) {
         try {
-          const raw = sessionStorage.getItem(`multivac:note-quote:${root.sessionId}`);
+          const raw = quoteStorage().getItem(`multivac:note-quote:${root.sessionId}`);
           if (raw) {
             const restored = JSON.parse(raw) as DraftQuote;
             if (!Number.isSafeInteger(restored.revision) || restored.revision < 1 || !Check(NoteSelectionSchema, restored.selection)) throw new Error('引用草稿格式无效');
@@ -62,7 +65,7 @@ export function NoteAssistant({ bridge }: { bridge: NoteEditorBridge }) {
     setQuote(value);
     const id = discussionRef.current?.sessionId;
     if (!id) return;
-    try { if (value) sessionStorage.setItem(`multivac:note-quote:${id}`, JSON.stringify(value)); else sessionStorage.removeItem(`multivac:note-quote:${id}`); }
+    try { if (value) quoteStorage().setItem(`multivac:note-quote:${id}`, JSON.stringify(value)); else quoteStorage().removeItem(`multivac:note-quote:${id}`); }
     catch (e) { setError(`引用草稿未能保存：${(e as Error).message}`); }
   }
   async function snapshot(picked: NoteSelection | null, expectedRevision?: number): Promise<NoteSnapshot> {
@@ -89,7 +92,7 @@ export function NoteAssistant({ bridge }: { bridge: NoteEditorBridge }) {
     {bridge.companionToggleRoot && createPortal(<button type="button" className="note-companion-toggle" aria-label="梳理助手" title={open ? '收起梳理助手' : '展开梳理助手'} aria-pressed={open} aria-expanded={open} aria-controls={`note-companion-${noteId}`} onClick={toggle}><Sparkles size={16} aria-hidden="true" /></button>, bridge.companionToggleRoot)}
     {bridge.selection && bridge.selectionToolbarRoot && createPortal(<div className="note-selection-bar" role="toolbar" aria-label="笔记选区操作" onKeyDown={bridge.selectionToolbarKeyDown} onMouseDown={event => event.preventDefault()}><button type="button" aria-label="引用给助手" title="引用给梳理助手" disabled={busy || bridge.busy || !discussion} onClick={() => void referenceSelection()}><Quote size={13} aria-hidden="true" />引用</button></div>, bridge.selectionToolbarRoot)}
     <aside id={`note-companion-${noteId}`} className="note-companion" aria-label="梳理助手" hidden={!open}>
-      <header className="note-companion-header"><strong>梳理助手</strong></header>
+      <header className="note-companion-header"><strong>梳理助手</strong></header>{protectedNote(noteId) && <p className="notes-hint">发送提问会将笔记正文及引用发送给当前所选模型。</p>}
       {error && <div role="alert" className="notes-error">{error}{!discussion && <button type="button" onClick={() => void load().catch(e => setError((e as Error).message))}>重新读取</button>}</div>}
       {!discussion && !error && <p className="notes-hint">正在读取对话…</p>}
       {discussion && started && <NoteThread discussion={discussion} visible={open && bridge.active} quote={quote} clearQuote={() => changeQuote(null)} snapshot={snapshot} />}
@@ -130,7 +133,7 @@ function NoteThread({ discussion, visible, quote, clearQuote, snapshot }: { disc
       {session?.hasMore && <button type="button" disabled={session.loadingEarlier} onClick={() => { follow.current = false; session.loadEarlier(); }}>更早的消息</button>}
       {session?.historyError && <p role="alert">{session.historyError}</p>}
       {!messages.length && <div className="note-companion-welcome"><strong>聊聊这篇笔记</strong><p>直接提问，也可以选中正文引用。</p></div>}
-      {messages.map(message => <article className={`note-message ${message.role}`} key={message.id}><strong>{message.role === 'user' ? '你' : '助手'}</strong><MarkdownBody identity={message.id} text={message.text} /></article>)}
+      {messages.map(message => <article className={`note-message ${message.role}`} key={message.id}><strong>{message.role === 'user' ? '你' : '助手'}</strong><MarkdownBody identity={message.id} text={message.text} imageSessionId={discussion.sessionId} {...(message.imageReferences ? { imageReferences: message.imageReferences } : {})} {...(message.fileReferences ? { fileReferences: message.fileReferences } : {})} /></article>)}
     </div>
     {(error || session?.sendError || session && ['failed', 'unknown'].includes(session.runFeedback.phase)) && <div className="notes-error" role="alert">{error || session?.sendError || session?.runFeedback.message}</div>}
     {session?.pendingSubmission?.unknown && <div className="notes-error"><span>发送结果未知，保留原命令和正文快照。</span><button type="button" onClick={() => void session.checkPendingSubmission()}>核对结果</button><button type="button" onClick={() => void session.retryUnknownSubmission()}>按原命令重试</button></div>}
