@@ -4542,7 +4542,7 @@ svg {
 .browser-toolbar strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); }
 .browser-toolbar { flex-wrap: wrap; }
 .browser-toolbar strong { flex-basis: 60px; }
-.browser-chooser h3 { font-size: var(--t-sm); padding: 12px 16px; margin: 0; color: var(--muted); }
+.browser-chooser h3 { margin: 0; padding: 14px 18px 2px; color: var(--muted); font-size: var(--t-xs); font-weight: 600; }
 .discussion-references { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .discussion-references button { display: flex; align-items: center; gap: 6px; max-width: 100%; border: 0; background: transparent; color: var(--accent); padding: 4px 0; font-size: var(--t-sm); text-align: left; }
 .discussion-references button span { overflow-wrap: anywhere; min-width: 0; }
@@ -4556,11 +4556,29 @@ svg {
 .browser-search { display: flex; align-items: center; gap: 6px; padding: 10px; border-bottom: 1px solid var(--line); }
 .browser-search input { min-width: 0; width: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: var(--t-sm); }
 .browser-directory-scroll { overflow: auto; flex: 1; min-height: 0; }
-.browser-tree { list-style: none; padding: 0; margin: 0; }
-.browser-tree .browser-tree { padding-left: 16px; }
-.browser-tree button { display: flex; align-items: center; width: 100%; gap: 6px; padding: 8px 10px; text-align: left; background: transparent; border: 0; color: var(--ink); font-size: var(--t-sm); }
-.browser-tree button:hover, .browser-tree button[aria-current="true"] { background: var(--surface-strong); }
+/* 文件树：紧凑行高，整行悬停与选中，图标统一尺寸，子级按 16px 缩进。 */
+.browser-tree { list-style: none; padding: 4px 6px; margin: 0; }
+.browser-tree .browser-tree { padding: 0 0 0 16px; }
+.browser-tree .file-action-target { border-radius: var(--r-sm); }
+.browser-tree .file-action-target:hover, .browser-tree .file-action-target:focus-within { background: var(--surface-subtle); }
+.browser-tree .file-action-target:has(> button[aria-current="true"]) { background: var(--accent-soft); }
+.browser-tree .file-action-target:has(> button[aria-current="true"]) > button:first-child { color: var(--accent); font-weight: 500; }
+.browser-tree button { display: flex; align-items: center; width: 100%; gap: 6px; min-height: 28px; padding: 4px 6px; text-align: left; background: transparent; border: 0; border-radius: var(--r-sm); color: var(--ink); font-size: var(--t-sm); cursor: pointer; }
+.browser-tree button > svg { flex-shrink: 0; width: 15px; height: 15px; color: var(--muted); }
+.browser-tree button > svg:first-child:is(.lucide-chevron-right, .lucide-chevron-down) { width: 14px; height: 14px; color: var(--faint); }
+.browser-tree-spacer { flex: 0 0 14px; }
 .browser-tree button span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 行操作只在悬停、聚焦或菜单打开时出现，避免每行一个“…”。 */
+.browser-tree .file-action-trigger { opacity: 0; }
+.browser-tree .file-action-target:hover > .file-action-trigger, .browser-tree .file-action-target:focus-within > .file-action-trigger,
+.browser-tree .file-action-trigger[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .browser-tree .file-action-trigger { opacity: .7; } }
+/* 树内说明：读取中、空目录、失败和上限，占一行并与子项文字对齐。 */
+.browser-tree-note { display: flex; align-items: center; gap: 6px; min-height: 26px; margin: 0; padding: 2px 6px 2px 32px; color: var(--faint); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.browser-tree-note svg { width: 13px; height: 13px; flex-shrink: 0; }
+.browser-tree > li > .browser-tree-note { padding-left: 42px; }
+.browser-tree-note.error { color: var(--danger); }
+.browser-tree-note .icon-button { width: 22px; height: 22px; padding: 3px; }
 .browser-tree small { display: block; overflow: hidden; text-overflow: ellipsis; font-size: var(--t-xs); color: var(--muted); }
 .browser-reader { flex: 1; min-width: 0; min-height: 0; overflow: auto; }
 .browser-empty { padding: 16px; color: var(--muted); font-size: var(--t-sm); overflow-wrap: anywhere; }
