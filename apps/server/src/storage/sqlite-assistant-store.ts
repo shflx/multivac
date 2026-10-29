@@ -356,6 +356,7 @@ const RUNTIME_IDENTITY_MIGRATION_INDEX = MIGRATIONS.indexOf(RUNTIME_IDENTITY_MIG
  * 列定义缺省为可空 TEXT，definition 给出时按它补充（需带默认值，存量行随之取默认值）。
  */
 const COLUMN_MIGRATIONS: Readonly<Record<number, readonly { table: string; columns: readonly string[]; definition?: string }[]>> = {
+  [MIGRATIONS.indexOf(NOTE_PROTECTION_MIGRATION)]: [{ table: 'app_note_command', columns: ['note_id'] }],
   [MIGRATIONS.indexOf(SESSION_INITIAL_MODEL_MIGRATION)]: [{
     table: 'assistant_session_registry',
     columns: ['initial_model_json'],
