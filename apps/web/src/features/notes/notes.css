@@ -257,12 +257,14 @@
   .notes-library-item, .note-list-actions, .note-list-actions .note-delete { transition: none; }
 }
 
-.note-security-card { display: flex; flex-direction: column; gap: 14px; max-width: 430px; margin: 48px auto; padding: 28px; border: 1px solid var(--border-color, #dededc); border-radius: 12px; background: var(--surface, #fff); color: var(--text-color, #252525); }
+.note-security-card { display: flex; flex-direction: column; gap: 14px; width: min(430px, calc(100% - 32px)); margin: 48px auto; padding: 28px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); color: var(--ink); }
 .note-security-card h2, .note-security-card p { margin: 0; }
-.note-security-card label, .note-security-dialog label { display: flex; flex-direction: column; gap: 6px; }
-.note-security-card input, .note-security-dialog input { padding: 8px; border: 1px solid #aaa; border-radius: 6px; }
-.note-security-card small { color: #666; line-height: 1.6; }
-.note-encryption-actions { display: inline-flex; gap: 6px; }
-.note-security-dialog { position: fixed; z-index: 1000; inset: 20vh auto auto 50%; transform: translateX(-50%); width: min(420px, 90vw); display: flex; flex-direction: column; gap: 14px; padding: 24px; border: 1px solid #ccc; border-radius: 12px; background: #fff; box-shadow: 0 12px 70px #0004; color: #252525; }
-.note-security-overlay { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 20px; background: #0004; }
-.note-security-overlay .note-password-settings { width: min(430px, 90vw); margin: 0; box-shadow: 0 12px 70px #0004; }
+.note-security-card label, .note-security-fields { display: flex; flex-direction: column; gap: 6px; }
+.note-security-fields + .note-security-fields { margin-top: 14px; }
+.note-security-card input, .note-security-fields input { min-width: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font: inherit; }
+.note-security-card input:focus-visible, .note-security-fields input:focus-visible, .note-security-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.note-security-card > button { padding: 8px 12px; border: 0; border-radius: var(--r-sm); background: var(--accent); color: var(--on-accent); font: inherit; cursor: pointer; }
+.note-security-card > button:hover:not(:disabled) { background: var(--accent-hover); }
+.note-security-card > button:disabled { opacity: .5; cursor: default; }
+.note-security-card small { color: var(--muted); line-height: 1.6; }
+.note-encryption-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }

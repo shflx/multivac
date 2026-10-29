@@ -1,4 +1,4 @@
-import { createPortal } from 'react-dom';
+import { ConfirmCard } from '../../components/confirm-card.js';
 import { KeyRound } from 'lucide-react';
 import { useState } from 'react';
 import type { Note } from '@multivac/contracts';
@@ -75,11 +75,12 @@ export function NoteEncryptionActions({ note, save, blocked, onBusy }: { note: N
   return <span className="note-encryption-actions">
     {encrypted && <button type="button" disabled={blocked || busy} onClick={async () => { setError(''); try { const saved = await save(); if (!saved) throw new Error('请先核对保存结果。'); await flushNoteVault(note.id); await lockNote(note.id); refresh(note.id); } catch (error) { setError((error as Error).message); } }}>锁定</button>}
     <button type="button" disabled={blocked || busy} onClick={() => { setMode(encrypted ? 'decrypt' : 'encrypt'); setError(''); }}>{encrypted ? '取消加密' : '加密此笔记'}</button>
-    {mode && <span className="note-security-dialog" role="dialog" aria-modal="true" aria-label={mode === 'encrypt' ? '加密此笔记' : '取消加密'}>
-      <strong>{mode === 'encrypt' ? '加密此笔记' : '取消加密'}</strong><p>{mode === 'encrypt' ? '所有加密笔记共用一个密码。首次使用会设置密码，其他笔记保持普通状态。忘记密码无法恢复旧内容。' : '确认后，正文、历史、图片及所属讨论恢复普通存储。'}</p>
-      {mode === 'encrypt' && <label>共用密码<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} disabled={busy} /></label>}
-      <button type="button" disabled={busy || mode === 'encrypt' && !password} onClick={() => void convert()}>{busy ? '正在转换，请保持页面打开…' : '确认'}</button><button type="button" disabled={busy} onClick={() => { setMode(null); setPassword(''); }}>返回</button>
-    </span>}{error && <span className="notes-error" role="alert">{error}</span>}
+    {mode && <ConfirmCard title={mode === 'encrypt' ? '加密此笔记' : '取消加密'}
+      description={mode === 'encrypt' ? '所有加密笔记共用一个密码。首次使用会设置密码，其他笔记保持普通状态。忘记密码无法恢复旧内容。' : '确认后，正文、历史、图片及所属讨论恢复普通存储。'}
+      confirmLabel="确认" cancelLabel="返回" busy={busy} confirmDisabled={mode === 'encrypt' && !password} error={error}
+      onConfirm={() => void convert()} onCancel={() => { setMode(null); setPassword(''); setError(''); }}>
+      {mode === 'encrypt' && <label className="note-security-fields">共用密码<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} disabled={busy} /></label>}
+    </ConfirmCard>}{error && !mode && <span className="notes-error" role="alert">{error}</span>}
   </span>;
 }
 
@@ -88,25 +89,26 @@ export function NotePasswordSettings() {
   const [current, setCurrent] = useState(''), [password, setPassword] = useState('');
   const [message, setMessage] = useState(''), [busy, setBusy] = useState(false);
   function close() { setOpen(false); setCurrent(''); setPassword(''); setMessage(''); }
+  async function changePassword() {
+    if (busy) return;
+    setBusy(true); setMessage('');
+    const old = current, next = password; setCurrent(''); setPassword('');
+    try {
+      await flushAllNoteVaults();
+      await noteSecurityRequest('/api/note-security/password', 'PUT', { currentPassword: old, password: next });
+      window.dispatchEvent(new Event('note-password-changed'));
+      setMessage('共用密码已修改，请使用新密码逐篇解锁。');
+    } catch (error) { setMessage((error as Error).message); }
+    finally { setBusy(false); }
+  }
   return <>
     <button type="button" aria-label="共用密码设置" title="共用密码设置" onClick={() => setOpen(true)}><KeyRound size={15} /></button>
-    {open && createPortal(<div className="note-security-overlay"><form className="note-security-card note-password-settings" role="dialog" aria-modal="true" aria-label="修改共用密码" onSubmit={async event => {
-      event.preventDefault(); setBusy(true); setMessage('');
-      const old = current, next = password; setCurrent(''); setPassword('');
-      try {
-        await flushAllNoteVaults();
-        await noteSecurityRequest('/api/note-security/password', 'PUT', { currentPassword: old, password: next });
-        window.dispatchEvent(new Event('note-password-changed'));
-        setMessage('共用密码已修改，请使用新密码逐篇解锁。');
-      } catch (error) { setMessage((error as Error).message); }
-      finally { setBusy(false); }
-    }}>
-      <strong>修改共用密码</strong><p>忘记密码无法恢复旧密文。修改后所有窗口需重新解锁。</p>
-      <label>原密码<input type="password" required autoComplete="current-password" disabled={busy} value={current} onChange={event => setCurrent(event.target.value)} /></label>
-      <label>新密码<input type="password" required autoComplete="new-password" disabled={busy} value={password} onChange={event => setPassword(event.target.value)} /></label>
-      <button disabled={busy} type="submit">{busy ? '正在修改…' : '修改密码'}</button>
-      <button disabled={busy} type="button" onClick={close}>关闭密码设置</button>
+    {open && <ConfirmCard title="修改共用密码" description="忘记密码无法恢复旧密文。修改后所有窗口需重新解锁。"
+      confirmLabel="修改密码" cancelLabel="关闭密码设置" confirmDisabled={!current || !password} busy={busy}
+      onConfirm={() => void changePassword()} onCancel={close}>
+      <label className="note-security-fields">原密码<input type="password" required autoComplete="current-password" disabled={busy} value={current} onChange={event => setCurrent(event.target.value)} /></label>
+      <label className="note-security-fields">新密码<input type="password" required autoComplete="new-password" disabled={busy} value={password} onChange={event => setPassword(event.target.value)} /></label>
       {message && <p role="status">{message}</p>}
-    </form></div>, document.body)}
+    </ConfirmCard>}
   </>;
 }
