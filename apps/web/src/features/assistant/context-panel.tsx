@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CircleAlert, CircleCheck, LoaderCircle, RefreshCw, SquareSlash, X } from 'lucide-react';
 import type { ContextCompactionOperation, ContextSnapshot } from '@multivac/contracts';
 import type { SessionContext } from './session-context.js';
@@ -47,7 +47,32 @@ function UsageRing({ ratio }: { ratio: number | null }) {
 export function ContextPanel({ context }: { context: SessionContext }) {
   const root = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
+  const popup = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  useLayoutEffect(() => {
+    if (!open || !root.current || !popup.current) return;
+    const position = () => {
+      const anchor = root.current, panel = popup.current;
+      if (!anchor || !panel) return;
+      const viewport = window.visualViewport;
+      const left = (viewport?.offsetLeft ?? 0) + 16;
+      const right = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? innerWidth) - 16;
+      panel.style.maxWidth = `${Math.max(0, right - left)}px`;
+      // 默认右对齐入口，触及视口边缘时平移；不按固定按钮宽度猜测可用空间。
+      const anchorRight = anchor.getBoundingClientRect().right;
+      panel.style.right = `${anchorRight - Math.max(left + panel.offsetWidth, Math.min(anchorRight, right))}px`;
+    };
+    const observer = new ResizeObserver(position);
+    observer.observe(root.current); observer.observe(popup.current);
+    position();
+    window.addEventListener('resize', position); window.addEventListener('scroll', position, true);
+    window.visualViewport?.addEventListener('resize', position); window.visualViewport?.addEventListener('scroll', position);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', position); window.removeEventListener('scroll', position, true);
+      window.visualViewport?.removeEventListener('resize', position); window.visualViewport?.removeEventListener('scroll', position);
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const outside = (event: PointerEvent) => { if (event.target instanceof Node && !root.current?.contains(event.target) && root.current) root.current.open = false; };
@@ -80,7 +105,7 @@ export function ContextPanel({ context }: { context: SessionContext }) {
     <summary aria-label="会话上下文" ref={trigger} title={title} data-level={level} data-stale={context.stale || undefined}>
       <UsageRing ratio={ratio} /><span className="context-label">{label}</span>
     </summary>
-    <div className="context-panel-content" aria-label="会话上下文详情" data-level={level}>
+    <div ref={popup} className="context-panel-content" aria-label="会话上下文详情" data-level={level}>
       <div className="context-panel-heading"><strong>上下文</strong>
         <button type="button" className="context-icon-button" aria-label="刷新状态" title="刷新状态" onClick={() => void context.refresh()} disabled={context.reading}>
           <RefreshCw aria-hidden="true" className={context.reading ? 'spin' : undefined} />
