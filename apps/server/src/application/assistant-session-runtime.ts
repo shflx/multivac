@@ -49,6 +49,7 @@ export interface AssistantSessionRuntimeDependencies {
 }
 
 export interface AssistantSessionRuntimeOptions {
+  canReadContent?: () => boolean;
   supportsContextManagement?: () => boolean;
   prepareText?: (text: string, commandId: string) => { text: string; skill?: CoordinatorSkill };
   resolveBookQuote?: (quote: import('@multivac/contracts').AssistantBookQuote) => Promise<import('@multivac/contracts').CoordinatorBookQuote>;
@@ -211,7 +212,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       eventStream: dependencies.eventStream,
       assistantSessionId: options.sessionId,
       currentPromptCommandId: () => this.commands.currentPromptCommandId(),
-      onHistoryChanged: () => this.session.captureFileSources(),
+      onHistoryChanged: () => { if (options.canReadContent?.() !== false) this.session.captureFileSources(); },
     });
   }
 

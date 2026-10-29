@@ -1,3 +1,4 @@
+import type { ProtectedTranscriptStore } from '../../modules/notes/protected-transcript.js';
 import { managedBashTool, type BashExecutionPort } from './managed-bash-tool.js';
 import { Check } from 'typebox/value';
 import { randomUUID } from 'node:crypto';
@@ -155,6 +156,7 @@ export type FakeCoordinatorCall =
   | { method: 'dispose' };
 
 export interface FakeCoordinatorAdapterOptions {
+  protectedTranscripts?: ProtectedTranscriptStore;
   bashProcesses?: BashExecutionPort;
   promptScenario?: FakePromptScenario;
   now?: () => string;
@@ -226,6 +228,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   private readonly seedsHistory: (assistantSessionId: string) => boolean;
   private readonly authorizeToolCall: CoordinatorToolAuthorizer | undefined;
   private readonly projectFileScope: CoordinatorProjectFileScope | undefined;
+  private readonly protectedTranscripts: ProtectedTranscriptStore | undefined;
   private readonly persistSessionModels: boolean;
   private promptCompletionControl: FakePromptCompletionControl | null = null;
   private streamNextPrompt = false;
@@ -238,6 +241,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   setModelFailureForTest(value: 'fail' | 'partial' | null): void { this.modelFailureForTest = value; }
 
   constructor(options: FakeCoordinatorAdapterOptions = {}) {
+    this.protectedTranscripts = options.protectedTranscripts;
     this.bashProcesses = options.bashProcesses;
     this.promptScenario = options.promptScenario ?? 'success';
     this.now = options.now ?? (() => '2026-09-14T08:00:00.000Z');
@@ -411,7 +415,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       .find((item) => item.binding.runtimeSessionId === identity.runtimeSessionId);
     if (session || !this.persistSessionModels) return ok(session ? this.modelState(session) : null);
     try {
-      return ok(JSON.parse(readFileSync(identity.runtimeSessionRef, 'utf8')) as CoordinatorModelState);
+      return ok(JSON.parse(this.protectedTranscripts?.has(identity.runtimeSessionRef) ? this.protectedTranscripts.read(identity.runtimeSessionRef) : readFileSync(identity.runtimeSessionRef, 'utf8')) as CoordinatorModelState);
     } catch {
       return ok(null);
     }
@@ -1211,7 +1215,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   /** 模型选择随会话写入 runtimeSessionRef（Fake 的 transcript 替身），供重启后对账。 */
   private persistSessionModel(session: FakeSessionState): void {
     if (!this.persistSessionModels) return;
-    writeFileSync(session.binding.runtimeSessionRef, JSON.stringify(this.modelState(session)));
+    const path = session.binding.runtimeSessionRef, content = JSON.stringify(this.modelState(session));
+    if (this.protectedTranscripts?.has(path)) this.protectedTranscripts.write(path, content);
+    else if (this.protectedTranscripts?.forSession(session.binding.assistantSessionId)) this.protectedTranscripts.create(session.binding.assistantSessionId, path, content);
+    else writeFileSync(path, content);
   }
 
   private initialHistory(binding: CoordinatorSessionBinding): AssistantMessageView[] {

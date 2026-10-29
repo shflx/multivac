@@ -56,7 +56,10 @@ export class SqliteNotesRepository implements NotesRepository {
   }
 
   list(): NoteSummary[] {
-    return this.database.prepare(NOTE_SUMMARIES_SELECT).all().map(row => this.readSummary(row.summary_json, String(row.id)));
+    return this.database.prepare(NOTE_SUMMARIES_SELECT).all().map(row => {
+      const id = String(row.id), protection = this.codec?.state(id);
+      return protection ? { id, title: '加密笔记', revision: 1, createdAt: '', updatedAt: '', protection } : this.readSummary(row.summary_json, id);
+    });
   }
 
   count(): number {

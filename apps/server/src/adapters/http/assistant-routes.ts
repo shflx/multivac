@@ -1,3 +1,4 @@
+import { NotesError } from '../../modules/notes/note.js';
 import type { SessionContextManagementService } from '../../application/session-context-management-service.js';
 import { CompactSessionContextSchema } from '@multivac/contracts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -423,6 +424,7 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
       writeError(response, 404, 'NOT_FOUND', '接口不存在。');
     } catch (error) {
       if (!writable(response)) return;
+      if (error instanceof NotesError) return writeError(response, error.status, 'INVALID_REQUEST', error.message);
       if (error instanceof RequestBodyTooLargeError) {
         return writeError(response, 413, 'BODY_TOO_LARGE', '请求体超过大小限制。');
       }

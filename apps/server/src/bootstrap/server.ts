@@ -1,3 +1,7 @@
+import { createNoteEncryptionRequestHandler } from '../adapters/http/note-encryption-routes.js';
+import { notesFailure } from '../adapters/http/notes-routes.js';
+import type { NoteEncryptionService } from '../application/note-encryption-service.js';
+import type { NoteHttpAccess } from '../adapters/http/note-access.js';
 import { createNoteSecurityRequestHandler } from '../adapters/http/note-security-routes.js';
 import type { NoteSecurityService } from '../application/note-security-service.js';
 import { createTerminalRoutes, attachTerminalWebSockets } from '../adapters/http/terminal-routes.js';
@@ -116,6 +120,8 @@ export interface MultivacHttpServerOptions {
   reading?: ReadingService;
   usage?: UsageStatisticsService;
   noteSecurity?: NoteSecurityService;
+  noteEncryption?: NoteEncryptionService;
+  noteAccess?: NoteHttpAccess;
   notes?: NotesService;
   noteAssistant?: NoteAssistantService;
   noteSuggestions?: NoteSuggestionsService;
@@ -177,6 +183,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
   const noteImageRoutes = options.noteImages ? createNoteImagesRequestHandler(options.noteImages) : undefined;
+  const noteEncryptionRoutes = options.noteEncryption ? createNoteEncryptionRequestHandler(options.noteEncryption) : undefined;
   const noteSecurityRoutes = options.noteSecurity ? createNoteSecurityRequestHandler(options.noteSecurity) : undefined;
   const notesRoutes = options.notes ? createNotesRequestHandler(options.notes) : undefined;
   const mcpRoutes = options.mcpManagement ? createMcpRequestHandler(options.mcpManagement, options.mcpResources) : undefined;
@@ -195,6 +202,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const projectResourceRoutes = options.projectResources ? createProjectResourceRequestHandler(options.projectResources) : undefined;
   const imageRoutes = options.images ? createImageRequestHandler(options.images) : undefined;
   const eventStreamRoutes = createEventStreamRequestHandler({
+    ...(options.noteAccess ? { noteAccess: options.noteAccess } : {}),
     eventRepository: options.eventRepository,
     eventStream: options.eventStream,
     workbenchEvents: options.workbenchEvents,
@@ -247,14 +255,14 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (remote) { accessError(response, 403, 'ACCESS_DENIED', '远程入口只接受同源请求。'); return; }
       response.writeHead(204, {
         'access-control-allow-methods': 'GET, POST, PUT, PATCH, OPTIONS',
-        'access-control-allow-headers': `content-type, last-event-id, if-match, ${WINDOW_ID_HEADER}, x-note-access, x-note-window`,
+        'access-control-allow-headers': `content-type, last-event-id, if-match, ${WINDOW_ID_HEADER}, x-note-access, x-note-window, x-note-grants`,
         'access-control-max-age': '600',
       });
       response.end();
       return;
     }
 
-    void (async () => {
+    const execute = async () => {
       if (access && options.remoteAccess && await options.remoteAccess.handle(request, response, access)) return;
       if (webAssets && await webAssets(request, response)) return;
       if (remote && access) {
@@ -273,6 +281,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (skillRoutes && await skillRoutes(request, response)) return;
       if (mcpRoutes && await mcpRoutes(request, response)) return;
       if (readingRoutes && await readingRoutes(request, response)) return;
+      if (noteEncryptionRoutes && await noteEncryptionRoutes(request, response)) return;
       if (noteSecurityRoutes && await noteSecurityRoutes(request, response)) return;
       if (noteImageRoutes && await noteImageRoutes(request, response)) return;
       if (notesRoutes && await notesRoutes(request, response)) return;
@@ -297,8 +306,9 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (sessionFilesRoutes && await sessionFilesRoutes(request, response, access ?? undefined)) return;
       if (imageRoutes && await imageRoutes(request, response)) return;
       await assistantRoutes.handle(request, response);
-    })().catch(() => {
-      if (!response.headersSent) accessError(response, 500, 'INTERNAL_ERROR', '服务处理请求时发生内部错误。');
+    };
+    void (options.noteAccess && !remote ? options.noteAccess.run(request, response, execute) : execute()).catch((error: unknown) => {
+      if (!response.headersSent) notesFailure(response, error);
       else response.destroy();
     });
   });

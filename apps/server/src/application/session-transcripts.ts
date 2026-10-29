@@ -11,6 +11,7 @@ export class SessionTranscriptUnavailableError extends Error {
 }
 
 export interface SessionTranscriptReaderOptions {
+  assertReadable?: (sessionId: string) => void;
   registry: Pick<SessionRegistryRepository, 'get'>;
   bindings: { get(sessionId: string): CoordinatorSessionBinding | undefined };
   adapter: Pick<CoordinatorAdapter, 'readActiveBranch' | 'readPersistedHistory'>;
@@ -31,6 +32,7 @@ export class SessionTranscriptReader {
   }
 
   readSnapshot(sessionId: string): CoordinatorHistorySnapshot {
+    this.options.assertReadable?.(sessionId);
     const record = this.options.registry.get(sessionId);
     if (!record || record.kind !== 'work') throw new SessionTranscriptUnavailableError('只能读取工作会话的内容。');
 
