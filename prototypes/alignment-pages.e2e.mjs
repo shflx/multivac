@@ -8,7 +8,7 @@ const nav=async name=>page.getByRole('navigation',{name:'主要导航'}).getByRo
 try {
  await page.goto(process.env.PROTOTYPE_URL || 'http://127.0.0.1:5179');await page.getByRole('textbox',{name:'发送给 Multivac'}).waitFor();
  await page.keyboard.press('Meta+g');await page.getByRole('dialog').waitFor();await page.keyboard.press('3');
- for(const name of ['运行','成果','会话','读书','笔记','归档','项目','能力','智能体','模型','知识与记忆','偏好','统计','待办']) { await nav(name); await page.waitForTimeout(100); expect(errors, name).toEqual([]); }
+ for(const name of ['运行','定时','成果','会话','读书','笔记','归档','项目','能力','智能体','模型','知识与记忆','偏好','统计','待办']) { await nav(name); await page.waitForTimeout(100); expect(errors, name).toEqual([]); }
  // 从筛选外任务的快速跳转恢复可见性。
  await page.getByRole('textbox',{name:'搜索任务',exact:true}).fill('不存在的任务');
  await page.keyboard.press('Meta+k');await page.getByRole('dialog').waitFor();

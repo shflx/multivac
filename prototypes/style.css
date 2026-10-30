@@ -10465,3 +10465,170 @@ select:disabled {
 .image-preview-stage { display: grid; place-items: center; min-height: 0; padding: 16px; overflow: auto; }
 .image-preview-stage img { max-width: 100%; max-height: 100%; object-fit: contain; }
 .image-preview-stage p { color: #fff; }
+
+/* ===== 定时安排（管理 → 工作 → 定时） ===== */
+.schedules-page .page-actions { gap: 14px; }
+.schedule-summary { color: var(--muted); font-size: var(--t-xs); }
+.schedule-layout { grid-template-columns: minmax(420px, 1fr) minmax(380px, 460px); margin-top: 20px; }
+
+/* 列表顶栏：左侧状态标签（下划线标示当前），右侧类型选择与搜索。 */
+.schedule-filters { position: sticky; z-index: 1; top: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 0 12px 0 6px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.schedule-tabs { display: flex; gap: 2px; }
+.schedule-tabs button { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--muted); font-size: var(--t-sm); }
+.schedule-tabs button:hover { color: var(--ink); }
+.schedule-tabs button span { min-width: 18px; padding: 0 5px; border-radius: 999px; background: var(--surface-strong); color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; line-height: 18px; text-align: center; }
+.schedule-tabs button.active { color: var(--ink); font-weight: 600; }
+.schedule-tabs button.active::after { content: ''; position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; border-radius: 2px; background: var(--accent); }
+.schedule-tabs button.active span { background: var(--accent-soft); color: var(--accent); }
+.schedule-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: var(--r-sm); }
+.schedule-filter-tools { display: flex; align-items: center; gap: 6px; height: 44px; }
+.schedule-type-filter { position: relative; }
+.schedule-type-trigger { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--muted); font-size: var(--t-xs); }
+.schedule-type-trigger svg { width: 13px; height: 13px; }
+.schedule-type-trigger:hover, .schedule-type-trigger[aria-expanded="true"] { border-color: var(--line); background: var(--surface-subtle); color: var(--ink); }
+.schedule-type-trigger.filtered { border-color: var(--accent-muted); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.schedule-type-chevron { width: 12px !important; height: 12px !important; transition: transform .15s ease; }
+.schedule-type-trigger[aria-expanded="true"] .schedule-type-chevron { transform: rotate(180deg); }
+.schedule-type-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 下拉菜单：与输入区弹层同一套白底描边阴影，选项带图标、说明与勾选。 */
+.schedule-type-menu { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; display: grid; gap: 2px; width: 236px; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 10px 30px rgba(27, 32, 35, 0.12); animation: schedule-menu-in 120ms ease; }
+.schedule-type-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); text-align: left; }
+.schedule-type-menu button:hover, .schedule-type-menu button:focus-visible { background: var(--surface-subtle); outline: none; }
+.schedule-type-menu button[aria-checked="true"] { background: var(--accent-soft); }
+.schedule-type-icon { display: grid; flex: 0 0 28px; place-items: center; height: 28px; border-radius: 8px; background: var(--surface-strong); color: var(--muted); }
+.schedule-type-icon.agent { background: var(--info-soft); color: var(--info); }
+.schedule-type-icon svg { width: 14px; height: 14px; }
+.schedule-type-copy { display: grid; flex: 1; gap: 1px; min-width: 0; }
+.schedule-type-copy strong { font-size: var(--t-sm); font-weight: 600; }
+.schedule-type-copy small { color: var(--muted); font-size: 11px; }
+.schedule-type-check { flex: 0 0 auto; width: 14px; height: 14px; color: var(--accent); }
+@keyframes schedule-menu-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .schedule-type-menu { animation: none; } .schedule-type-chevron { transition: none; } }
+.schedule-search { display: flex; align-items: center; gap: 6px; width: 150px; height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-subtle); color: var(--faint); }
+.schedule-search:focus-within { border-color: var(--accent-muted); background: var(--surface); }
+.schedule-search svg { flex: 0 0 auto; width: 13px; height: 13px; }
+.schedule-search input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: var(--t-xs); }
+
+/* 列表：类型图标、名称与规则，右侧是本轮/上一轮状态与下次时间。 */
+.schedule-list { min-width: 0; overflow-y: auto; border-right: 1px solid var(--line); }
+.schedule-list-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 14px 16px; border: 0; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--ink); text-align: left; }
+.schedule-list-item:hover { background: var(--surface-subtle); }
+.schedule-list-item.selected { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
+.schedule-list-item.paused .schedule-item-main, .schedule-list-item.completed .schedule-item-main { opacity: .72; }
+.schedule-kind { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; background: var(--surface-strong); color: var(--muted); }
+.schedule-kind.agent { background: var(--info-soft); color: var(--info); }
+.schedule-kind svg { width: 16px; height: 16px; }
+.schedule-item-main { display: grid; gap: 4px; min-width: 0; }
+.schedule-item-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.schedule-item-title strong { overflow: hidden; font-size: var(--t-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.schedule-item-rule { color: var(--muted); font-size: var(--t-xs); }
+.schedule-item-side { display: grid; justify-items: end; gap: 5px; }
+.schedule-item-next { color: var(--faint); font-size: var(--t-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 状态标签：安排状态与触发状态共用一套色调。 */
+.schedule-pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; background: var(--surface-strong); color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.schedule-pill svg { width: 11px; height: 11px; }
+.schedule-pill.success { background: var(--success-soft); color: var(--success); }
+.schedule-pill.accent { background: var(--info-soft); color: var(--info); }
+.schedule-pill.warn { background: var(--warn-soft); color: var(--warn); }
+.schedule-pill.danger { background: var(--danger-soft); color: var(--danger); }
+
+.schedule-empty { display: grid; justify-items: center; gap: 8px; padding: 56px 32px; color: var(--muted); text-align: center; }
+.schedule-empty svg { width: 28px; height: 28px; color: var(--faint); }
+.schedule-empty strong { color: var(--ink); }
+.schedule-empty p { max-width: 340px; margin: 0; font-size: var(--t-xs); }
+
+/* 详情：头部与操作固定，下面滚动。 */
+.schedule-detail { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--surface); }
+.schedule-detail-empty { align-items: center; justify-content: center; color: var(--muted); }
+.schedule-detail-header { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 18px 20px 12px; }
+.schedule-detail-header h2 { margin: 0; font-size: var(--t-lg); line-height: 1.35; }
+.schedule-detail-header p { margin: 3px 0 0; color: var(--muted); font-size: var(--t-xs); }
+.schedule-detail-actions { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 20px 14px; border-bottom: 1px solid var(--line); }
+.schedule-detail-actions svg { width: 14px; height: 14px; }
+.schedule-detail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 20px 24px; }
+.schedule-confirm { display: grid; gap: 10px; margin: 12px 20px 0; padding: 12px 14px; border: 1px solid var(--danger-line); border-radius: var(--r-md); background: var(--danger-soft); font-size: var(--t-xs); line-height: 1.6; }
+.schedule-confirm p { margin: 0; }
+.schedule-confirm > div { display: flex; justify-content: flex-end; gap: 6px; }
+
+/* 正在占用安排的这一轮：放在详情最上方。 */
+.schedule-active { display: grid; gap: 8px; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-subtle); font-size: var(--t-xs); }
+.schedule-active.accent { border-color: var(--info-soft); background: #f5f8ff; }
+.schedule-active.warn { border-color: var(--warn-line); background: var(--warn-soft); }
+.schedule-active-heading { display: flex; align-items: center; gap: 7px; }
+.schedule-active-heading svg { width: 14px; height: 14px; }
+.schedule-active.accent .schedule-active-heading { color: var(--info); }
+.schedule-active.warn .schedule-active-heading { color: var(--warn); }
+.schedule-active-heading strong { font-size: var(--t-sm); }
+.schedule-active-heading time { margin-left: auto; color: var(--muted); }
+.schedule-active p { margin: 0; color: var(--ink); line-height: 1.6; }
+.schedule-active small { color: var(--muted); }
+.schedule-active-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.schedule-active-actions svg { width: 13px; height: 13px; }
+
+.schedule-section { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.schedule-section:last-child { border-bottom: 0; }
+.schedule-section h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; font-size: var(--t-sm); font-weight: 650; }
+.schedule-section h3 svg { width: 15px; height: 15px; color: var(--muted); }
+.schedule-section h3 span { margin-left: auto; color: var(--faint); font-size: var(--t-xs); font-weight: 400; }
+.schedule-muted { margin: 0; color: var(--muted); font-size: var(--t-xs); line-height: 1.6; }
+.schedule-upcoming, .schedule-preview ol { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; counter-reset: upcoming; }
+.schedule-upcoming li, .schedule-preview li { display: flex; align-items: baseline; gap: 10px; font-variant-numeric: tabular-nums; }
+.schedule-upcoming li::before, .schedule-preview li::before { counter-increment: upcoming; content: counter(upcoming); display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--surface-strong); color: var(--muted); font-size: 10px; font-weight: 700; }
+.schedule-upcoming li:first-child time, .schedule-preview li:first-child time { font-weight: 650; }
+.schedule-upcoming small, .schedule-preview li small { color: var(--warn); font-size: 11px; }
+.schedule-zone { display: flex; align-items: center; gap: 5px; margin: 10px 0 0; color: var(--faint); font-size: var(--t-xs); }
+.schedule-zone svg { width: 12px; height: 12px; }
+.schedule-content { margin: 0 0 12px; padding: 10px 12px; border-left: 2px solid var(--accent-muted); border-radius: 0 var(--r-sm) var(--r-sm) 0; background: var(--surface-subtle); color: var(--quote-ink); font-size: var(--t-sm); line-height: 1.7; }
+.schedule-facts { display: grid; gap: 7px; margin: 0; font-size: var(--t-xs); }
+.schedule-facts > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; }
+.schedule-facts dt { color: var(--muted); }
+.schedule-facts dd { margin: 0; line-height: 1.6; }
+
+/* 触发记录：时间、来源、状态一行，结果与入口在下方。 */
+.schedule-history { display: grid; margin: 0; padding: 0; list-style: none; }
+.schedule-occurrence { display: grid; gap: 5px; padding: 10px 0; border-top: 1px solid var(--line); font-size: var(--t-xs); }
+.schedule-occurrence:first-child { border-top: 0; padding-top: 0; }
+.schedule-occurrence-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.schedule-occurrence-head time { font-weight: 600; font-variant-numeric: tabular-nums; }
+.schedule-source { padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); font-size: 10px; }
+.schedule-duration { margin-left: auto; color: var(--faint); }
+.schedule-occurrence p { margin: 0; color: var(--muted); line-height: 1.6; }
+.schedule-occurrence-links { display: flex; gap: 14px; }
+.schedule-occurrence-links .inline-link { font-size: var(--t-xs); }
+.schedule-occurrence-links svg { width: 12px; height: 12px; }
+
+/* 新建与编辑：比通用创建对话框更宽，表单区单独滚动。 */
+.schedule-editor { display: flex; flex-direction: column; width: min(600px, 100%); max-height: calc(100vh - 48px); }
+.schedule-editor-body { display: grid; gap: 16px; min-height: 0; overflow-y: auto; margin: 0 -20px; padding: 0 20px 4px; }
+.schedule-field { display: grid; gap: 7px; min-width: 0; }
+.schedule-field > span { color: var(--muted); font-size: var(--t-xs); font-weight: 650; }
+.schedule-field > small { color: var(--faint); font-size: var(--t-xs); line-height: 1.5; }
+.schedule-field input, .schedule-field select, .schedule-field textarea { width: 100%; min-width: 0; padding: 8px 11px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--n-0); color: var(--ink); font: inherit; font-size: var(--t-sm); }
+.schedule-field input, .schedule-field select { height: 38px; padding-block: 0; }
+.schedule-field textarea { resize: vertical; line-height: 1.6; }
+.schedule-field .segmented { justify-self: start; }
+.schedule-field .segmented button { display: inline-flex; align-items: center; gap: 5px; }
+.schedule-field .segmented button svg { width: 13px; height: 13px; }
+.schedule-field .segmented button:disabled { cursor: default; opacity: .6; }
+.schedule-field-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.schedule-weekdays { display: flex; gap: 6px; margin-top: -6px; }
+.schedule-weekdays button { width: 36px; height: 34px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--n-0); color: var(--muted); font-size: var(--t-sm); }
+.schedule-weekdays button.active { border-color: var(--accent); background: var(--accent); color: var(--n-0); font-weight: 650; }
+.schedule-radio-list { display: grid; gap: 6px; }
+.schedule-radio-list label { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--r-md); cursor: pointer; }
+.schedule-radio-list label.selected { border-color: var(--accent-muted); background: var(--accent-soft); }
+.schedule-radio-list input { margin-top: 3px; accent-color: var(--accent); }
+.schedule-radio-list span { display: grid; gap: 2px; }
+.schedule-radio-list strong { font-size: var(--t-sm); font-weight: 600; }
+.schedule-radio-list small { color: var(--muted); font-size: var(--t-xs); line-height: 1.5; }
+.schedule-preview { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-subtle); font-size: var(--t-sm); }
+.schedule-preview h3 { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--muted); font-size: var(--t-xs); font-weight: 650; }
+.schedule-preview h3 svg { width: 13px; height: 13px; }
+.schedule-preview p { margin: 0; color: var(--muted); font-size: var(--t-xs); }
+.schedule-preview-note { line-height: 1.6; }
+.schedule-problem { margin: 12px 0 0; color: var(--danger); font-size: var(--t-xs); }
+.schedule-editor .creation-actions { align-items: center; }
+.schedule-editor-hint { margin-right: auto; color: var(--faint); font-size: var(--t-xs); }
+/* 通用创建对话框的 input 尺寸不作用于单选。 */
+.schedule-radio-list input { flex: 0 0 auto; width: auto; height: auto; padding: 0; border: 0; }

@@ -12,6 +12,7 @@ import {
   Bot,
   Brain,
   Cable,
+  CalendarClock,
   ChartColumn,
   Check,
   CheckCircle2,
@@ -85,6 +86,7 @@ import { TaskPanel } from './task-panel.jsx';
 import { ReadingApp } from './reading-app.jsx';
 import { useReading } from './reading-store.js';
 import { InboxView } from './inbox-panel.jsx';
+import { ScheduleView } from './schedule-panel.jsx';
 import { inboxDecisionConsequence, markInboxRequestSeen, pendingInboxRequests } from './inbox-state.js';
 import { sessionStatus } from './session-status.js';
 import { ArchivePanel } from './archive-panel.jsx';
@@ -422,13 +424,14 @@ const initialModelProfiles = [
 const thinkingLabels = { off: '关闭', minimal: '极简', low: '低', medium: '中', high: '高', xhigh: '极高', max: '最大' };
 
 /**
- * 管理导航分三组：工作（待办、运行、Inbox、成果）、应用（应用页与已钉住的插件）、设置。
+ * 管理导航分三组：工作（待办、运行、定时、Inbox、成果）、应用（应用页与已钉住的插件）、设置。
  * 应用组为空时不出现；插件只在接入首个真实插件后出现，不用模拟插件占位。
  */
 const managementNav = {
   work: [
     { id: 'tasks', label: '待办', icon: ListTodo },
     { id: 'runs', label: '运行', icon: Activity },
+    { id: 'schedules', label: '定时', icon: CalendarClock },
     { id: 'inbox', label: 'Inbox', icon: Inbox },
     { id: 'outputs', label: '成果', icon: Archive },
     { id: 'sessions', label: '会话', icon: MessagesSquare },
@@ -1271,6 +1274,9 @@ function App() {
                   onOpenTask={openTask}
                   notify={notify}
                 />
+              </KeptPage>
+              <KeptPage active={managementMode && page === 'schedules'}>
+                <ScheduleView projects={projects} agents={agents} notify={notify} onOpenInbox={() => navigate('inbox')} />
               </KeptPage>
       <KeptPage active={managementMode && page === 'inbox'}>
                 <InboxView
