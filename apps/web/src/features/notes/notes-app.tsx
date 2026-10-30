@@ -1,6 +1,6 @@
 import { onNoteAccessChange, unlockedNote, hasNoteAccess, protectedNote, markProtected, markOrdinary, forgetNoteAccess, noteUserActivity } from '../../data/note-access.js';
 import { clearNoteVaultMemory, protectionMarker, restoreOwnOrdinaryVault } from './note-vault.js';
-import { LockedNote, NotePasswordSettings, convertingNotes } from './note-security.js';
+import { LockedNote, convertingNotes } from './note-security.js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Search, X, NotebookPen } from 'lucide-react';
 import { Check } from 'typebox/value';
@@ -177,7 +177,7 @@ export function NotesApp({ active }: { active: boolean }) {
   return <div className="notes-app" onPointerDown={() => { if (selected) noteUserActivity(selected); }} onKeyDown={() => { if (selected) noteUserActivity(selected); }} onWheel={() => { if (selected) noteUserActivity(selected); }} onPointerMove={() => { if (selected) noteUserActivity(selected); }}><div className="notes-layout">
     <aside className="notes-library" aria-label="笔记库">
       <header>
-        <div className="notes-library-heading"><strong>全部笔记</strong><NotePasswordSettings />{notes && <small>{search.trim() ? `${matching?.length} / ${notes.length}` : notes.length}</small>}</div>
+        <div className="notes-library-heading"><strong>全部笔记</strong>{notes && <small>{search.trim() ? `${matching?.length} / ${notes.length}` : notes.length}</small>}</div>
         <button type="button" aria-label="新建笔记" title="新建笔记" disabled={creating} onClick={() => void create()}><Plus size={17} /></button>
       </header>
       <div className="notes-library-search"><Search size={14} aria-hidden="true" /><input ref={searchInput} type="search" aria-label="搜索笔记标题" placeholder="搜索笔记标题" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (!event.nativeEvent.isComposing && event.key === 'Escape' && search) { event.preventDefault(); event.stopPropagation(); setSearch(''); } }} />{search && <button type="button" aria-label="清除笔记搜索" onClick={() => { setSearch(''); searchInput.current?.focus(); }}><X size={13} /></button>}</div>

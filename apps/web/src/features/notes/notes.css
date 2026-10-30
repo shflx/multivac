@@ -258,14 +258,3 @@
   .notes-library-item, .note-list-actions, .note-list-actions .note-delete { transition: none; }
 }
 
-.note-security-card { display: flex; flex-direction: column; gap: 14px; width: min(430px, calc(100% - 32px)); margin: 48px auto; padding: 28px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); color: var(--ink); }
-.note-security-card h2, .note-security-card p { margin: 0; }
-.note-security-card label, .note-security-fields { display: flex; flex-direction: column; gap: 6px; }
-.note-security-fields + .note-security-fields { margin-top: 14px; }
-.note-security-card input, .note-security-fields input { min-width: 0; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font: inherit; }
-.note-security-card input:focus-visible, .note-security-fields input:focus-visible, .note-security-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.note-security-card > button { padding: 8px 12px; border: 0; border-radius: var(--r-sm); background: var(--accent); color: var(--on-accent); font: inherit; cursor: pointer; }
-.note-security-card > button:hover:not(:disabled) { background: var(--accent-hover); }
-.note-security-card > button:disabled { opacity: .5; cursor: default; }
-.note-security-card small { color: var(--muted); line-height: 1.6; }
-.note-encryption-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }

@@ -4,6 +4,7 @@ import { RECENT_DAY_OPTIONS, DEFAULT_RECENT_DAYS, DEFAULT_TASK_BUDGET_MILLIS, DE
 import { usePreferences } from './use-preferences.js';
 import { SavedMark, useSavedFlash } from '../../components/saved-mark.js';
 import { SettingsCard, SettingsRow } from '../../components/settings-card.js';
+import { NotePasswordCard } from '../notes/note-password-card.js';
 import { getPreferences, getTempDirectoryUsage, updatePreferences } from '../../data/preferences-api.js';
 import {
   formatBytes,
@@ -267,6 +268,7 @@ export function PreferencesPage({ active }: PreferencesPageProps) {
           </select>
         </SettingsRow>
       </SettingsCard>
+      <NotePasswordCard />
       <SettingsCard title="诊断" description="对所有会话与任务生效，不保存对话内容、代码或凭据。" details="仅记录时间、状态和计数；日志最多保留约 8 MiB。">
         <SettingsRow label="执行诊断" labelId={diagnosticsLabelId}
           hint="记录请求阶段、执行活动和服务心跳，帮助排查长时间无响应。"

@@ -1,0 +1,33 @@
+/* 笔记加密：解锁卡片、加密入口与密码输入。 */
+
+/* 解锁卡片：居中的锁图标、标题与单个密码框。 */
+.note-security-card { display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(380px, calc(100% - 32px)); margin: 72px auto; padding: 32px 28px 24px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); color: var(--ink); text-align: center; }
+.note-security-icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); }
+.note-security-icon svg { width: 22px; height: 22px; }
+.note-security-card h2 { margin: 4px 0 0; font-size: var(--t-lg); font-weight: 600; }
+.note-security-card p { margin: 0; color: var(--muted); font-size: var(--t-sm); }
+.note-security-card input { align-self: stretch; margin-top: 8px; }
+.note-security-card > button { align-self: stretch; height: 36px; padding: 0 12px; border: 0; border-radius: var(--r-md); background: var(--accent); color: var(--on-accent); font: inherit; font-weight: 500; cursor: pointer; }
+.note-security-card > button:hover:not(:disabled) { background: var(--accent-hover); }
+.note-security-card > button:disabled { opacity: .5; cursor: default; }
+.note-security-card small { color: var(--faint); font-size: var(--t-xs); line-height: 1.6; }
+.note-security-error { align-self: stretch; color: var(--danger) !important; font-size: var(--t-xs) !important; text-align: left; }
+
+/* 确认卡里的密码输入。 */
+.note-security-fields { display: flex; flex-direction: column; gap: 6px; font-size: var(--t-sm); }
+.note-security-fields + .note-security-fields { margin-top: 12px; }
+.note-security-card input, .note-security-fields input { min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); color: var(--ink); font: inherit; }
+.note-security-card input:focus-visible, .note-security-fields input:focus-visible, .note-security-card button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 工具栏中的锁按钮：与历史、专注等图标按钮同尺寸；已加密时用主题色。 */
+.note-encryption-actions { position: relative; display: inline-flex; align-items: center; }
+.note-lock-toggle { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); cursor: pointer; }
+.note-lock-toggle:hover:not(:disabled), .note-lock-toggle[aria-expanded="true"] { background: var(--surface-strong); color: var(--ink); }
+.note-lock-toggle.active { color: var(--accent); }
+.note-lock-toggle:disabled { opacity: .5; cursor: default; }
+/* 底栏加密状态旁的取消加密：弱化的文字按钮。 */
+.note-vault-status { display: inline-flex; align-items: center; gap: 10px; }
+.note-decrypt-link { padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.note-decrypt-link:hover:not(:disabled) { color: var(--ink); }
+.note-decrypt-link:disabled { opacity: .5; cursor: default; }
+.note-encryption-actions > .notes-error { position: absolute; top: calc(100% + 6px); right: 0; width: max-content; max-width: 280px; }
