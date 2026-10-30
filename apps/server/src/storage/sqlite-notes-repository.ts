@@ -61,7 +61,8 @@ export class SqliteNotesRepository implements NotesRepository {
   list(): NoteSummary[] {
     return this.database.prepare(NOTE_SUMMARIES_SELECT).all().map(row => {
       const id = String(row.id), protection = this.codec?.state(id);
-      return protection ? { id, title: '加密笔记', revision: 1, createdAt: '', updatedAt: '', protection } : this.readSummary(row.summary_json, id);
+      // 加密笔记的标题随摘要加密；排序用的更新时间本就明文保存，可直接显示。
+      return protection ? { id, title: '加密笔记', revision: 1, createdAt: '', updatedAt: String(row.updated_at), protection } : this.readSummary(row.summary_json, id);
     });
   }
 

@@ -27,7 +27,7 @@ const OpenNote = memo(function OpenNote({ note, latestRevision, active, selected
 });
 
 export function NotesApp({ active }: { active: boolean }) {
-  const [, securityRender] = useState(0);
+  const [securityVersion, securityRender] = useState(0);
   const [notes, setNotes] = useState<NoteSummary[] | null>(null);
   const [opened, setOpened] = useState<Map<string, Note>>(() => new Map());
   const [selected, setSelected] = useState<string | null>(() => { try { return sessionStorage.getItem('multivac:active-note'); } catch { return null; } });
@@ -37,7 +37,12 @@ export function NotesApp({ active }: { active: boolean }) {
   const [search, setSearch] = useState('');
   const searchInput = useRef<HTMLInputElement>(null);
   const searchKey = search.trim().toLocaleLowerCase();
-  const searchable = useMemo(() => notes?.map(note => ({ note, title: note.title.toLocaleLowerCase() })), [notes]);
+  // 加密笔记只在当前窗口已解锁时显示真实标题，取自页面内存中已打开的正文，不写入浏览器存储。
+  const displayed = useMemo(() => notes?.map(note => {
+    const open = note.protection && unlockedNote(note.id) ? opened.get(note.id) : undefined;
+    return open ? { ...note, title: open.title, updatedAt: open.updatedAt } : note;
+  }), [notes, opened, securityVersion]);
+  const searchable = useMemo(() => displayed?.map(note => ({ note, title: note.title.toLocaleLowerCase() })), [displayed]);
   const matching = useMemo(() => searchable?.filter(item => item.title.includes(searchKey)).map(item => item.note), [searchable, searchKey]);
   const revisions = useMemo(() => new Map(notes?.map(note => [note.id, note.revision])), [notes]);
   const openedRef = useRef(opened); openedRef.current = opened;
@@ -167,7 +172,7 @@ export function NotesApp({ active }: { active: boolean }) {
   }
   const saved = useCallback((note: Note) => {
     remember(note);
-    setNotes(previous => previous ? reuseNoteSummaries(previous, previous.map(item => item.id === note.id && note.revision >= item.revision ? protectedNote(note.id) ? { id: note.id, title: '加密笔记', revision: 1, createdAt: '', updatedAt: '', protection: 'encrypted' as const } : (({ body: _body, ...summary }) => summary)(note) : item)) : previous);
+    setNotes(previous => previous ? reuseNoteSummaries(previous, previous.map(item => item.id === note.id && note.revision >= item.revision ? protectedNote(note.id) ? { id: note.id, title: '加密笔记', revision: 1, createdAt: '', updatedAt: note.updatedAt, protection: 'encrypted' as const } : (({ body: _body, ...summary }) => summary)(note) : item)) : previous);
   }, [remember]);
   return <div className="notes-app" onPointerDown={() => { if (selected) noteUserActivity(selected); }} onKeyDown={() => { if (selected) noteUserActivity(selected); }} onWheel={() => { if (selected) noteUserActivity(selected); }} onPointerMove={() => { if (selected) noteUserActivity(selected); }}><div className="notes-layout">
     <aside className="notes-library" aria-label="笔记库">

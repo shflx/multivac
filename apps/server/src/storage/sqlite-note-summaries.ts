@@ -24,7 +24,7 @@ export const NOTE_SUMMARY_MIGRATION = `
     SELECT note_id, revision, json_remove(record_json, '$.body') FROM app_note_version;
 `;
 
-export const NOTE_SUMMARIES_SELECT = 'SELECT id,summary_json FROM app_note_summary ORDER BY updated_at DESC, id';
+export const NOTE_SUMMARIES_SELECT = 'SELECT id,updated_at,summary_json FROM app_note_summary ORDER BY updated_at DESC, id';
 export const NOTE_SUMMARY_SELECT = 'SELECT id,summary_json FROM app_note_summary WHERE id=?';
 export const NOTE_SUMMARY_COUNT = 'SELECT COUNT(*) AS count FROM app_note_summary';
 export const NOTE_VERSION_SUMMARIES_SELECT = `SELECT note_id,revision,summary_json FROM app_note_version_summary
