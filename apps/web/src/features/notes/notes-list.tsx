@@ -1,11 +1,12 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { LockKeyhole } from 'lucide-react';
 import type { NoteSummary } from '@multivac/contracts';
 
 const PAGE_SIZE = 100;
 const dateFormat = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
-const NoteListRow = memo(function NoteListRow({ id, title, updatedAt, selected, onChoose, onDeleteRoot }: {
-  id: string; title: string; updatedAt: string; selected: boolean;
+const NoteListRow = memo(function NoteListRow({ id, title, updatedAt, locked, selected, onChoose, onDeleteRoot }: {
+  id: string; title: string; updatedAt: string; locked: boolean; selected: boolean;
   onChoose(id: string): void; onDeleteRoot(root: HTMLSpanElement | null): void;
 }) {
   const date = useMemo(() => {
@@ -16,7 +17,7 @@ const NoteListRow = memo(function NoteListRow({ id, title, updatedAt, selected, 
   }, [updatedAt]);
   return <div className="notes-library-item" data-selected={selected}>
     <button type="button" className="note-list-open" aria-current={selected ? 'true' : undefined} title={title || '未命名笔记'} onClick={() => onChoose(id)}>
-      <span className="notes-library-copy"><strong>{title || '未命名笔记'}</strong><time dateTime={updatedAt} title={date.full}>{date.short}</time></span>
+      <span className="notes-library-copy"><strong>{locked && <LockKeyhole className="note-list-lock" aria-label="已加密" />}{title || '未命名笔记'}</strong><time dateTime={updatedAt} title={date.full}>{date.short}</time></span>
     </button>
     {selected && <span className="note-list-actions" ref={onDeleteRoot} />}
   </div>;
@@ -45,7 +46,7 @@ export const NotesList = memo(function NotesList({ notes, selected, onChoose, on
   }, [current]);
   function turn(next: number) { focusPage.current = true; setPage(next); }
   return <div ref={root}>
-    {notes.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE).map(note => <NoteListRow key={note.id} id={note.id} title={note.title} updatedAt={note.updatedAt} selected={selected === note.id} onChoose={onChoose} onDeleteRoot={onDeleteRoot} />)}
+    {notes.slice(current * PAGE_SIZE, (current + 1) * PAGE_SIZE).map(note => <NoteListRow key={note.id} id={note.id} title={note.title} updatedAt={note.updatedAt} locked={!!note.protection} selected={selected === note.id} onChoose={onChoose} onDeleteRoot={onDeleteRoot} />)}
     {pages > 1 && <nav className="notes-library-pagination" aria-label="笔记列表分页">
       <button type="button" aria-label="上一页笔记" disabled={current === 0} onClick={() => turn(current - 1)}>上一页</button>
       <span role="status">{current + 1} / {pages}</span>
