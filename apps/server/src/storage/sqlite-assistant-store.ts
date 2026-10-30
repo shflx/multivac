@@ -1,5 +1,5 @@
 import { NoteRecordCodec, NOTE_PROTECTION_MIGRATION } from './note-record-codec.js';
-import { SqliteNoteSecurityRepository, NOTE_SECURITY_MIGRATION } from './sqlite-note-security-repository.js';
+import { SqliteNoteSecurityRepository, NOTE_SECURITY_MIGRATION, NOTE_KEYPAIR_MIGRATION } from './sqlite-note-security-repository.js';
 import { CONTEXT_COMPACTION_MIGRATION, SqliteContextCompactionRepository } from './sqlite-context-compaction-repository.js';
 import { SqliteNoteSuggestionsRepository, NOTE_SUGGESTIONS_MIGRATION } from './sqlite-note-suggestions-repository.js';
 import { SqliteNoteAssistantRepository, NOTE_ASSISTANT_MIGRATION } from './sqlite-note-assistant-repository.js';
@@ -339,6 +339,7 @@ const MIGRATIONS = [
   NOTE_SECURITY_MIGRATION,
   NOTE_PROTECTION_MIGRATION,
   NOTE_ENCRYPTION_REPAIR_MIGRATION,
+  NOTE_KEYPAIR_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */

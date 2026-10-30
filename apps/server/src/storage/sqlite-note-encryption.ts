@@ -19,7 +19,11 @@ export class SqliteNoteEncryption implements NoteEncryption {
     private readonly lifecycle: { check(noteId: string): void; release(noteId: string): void },
     private readonly sessionRoot: string, private readonly fault?: (stage: FaultStage) => void, private readonly imageRoot = join(dirname(sessionRoot), 'images')) {}
 
-  status(noteId: string): ReturnType<NoteEncryption['status']> { return { state: this.codec.state(noteId) ?? 'plain' }; }
+  status(noteId: string): ReturnType<NoteEncryption['status']> {
+    const state = this.codec.state(noteId) ?? 'plain';
+    // 取消加密后保留逐篇密钥，供各窗口恢复旧密文草稿；再次加密沿用它，因此需要密码。
+    return state === 'plain' && this.security.hasDataKey(noteId) ? { state, needsPassword: true } : { state };
+  }
   private file(path: string): Buffer {
     const full = resolve(path), root = [this.sessionRoot, this.imageRoot].map(value => resolve(value)).find(value => full.startsWith(value + sep));
     if (!root) throw new NotesError('讨论文件不在当前实例会话目录，无法安全转换。', 409);
@@ -145,6 +149,17 @@ export class SqliteNoteEncryption implements NoteEncryption {
       this.fault?.('after-commit');
       this.recover(noteId, access);
     });
+  }
+  encryptNew(noteId: string, expectedRevision: number, window: string): NoteAccess {
+    if (this.codec.state(noteId)) throw new NotesError('笔记已加密或有待恢复转换，请输入笔记密码。', 409);
+    const access = this.security.beginEncryption(noteId, window);
+    try { this.encrypt(noteId, expectedRevision, access); }
+    catch (error) {
+      // 未提交的转换不留下凭证；已提交但清理未完成时保留凭证，供页面继续恢复。
+      if (!this.codec.state(noteId)) this.security.lock(noteId, access);
+      throw error;
+    }
+    return access;
   }
   recover(noteId: string, access: NoteAccess): void {
     this.codec.conversion(access, () => {

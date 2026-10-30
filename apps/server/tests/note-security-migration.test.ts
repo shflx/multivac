@@ -98,3 +98,37 @@ test('补齐迁移保留已有密码、逐篇密钥和保护状态，旧凭证�
     } finally { restarted.close(); migrated.close(); }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+// 旧版主密钥记录无法转为密钥对：无加密笔记时清除旧记录以便重新设置；仍有加密笔记时保持原样。
+for (const encrypted of [false, true]) test(`旧版笔记密码${encrypted ? '仍有加密笔记时保留' : '无加密笔记时清除'}，新版记录不受影响`, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-note-keypair-migration-'));
+  const path = join(root, 'data.sqlite');
+  try {
+    const initial = new SqliteAssistantStore(path);
+    try {
+      initial.notes.create({ commandId: 'create', id: 'one', title: '笔记', body: '正文' });
+      const database = initial.noteSecurity.database;
+      database.prepare('INSERT INTO app_note_password VALUES (1,1,?)').run(JSON.stringify({ format: 1, revision: 1, kdf: {}, master: {} }));
+      database.prepare('INSERT INTO app_note_key VALUES (?,?)').run('one', JSON.stringify({ format: 1 }));
+      if (encrypted) database.exec("INSERT INTO app_note_protection VALUES ('one','encrypted')");
+      const latest = (database.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version;
+      database.prepare('DELETE FROM schema_migrations WHERE version=?').run(latest);
+    } finally { initial.close(); }
+
+    const migrated = new SqliteAssistantStore(path);
+    try {
+      assert.equal(!!migrated.noteSecurity.password(), encrypted);
+      assert.equal(!!migrated.noteSecurity.key('one'), encrypted);
+      if (!encrypted) {
+        // 清除后可重新设置为新版密钥对。
+        const security = new NoteSecurityService(migrated.noteSecurity);
+        try { await security.initialize('新密码'); assert.equal(migrated.noteSecurity.password()!.format, 2); }
+        finally { security.close(); }
+      } else {
+        const security = new NoteSecurityService(migrated.noteSecurity);
+        try { assert.throws(() => security.beginEncryption('two', 'a'.repeat(43)), /旧版本/u); }
+        finally { security.close(); }
+      }
+    } finally { migrated.close(); }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
