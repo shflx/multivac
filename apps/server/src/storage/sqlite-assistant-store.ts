@@ -67,6 +67,8 @@ import { DEFAULT_WORKSPACE_ID, DEFAULT_WORKSPACE_NAME, GLOBAL_ASSISTANT_SESSION_
 // 独立标识这次迁移，后续追加迁移不会改变快照列所属的版本。
 const SESSION_INITIAL_MODEL_MIGRATION = 'SELECT 1; -- session initial model snapshot';
 const SESSION_AGENT_EXECUTION_MIGRATION = 'SELECT 1; -- session agent execution snapshot';
+// 旧笔记锁曾占用密码表的迁移版本；追加补齐，兼容原版和失败启动后已推进版本的库。
+const NOTE_ENCRYPTION_REPAIR_MIGRATION = NOTE_SECURITY_MIGRATION + NOTE_PROTECTION_MIGRATION;
 
 const MIGRATIONS = [
   ASSISTANT_SESSION_BINDING_MIGRATION,
@@ -336,6 +338,7 @@ const MIGRATIONS = [
   WECHAT_BINDING_MIGRATION,
   NOTE_SECURITY_MIGRATION,
   NOTE_PROTECTION_MIGRATION,
+  NOTE_ENCRYPTION_REPAIR_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -357,6 +360,7 @@ const RUNTIME_IDENTITY_MIGRATION_INDEX = MIGRATIONS.indexOf(RUNTIME_IDENTITY_MIG
  */
 const COLUMN_MIGRATIONS: Readonly<Record<number, readonly { table: string; columns: readonly string[]; definition?: string }[]>> = {
   [MIGRATIONS.indexOf(NOTE_PROTECTION_MIGRATION)]: [{ table: 'app_note_command', columns: ['note_id'] }],
+  [MIGRATIONS.indexOf(NOTE_ENCRYPTION_REPAIR_MIGRATION)]: [{ table: 'app_note_command', columns: ['note_id'] }],
   [MIGRATIONS.indexOf(SESSION_INITIAL_MODEL_MIGRATION)]: [{
     table: 'assistant_session_registry',
     columns: ['initial_model_json'],
