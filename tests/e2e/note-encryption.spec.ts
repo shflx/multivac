@@ -9,10 +9,18 @@ async function openNotes(page: Page) {
   await expect(page.getByRole('complementary', { name: '笔记库' })).toBeVisible();
 }
 async function unlock(page: Page, password: string) {
-  await page.getByLabel('共用密码', { exact: true }).fill(password);
+  await page.getByLabel('笔记密码', { exact: true }).fill(password);
   await page.getByRole('button', { name: /^解锁(?:笔记|并恢复转换)$/ }).click();
 }
 const editor = (page: Page) => page.locator('.notes-open-document:visible');
+/** 已解锁的加密笔记：工具栏锁按钮直接锁定；取消加密在底栏加密状态旁。 */
+async function lockNow(page: Page) {
+  await editor(page).getByRole('button', { name: '锁定笔记', exact: true }).click();
+}
+async function decrypt(page: Page) {
+  await editor(page).getByRole('button', { name: '取消加密', exact: true }).click();
+  await page.getByRole('dialog', { name: '取消加密', exact: true }).getByRole('button', { name: '取消加密', exact: true }).click();
+}
 
 test('逐篇加密、跨窗口隔离、密文草稿恢复、讨论、换密码与取消加密', async ({ page, context, request }, testInfo) => {
   test.setTimeout(45_000);
@@ -32,14 +40,24 @@ test('逐篇加密、跨窗口隔离、密文草稿恢复、讨论、换密码�
   const peer = await context.newPage(); await openNotes(peer); await peer.getByRole('button', { name: title, exact: false }).click();
   await page.bringToFront();
   await editor(page).getByRole('button', { name: '加密此笔记', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '加密此笔记', exact: true }); await dialog.getByLabel('共用密码').fill(password);
+  await page.getByRole('dialog', { name: '尚未设置笔记密码', exact: true }).getByRole('button', { name: '前往设置', exact: true }).click();
+  const preferences = page.getByRole('main', { name: '偏好' });
+  await preferences.getByRole('button', { name: '设置密码', exact: true }).click();
+  const setup = page.getByRole('dialog', { name: '设置笔记密码', exact: true });
+  await setup.getByLabel('密码', { exact: true }).fill(password); await setup.getByLabel('再次输入', { exact: true }).fill(password);
+  await setup.getByRole('button', { name: '设置密码', exact: true }).click();
+  await expect(preferences.getByRole('status').filter({ hasText: '笔记密码已设置' })).toBeVisible();
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '笔记', exact: true }).click();
+  await editor(page).getByRole('button', { name: '加密此笔记', exact: true }).click();
+  // 加密只用公钥：确认卡不再要求输入密码。
+  const dialog = page.getByRole('dialog', { name: '加密此笔记', exact: true }); await expect(dialog.getByLabel('笔记密码')).toHaveCount(0);
   await editor(peer).getByLabel('笔记标题', { exact: true }).fill(title + '未保存');
-  await dialog.getByRole('button', { name: '确认', exact: true }).click();
+  await dialog.getByRole('button', { name: '加密', exact: true }).click();
   await expect(page.getByRole('alert').filter({ hasText: '未保存草稿' })).toBeVisible();
   expect((await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(200);
   await editor(peer).getByLabel('笔记标题', { exact: true }).fill(title);
-  await dialog.getByRole('button', { name: '确认', exact: true }).click();
-  await expect(editor(page).getByRole('button', { name: '锁定', exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: '加密', exact: true }).click();
+  await expect(editor(page).getByRole('button', { name: '锁定笔记', exact: true })).toBeVisible();
   await expect(peer.getByRole('button', { name: '解锁笔记', exact: true })).toBeVisible();
   expect((await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(423);
   await expect(editor(page).getByLabel('笔记标题', { exact: true })).toHaveValue(title);
@@ -69,7 +87,7 @@ test('逐篇加密、跨窗口隔离、密文草稿恢复、讨论、换密码�
   await expect(editor(page).getByLabel('向梳理助手提问', { exact: true })).toHaveValue('尚未发送的加密讨论草稿');
   await page.unroute('**/api/sessions/*/page-state');
 
-  await editor(page).getByRole('button', { name: '锁定', exact: true }).click(); await expect(page.getByRole('button', { name: '解锁笔记', exact: true })).toBeVisible();
+  await lockNow(page); await expect(page.getByRole('button', { name: '解锁笔记', exact: true })).toBeVisible();
   await expect(page.getByText(`未保存密文草稿-${id}`, { exact: true })).toHaveCount(0);
   await unlock(page, password); await expect(noteBody(page)).toHaveText(`未保存密文草稿-${id}`);
   expect((await request.post(`${fakeApiRoot}/api/__e2e/restart`)).status()).toBe(202);
@@ -77,26 +95,31 @@ test('逐篇加密、跨窗口隔离、密文草稿恢复、讨论、换密码�
   await unlock(page, password); await expect(noteBody(page)).toHaveText(`未保存密文草稿-${id}`);
   await page.getByRole('button', { name: `普通笔记-${ordinary}`, exact: false }).click();
   await editor(page).getByRole('button', { name: '加密此笔记', exact: true }).click();
-  const secondDialog = page.getByRole('dialog', { name: '加密此笔记', exact: true }); await secondDialog.getByLabel('共用密码').fill(password); await secondDialog.getByRole('button', { name: '确认', exact: true }).click();
-  await expect(editor(page).getByRole('button', { name: '锁定', exact: true })).toBeVisible();
+  const secondDialog = page.getByRole('dialog', { name: '加密此笔记', exact: true }); await secondDialog.getByRole('button', { name: '加密', exact: true }).click();
+  await expect(editor(page).getByRole('button', { name: '锁定笔记', exact: true })).toBeVisible();
   expect((await request.get(`${fakeApiRoot}/api/notes/${ordinary}`)).status()).toBe(423);
-  await editor(page).getByRole('button', { name: '锁定', exact: true }).click();
+  await lockNow(page);
   await expect(page.getByRole('button', { name: '解锁笔记', exact: true })).toBeVisible();
-  await page.locator('.note-list-open:not([aria-current="true"])').filter({ hasText: '加密笔记' }).click();
+  // 当前窗口已解锁的加密笔记在侧栏显示真实标题；刚锁定的笔记仍显示“加密笔记”。
+  await expect(page.locator('.note-list-open').filter({ hasText: '加密笔记' })).toHaveCount(1);
+  await page.locator('.note-list-open:not([aria-current="true"])').filter({ hasText: title }).click();
   await expect(noteBody(page)).toHaveText(`未保存密文草稿-${id}`);
-  await page.getByRole('button', { name: '共用密码设置', exact: true }).click();
-  await page.getByLabel('原密码', { exact: true }).fill(password); await page.getByLabel('新密码', { exact: true }).fill(password + '新'); await page.getByRole('button', { name: '修改密码', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: '共用密码已修改' })).toBeVisible();
-  await page.getByRole('button', { name: '关闭密码设置', exact: true }).click();
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '偏好', exact: true }).click();
+  await page.getByRole('main', { name: '偏好' }).getByRole('button', { name: '修改密码', exact: true }).click();
+  const change = page.getByRole('dialog', { name: '修改笔记密码', exact: true });
+  await change.getByLabel('原密码', { exact: true }).fill(password); await change.getByLabel('新密码', { exact: true }).fill(password + '新');
+  await change.getByLabel('再次输入', { exact: true }).fill(password + '新'); await change.getByRole('button', { name: '修改密码', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '笔记密码已修改' })).toBeVisible();
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '笔记', exact: true }).click();
   await expect(page.getByRole('button', { name: '解锁笔记', exact: true })).toBeVisible();
   await unlock(page, password); await expect(page.getByRole('alert').filter({ hasText: /密码|解密/ })).toBeVisible();
   await unlock(page, password + '新'); await expect(noteBody(page)).toHaveText(`未保存密文草稿-${id}`);
-  await editor(page).getByRole('button', { name: '取消加密', exact: true }).click(); await page.getByRole('dialog', { name: '取消加密', exact: true }).getByRole('button', { name: '确认', exact: true }).click();
+  await decrypt(page);
   await expect(editor(page).getByRole('button', { name: '加密此笔记', exact: true })).toBeVisible();
   expect((await (await request.get(`${fakeApiRoot}/api/notes/${id}`)).json()).body).toBe(`未保存密文草稿-${id}`);
   await page.locator('.note-list-open:not([aria-current="true"])').filter({ hasText: '加密笔记' }).click();
   await unlock(page, password + '新'); await expect(noteBody(page)).toHaveText('普通正文');
-  await editor(page).getByRole('button', { name: '取消加密', exact: true }).click(); await page.getByRole('dialog', { name: '取消加密', exact: true }).getByRole('button', { name: '确认', exact: true }).click();
+  await decrypt(page);
   await expect(editor(page).getByRole('button', { name: '加密此笔记', exact: true })).toBeVisible();
   expect((await (await request.get(`${fakeApiRoot}/api/notes/${ordinary}`)).json()).body).toBe('普通正文');
   await page.getByRole('button', { name: title, exact: false }).click();
@@ -106,7 +129,9 @@ test('逐篇加密、跨窗口隔离、密文草稿恢复、讨论、换密码�
     else await route.continue();
   });
   await editor(page).getByRole('button', { name: '加密此笔记', exact: true }).click();
-  const unknownDialog = page.getByRole('dialog', { name: '加密此笔记', exact: true }); await unknownDialog.getByLabel('共用密码').fill(password + '新'); await unknownDialog.getByRole('button', { name: '确认', exact: true }).click();
+  // 曾加密又取消的笔记沿用原逐篇密钥，再次加密需要密码。
+  const again = page.getByRole('dialog', { name: '加密此笔记', exact: true });
+  await again.getByLabel('笔记密码').fill(password + '新'); await again.getByRole('button', { name: '加密', exact: true }).click();
   await expect(page.getByRole('button', { name: '解锁并恢复转换', exact: true })).toBeVisible();
   await page.unroute(`**/api/notes/${id}/protection`); await unlock(page, password + '新');
   await expect(noteBody(page)).toHaveText(`未保存密文草稿-${id}`); expect(conversions).toBe(1);
