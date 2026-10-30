@@ -1,15 +1,22 @@
-import { createCipheriv, createDecipheriv, randomBytes, scrypt } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, scrypt, type KeyObject } from 'node:crypto';
 import { NotesError } from './note.js';
 
 /** 所有身份字段都参与认证，阻止把密文搬到另一篇笔记或另一类记录。 */
 export interface NoteCipherContext { noteId: string; kind: string; identity: string }
 export interface NoteCiphertext { format: 1; nonce: string; ciphertext: string; tag: string }
+/**
+ * 笔记密钥对：公钥明文保存，用于加密新笔记时封装逐篇密钥；私钥由密码保护，只在解锁时解出。
+ * 私钥密文的认证数据绑定公钥指纹，解锁时可发现公钥被替换。
+ */
 export interface NotePasswordRecord {
-  format: 1;
+  format: 2;
   revision: number;
   kdf: { algorithm: 'scrypt'; salt: string; N: 32768; r: 8; p: 1 };
-  master: NoteCiphertext;
+  publicKey: string;
+  privateKey: NoteCiphertext;
 }
+/** 封装给公钥的逐篇密钥：临时公钥与认证加密的密钥密文。 */
+export interface NoteSealedKey { format: 2; ephemeral: string; payload: NoteCiphertext }
 const encoding = 'base64';
 const failure = () => new NotesError('密码不正确，或加密记录已损坏。', 403);
 const aad = (context: NoteCipherContext) => Buffer.from(JSON.stringify(['multivac-note', 1, context.noteId, context.kind, context.identity]));
@@ -49,21 +56,69 @@ async function passwordKey(password: string, kdf: NotePasswordRecord['kdf']): Pr
   const salt = decode(kdf.salt, 32);
   return new Promise((resolve, reject) => scrypt(password, salt, 32, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 64 * 1024 * 1024 }, (error, key) => error ? reject(error) : resolve(key)));
 }
-const masterContext = (revision: number): NoteCipherContext => ({ noteId: '', kind: 'master-key', identity: String(revision) });
+const fingerprint = (publicKey: string) => createHash('sha256').update(publicKey).digest('hex');
+const privateContext = (revision: number, publicKey: string): NoteCipherContext => ({ noteId: '', kind: 'private-key', identity: `${revision}:${fingerprint(publicKey)}` });
+const spki = (key: KeyObject) => key.export({ type: 'spki', format: 'der' }).toString(encoding);
 
-export async function protectNoteMaster(password: string, master: Buffer, revision: number): Promise<NotePasswordRecord> {
+function checkRecord(record: NotePasswordRecord): void {
+  if (record?.format !== 2 || !Number.isSafeInteger(record.revision) || record.revision < 1 || typeof record.publicKey !== 'string') throw failure();
+}
+
+/** 生成新的密钥对，并用密码保护私钥；返回的记录可直接保存。 */
+export async function createNoteKeys(password: string, revision: number): Promise<NotePasswordRecord> {
+  const { publicKey, privateKey } = generateKeyPairSync('x25519');
+  const der = privateKey.export({ type: 'pkcs8', format: 'der' });
+  try { return await protectNotePrivateKey(password, der, spki(publicKey), revision); }
+  finally { der.fill(0); }
+}
+
+/** 用密码保护私钥（PKCS#8 DER）；修改密码时沿用原公钥。 */
+export async function protectNotePrivateKey(password: string, privateKey: Buffer, publicKey: string, revision: number): Promise<NotePasswordRecord> {
   const kdf: NotePasswordRecord['kdf'] = { algorithm: 'scrypt', salt: randomBytes(32).toString(encoding), N: 32768, r: 8, p: 1 };
   const key = await passwordKey(password, kdf);
-  try { return { format: 1, revision, kdf, master: encryptNoteBytes(key, master, masterContext(revision)) }; }
+  try { return { format: 2, revision, kdf, publicKey, privateKey: encryptNoteBytes(key, privateKey, privateContext(revision, publicKey)) }; }
   finally { key.fill(0); }
 }
 
-export async function unprotectNoteMaster(password: string, record: NotePasswordRecord): Promise<Buffer> {
-  if (record?.format !== 1 || !Number.isSafeInteger(record.revision) || record.revision < 1) throw failure();
+/** 用密码解出私钥，并核对它与记录中的公钥成对。 */
+export async function unprotectNotePrivateKey(password: string, record: NotePasswordRecord): Promise<Buffer> {
+  checkRecord(record);
   const key = await passwordKey(password, record.kdf);
   try {
-    const master = decryptNoteBytes(key, record.master, masterContext(record.revision));
-    if (master.length !== 32) { master.fill(0); throw failure(); }
-    return master;
+    const der = decryptNoteBytes(key, record.privateKey, privateContext(record.revision, record.publicKey));
+    try {
+      if (spki(createPublicKey(createPrivateKey({ key: der, format: 'der', type: 'pkcs8' }))) !== record.publicKey) throw failure();
+    } catch { der.fill(0); throw failure(); }
+    return der;
   } finally { key.fill(0); }
+}
+
+const sealingKey = (shared: Buffer, ephemeral: string, recipient: string) =>
+  Buffer.from(hkdfSync('sha256', shared, Buffer.from(ephemeral + recipient), 'multivac-note-data-key', 32));
+const dataKeyContext = (noteId: string): NoteCipherContext => ({ noteId, kind: 'data-key', identity: '2' });
+
+/** 把逐篇密钥封装给公钥：只需公钥，不需要密码或私钥。 */
+export function sealNoteDataKey(publicKey: string, noteId: string, dataKey: Buffer): NoteSealedKey {
+  const recipient = createPublicKey({ key: Buffer.from(publicKey, encoding), format: 'der', type: 'spki' });
+  const ephemeral = generateKeyPairSync('x25519');
+  const ephemeralKey = spki(ephemeral.publicKey);
+  const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: recipient });
+  const key = sealingKey(shared, ephemeralKey, publicKey);
+  try { return { format: 2, ephemeral: ephemeralKey, payload: encryptNoteBytes(key, dataKey, dataKeyContext(noteId)) }; }
+  finally { key.fill(0); shared.fill(0); }
+}
+
+/** 用私钥打开逐篇密钥；调用方负责清零返回值。 */
+export function openNoteDataKey(privateKey: Buffer, publicKey: string, noteId: string, sealed: NoteSealedKey): Buffer {
+  if (sealed?.format !== 2 || typeof sealed.ephemeral !== 'string') throw failure();
+  let shared: Buffer | undefined, key: Buffer | undefined;
+  try {
+    const ephemeral = createPublicKey({ key: decode(sealed.ephemeral), format: 'der', type: 'spki' });
+    shared = diffieHellman({ privateKey: createPrivateKey({ key: privateKey, format: 'der', type: 'pkcs8' }), publicKey: ephemeral });
+    key = sealingKey(shared, sealed.ephemeral, publicKey);
+    const dataKey = decryptNoteBytes(key, sealed.payload, dataKeyContext(noteId));
+    if (dataKey.length !== 32) { dataKey.fill(0); throw failure(); }
+    return dataKey;
+  } catch { throw failure(); }
+  finally { key?.fill(0); shared?.fill(0); }
 }

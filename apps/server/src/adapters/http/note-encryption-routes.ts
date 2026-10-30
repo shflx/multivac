@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { NoteEncryption } from '../../modules/notes/encryption.js';
 import { NotesError } from '../../modules/notes/note.js';
 import { notesFailure, notesResponse, readNotesInput } from './notes-routes.js';
+import { NOTE_WINDOW_HEADER } from '@multivac/contracts';
 import { noteRequestAccess } from './note-security-routes.js';
 
 export function createNoteEncryptionRequestHandler(service: NoteEncryption) {
@@ -13,9 +14,18 @@ export function createNoteEncryptionRequestHandler(service: NoteEncryption) {
       if (request.method === 'GET') { notesResponse(response, 200, service.status(noteId)); return true; }
       if (request.method !== 'POST') throw new NotesError('不支持的加密操作。', 405);
       const access = noteRequestAccess(request);
-      if (!access) throw new NotesError('请先输入共用密码。', 423);
       const input = await readNotesInput(request) as Record<string, unknown>;
       if (!input || !['encrypt', 'decrypt', 'recover'].includes(String(input.action)) || Object.keys(input).some(key => !['action', 'expectedRevision'].includes(key))) throw new NotesError('加密操作参数无效。');
+      // 加密普通笔记只用公钥，无需先解锁；签发的窗口凭证随响应返回。取消加密和恢复仍须解锁。
+      if (input.action === 'encrypt' && !access) {
+        const window = request.headers[NOTE_WINDOW_HEADER];
+        if (typeof window !== 'string') throw new NotesError('缺少窗口凭据。');
+        if (!Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 1) throw new NotesError('请先核对已保存的笔记版本。');
+        const granted = service.encryptNew(noteId, Number(input.expectedRevision), window);
+        notesResponse(response, 200, { ...service.status(noteId), token: granted.token });
+        return true;
+      }
+      if (!access) throw new NotesError('请先输入笔记密码。', 423);
       if (input.action === 'recover') service.recover(noteId, access);
       else {
         if (!Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 1) throw new NotesError('请先核对已保存的笔记版本。');

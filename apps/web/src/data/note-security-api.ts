@@ -16,8 +16,10 @@ export async function unlockNote(id: string, password: string) {
 export async function lockNote(id: string) {
   await noteSecurityRequest(`/api/notes/${encodeURIComponent(id)}/lock`, 'POST'); forgetNoteAccess(id);
 }
-export function noteProtection(id: string) { return noteSecurityRequest<{ state: 'plain' | 'encrypting' | 'encrypted' | 'decrypting' }>(`/api/notes/${encodeURIComponent(id)}/protection`); }
+export function noteProtection(id: string) { return noteSecurityRequest<{ state: 'plain' | 'encrypting' | 'encrypted' | 'decrypting'; needsPassword?: true }>(`/api/notes/${encodeURIComponent(id)}/protection`); }
 export async function convertNote(id: string, action: 'encrypt' | 'decrypt' | 'recover', expectedRevision?: number) {
-  const result = await noteSecurityRequest<{ state: 'plain' | 'encrypting' | 'encrypted' | 'decrypting' }>(`/api/notes/${encodeURIComponent(id)}/protection`, 'POST', { action, ...(expectedRevision ? { expectedRevision } : {}) });
+  const result = await noteSecurityRequest<{ state: 'plain' | 'encrypting' | 'encrypted' | 'decrypting'; token?: string }>(`/api/notes/${encodeURIComponent(id)}/protection`, 'POST', { action, ...(expectedRevision ? { expectedRevision } : {}) });
+  // 加密普通笔记无需密码，服务端为当前窗口签发只限这一篇的凭证。
+  if (result.token) authorizeNote(id, result.token);
   return result;
 }

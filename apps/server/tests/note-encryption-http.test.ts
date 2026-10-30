@@ -47,6 +47,16 @@ test('应用级接口逐篇授权，密钥在另一窗口可用不绕过正文�
     assert.equal((await f.request('/api/notes/one', 'GET', undefined, fresh)).body.body, '正文哨兵one');
     assert.equal((await f.request('/api/notes/one/protection', 'POST', { action: 'decrypt', expectedRevision: 1 }, fresh)).status, 200);
     assert.equal((await f.request('/api/notes/one')).body.body, '正文哨兵one');
+    // 加密普通笔记无需密码：响应签发只限这一篇、这一窗口的凭证。
+    const sealed = await f.request('/api/notes/two/protection', 'POST', { action: 'encrypt', expectedRevision: 1 });
+    assert.equal(sealed.status, 200, JSON.stringify(sealed)); assert.equal(sealed.body.state, 'encrypted');
+    const granted = sealed.body.token as string;
+    assert.equal((await f.request('/api/notes/two')).status, 423);
+    assert.equal((await f.request('/api/notes/two', 'GET', undefined, granted)).body.body, '正文哨兵two');
+    assert.equal((await f.request('/api/notes/one/access', 'GET', undefined, granted)).status, 423);
+    assert.equal((await f.request('/api/notes/two/protection', 'POST', { action: 'encrypt', expectedRevision: 1 })).status, 409);
+    const unlocked = (await f.request('/api/notes/two/unlock', 'POST', { password: '共用密码' })).body.token;
+    assert.equal((await f.request('/api/notes/two', 'GET', undefined, unlocked)).body.body, '正文哨兵two');
   } finally { await f.close(); }
 });
 
