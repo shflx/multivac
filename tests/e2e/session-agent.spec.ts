@@ -1,6 +1,59 @@
 import { test, expect } from '@playwright/test';
 import { fakeApiRoot, openCreationDialog, openPanel, resetE2eState } from './test-state.js';
 
+test('智能体发送未到达服务端：刷新后可按原命令重试，保留新草稿并继续发送', async ({ page, request }) => {
+  await resetE2eState(request);
+  await page.goto('/');
+  await openPanel(page, 'workspace');
+  await openCreationDialog(page);
+  const dialog = page.getByRole('dialog', { name: '创建新会话' });
+  await dialog.getByLabel('会话名称').fill('未知发送恢复');
+  await dialog.getByRole('button', { name: '创建', exact: true }).click();
+  const panel = page.locator('.conversation-panel').filter({ has: page.getByRole('heading', { name: '未知发送恢复', exact: true }) });
+  const draft = panel.getByLabel('Multivac 草稿');
+  await expect(draft).toBeEditable();
+  await panel.getByRole('button', { name: '选择本轮智能体' }).click();
+  const search = panel.getByRole('textbox', { name: '搜索执行智能体' });
+  await search.fill('通用执行');
+  await search.press('Enter');
+  const sessionId = await panel.getAttribute('data-session-id');
+  const commands: Record<string, unknown>[] = [];
+  let allowDispatch = false;
+  await page.route(`**/api/sessions/${sessionId}/turns`, async route => {
+    commands.push(route.request().postDataJSON());
+    if (allowDispatch) await route.continue();
+    else await route.abort('failed');
+  });
+  await page.clock.install();
+  await draft.fill('原命令正文');
+  await draft.press('Enter');
+  await expect(panel.getByText('正在确认消息是否已接受', { exact: true })).toBeVisible();
+  await page.clock.runFor(13_000);
+  await expect(panel.getByRole('button', { name: '按原命令重试', exact: true })).toBeEnabled();
+  expect(commands).toHaveLength(1);
+
+  await page.reload();
+  await expect(page.locator('.assistant-composer:visible').first()).toBeVisible();
+  if (!await panel.isVisible()) await openPanel(page, 'workspace');
+  await expect(draft).toHaveValue('原命令正文');
+  await expect(panel.getByText('正在确认消息是否已接受', { exact: true })).toBeVisible();
+  await page.clock.runFor(13_000);
+  await expect(panel.getByRole('button', { name: '按原命令重试', exact: true })).toBeEnabled();
+  await draft.fill('下一条消息');
+  allowDispatch = true;
+  await panel.getByRole('button', { name: '按原命令重试', exact: true }).click();
+  await expect(panel.getByRole('button', { name: '按原命令重试', exact: true })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+  expect(commands).toHaveLength(2);
+  expect(commands[1]).toEqual(commands[0]);
+  await expect(draft).toHaveValue('下一条消息');
+  await draft.press('Enter');
+  await expect.poll(() => commands.length).toBe(3);
+  expect(commands[2]?.text).toBe('下一条消息');
+  expect(commands[2]?.commandId).not.toBe(commands[0]?.commandId);
+  await expect(draft).toHaveValue('');
+});
+
 for (const width of [1440, 900]) test(`工作会话 @ 搜索、键盘选择、默认沿用、切换与移除 ${width}px`, async ({ page, request }, testInfo) => {
   await resetE2eState(request);
   const created = await request.post(`${fakeApiRoot}/api/agents`, { data: { commandId: crypto.randomUUID(), name: '本轮审查', modelProfileId: 'fixture-openai', instructions: '先检查风险。' } });

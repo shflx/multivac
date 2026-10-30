@@ -165,6 +165,64 @@ test('网络失败后结果未知：保留原命令与快照，重试沿用同�
   assert.equal(controller.getState().pendingCommand, null);
 });
 
+test('智能体发送结果未知：普通发送只核对，显式重试使用原快照并保留新草稿', async () => {
+  let attempts = 0;
+  const { controller, sent } = harness({
+    send: async (command) => {
+      if (++attempts === 1) throw new TypeError('network');
+      return receipt(command.commandId, 'terminal', 'succeeded');
+    },
+  });
+  await ready(controller);
+  controller.setAgentId('reviewer');
+  controller.updateDraft('原问题');
+  controller.setQuote({ sourceKind: 'file', quoteKind: 'source', sourceSessionId: 'session', sourceFile: { root: '/work', path: 'a.ts' }, text: '' });
+  let images = ['image-a'];
+  controller.imageDraft = { ids: () => images, ready: true, clear: ids => { images = images.filter(id => !ids.includes(id)); }, restore: async () => {} };
+  await controller.submitDraft();
+  assert.equal(controller.getState().pendingCommand?.unknown, true);
+
+  controller.updateDraft('下一条消息');
+  controller.setAgentId('general');
+  controller.setQuote(null);
+  images = ['image-b'];
+  await controller.submitDraft();
+  assert.equal(sent.length, 1);
+
+  await controller.retryUnknownSubmission();
+  await settle();
+  assert.equal(sent.length, 2);
+  assert.deepEqual(sent[1], sent[0]);
+  const state = controller.getState();
+  assert.equal(state.pendingCommand, null);
+  assert.equal(state.page.draft, '下一条消息');
+  assert.equal(state.page.agentId, 'general');
+  assert.equal(state.page.quote, null);
+  assert.deepEqual(images, ['image-b']);
+  await controller.submitDraft();
+  assert.equal(sent[2]?.text, '下一条消息');
+  assert.equal(sent[2]?.agentId, 'general');
+  assert.notEqual(sent[2]?.commandId, sent[0]?.commandId);
+  controller.dispose();
+});
+
+test('智能体命令已确认受理后，即使结果核对失败也不再次发送', async () => {
+  const response = deferred<AssistantCommandReceipt>();
+  const { controller, sent, feeds } = harness({ send: () => response.promise });
+  await ready(controller);
+  controller.setAgentId('reviewer');
+  controller.updateDraft('原问题');
+  const submitting = controller.submitDraft();
+  feeds[0]!.handlers.deliver({ cursor: '2', eventId: 'handed', assistantSessionId: 'session', commandId: 'command-1', occurredAt: '2026-10-18T00:00:00.000Z', type: 'assistant.command.handed_to_pi', data: { dispatchMode: 'prompt' } } as AssistantPublicEvent);
+  response.reject(new TypeError('network'));
+  await submitting;
+  assert.equal(controller.getState().pendingCommand?.confirmed, true);
+  assert.equal(controller.getState().pendingCommand?.unknown, true);
+  await controller.retryUnknownSubmission();
+  assert.equal(sent.length, 1);
+  controller.dispose();
+});
+
 test('服务端明确拒绝：输入保留，说明拒绝原因，状态条显示失败', async () => {
   const { controller } = harness({
     send: async () => { throw new AssistantApiError('INVALID_REQUEST', '当前模型不可用。', 422); },

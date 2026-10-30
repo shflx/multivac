@@ -824,7 +824,7 @@ export class AssistantSessionController {
         this.clearActivePrompt(owner);
         this.setPromptFeedback(owner, UNKNOWN_FEEDBACK);
       }
-      this.update({ sendError: pending.agentId ? '发送结果未知，原智能体选择已保留，请核对原命令结果。' : '发送结果未知，可按原命令重试。' });
+      this.update({ sendError: pending.agentId ? '发送结果未知，原智能体选择已保留，可核对结果或按原命令重试。' : '发送结果未知，可按原命令重试。' });
     } finally {
       if (sameCommand(this.reconciliationCommand, owner)) {
         this.reconciliationCommand = null;
@@ -1046,8 +1046,11 @@ export class AssistantSessionController {
     const ownedBehaviorSelection = running && currentBehaviorSelection && sameCommand(currentBehaviorSelection, active)
       ? currentBehaviorSelection
       : null;
-    // 结果未知时只核对原命令，不借重试按钮重发副作用或换用新的输入。
-    if (reusable?.unknown && reusable.agentId) { await this.reconcilePendingCommand(reusable, lifecycle); return; }
+    // 普通发送入口只核对智能体的未知命令；显式重试才允许按原快照和幂等身份再次提交。
+    if (reusable?.unknown && reusable.agentId && (!resendUnknown || reusable.confirmed)) {
+      await this.reconcilePendingCommand(reusable, lifecycle);
+      return;
+    }
     const imageIds = resendUnknown ? reusable?.imageIds ?? [] : recovery ? recovery.imageIds ?? [] : this.imageDraft.ids();
     // 引用与上下文都是命令指纹的一部分；任一变化就不再是同一条命令，必须新建 commandId。
     const retryingUnknown = Boolean(
@@ -1181,8 +1184,11 @@ export class AssistantSessionController {
 
   async retryUnknownSubmission(): Promise<void> {
     const pending = this.state.pendingCommand;
-    if (pending?.unknown && pending.agentId) await this.reconcilePendingCommand(pending, this.lifecycle);
-    else if (pending?.unknown && pending.clearOnSubmit) await this.submitDraft({ clearOnSubmit: true, omitQuote: pending.omitQuote ?? false }, undefined, true);
+    if (!pending?.unknown) return;
+    // 显式重试沿用完整快照与幂等身份；已确认受理的命令仍只读核对。
+    if (pending.agentId || pending.clearOnSubmit) {
+      await this.submitDraft({ clearOnSubmit: pending.clearOnSubmit ?? false, omitQuote: pending.omitQuote ?? false }, undefined, true);
+    }
   }
 
   async checkPendingSubmission(): Promise<void> {

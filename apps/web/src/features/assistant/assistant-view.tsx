@@ -983,7 +983,15 @@ function AssistantSessionView({
               )}
               {skillPicker.view}
               {compactNotice && sessionContext.operation && <CompactFeedback operation={sessionContext.operation} onDismiss={() => setCompactNotice(false)} />}
-              {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && <div className="send-error" role="status"><span>发送结果尚未确认，原选择已保留。</span><button type="button" disabled={session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button></div>}
+              {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && (
+                <div className="send-error" role="status">
+                  <span>发送结果尚未确认，原选择已保留。</span>
+                  <button type="button" disabled={submitting || session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button>
+                  {!session.pendingSubmission.confirmed && (
+                    <button type="button" disabled={submitting || session.pendingSubmission.checking || modelState.busy || !session.imageDraft.ready} onClick={() => void session.retryUnknownSubmission()}>按原命令重试</button>
+                  )}
+                </div>
+              )}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
               <div className="composer-inline-input">
               {allowAgentSelection && !isCoordinator && !remote && <div className="composer-agent-slot" ref={setAgentMentionTarget} />}

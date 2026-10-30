@@ -65,6 +65,26 @@ test('受理后修改或删除不改本轮；追加锁定执行者；重放只�
   } finally { state.adapter.releasePromptCompletionBarrier(); await state.close(); }
 });
 
+for (const scenario of ['success', 'failure'] as const) test(`${scenario} 响应丢失后重试原智能体命令，在途和终态均不重复执行`, async () => {
+  const state = await fixture({ promptScenario: scenario });
+  state.adapter.armPromptCompletionBarrier();
+  try {
+    const original = send(`lost-response-${scenario}`);
+    const first = state.commands.send(original);
+    // 首次请求还未写入受理回执时，重试也必须复用同一次发送。
+    assert.equal(state.commands.send(original), first);
+    await state.adapter.waitForPromptCompletionBarrierEntry();
+    state.change(null);
+    assert.equal(state.commands.send(original), first);
+    state.adapter.releasePromptCompletionBarrier();
+    const result = await first;
+    assert.equal(result.terminalOutcome, scenario === 'success' ? 'succeeded' : 'failed');
+    assert.deepEqual(await state.commands.send(original), result);
+    assert.equal(state.adapter.calls.filter(call => call.method === 'prompt').length, 1);
+    assert.equal(state.adapter.calls.filter(call => call.method === 'turnExecution').length, 1);
+  } finally { state.adapter.releasePromptCompletionBarrier(); await state.close(); }
+});
+
 test('prompt 抛错与用户停止都恢复配置，不会留下活动执行者', async () => {
   const state = await fixture();
   try {
