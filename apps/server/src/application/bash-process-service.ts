@@ -1,4 +1,5 @@
-import { bashCommandShell, type CommandShell } from '../runtime/executors/command-shell.js';
+import { childEnvironment } from '../runtime/program-launch.js';
+import { createCommandShell, type CommandShell } from '../runtime/executors/command-shell.js';
 import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, stat, appendFile, writeFile } from 'node:fs/promises';
@@ -34,7 +35,7 @@ export class BashProcessService {
   private readonly stoppedExecutions = new Set<string>();
   private readonly stoppedSessions = new Set<string>();
   constructor(private readonly repository: ManagedProcessRepository, private readonly root: string,
-    private readonly supervisors: ProcessSupervisors, private readonly changed: () => void, private readonly graceMillis = 1000, private readonly shell: CommandShell = bashCommandShell) {}
+    private readonly supervisors: ProcessSupervisors, private readonly changed: () => void, private readonly graceMillis = 1000, private readonly shell: CommandShell = createCommandShell()) {}
 
   get activeCount() { return this.live.size; }
   private paths(id: string) { return { log: join(this.root, `${id}.log`), receipt: join(this.root, `${id}.exit.json`) }; }
@@ -146,8 +147,7 @@ export class BashProcessService {
         }, 100);
         void live.closed.finally(() => clearInterval(guard));
       }
-      const env: NodeJS.ProcessEnv = {};
-      for (const key of ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER', 'LOGNAME', 'TERM']) if (process.env[key]) env[key] = process.env[key];
+      const env = childEnvironment();
       // 完成所有异步准备后按最新事实复核，随后使用已钉住的真实目录启动。
       validateBeforeStart?.();
       child = this.supervisors.bash();

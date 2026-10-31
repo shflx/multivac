@@ -1,3 +1,4 @@
+import { createCommandShell } from './command-shell.js';
 import { Type } from 'typebox';
 import { createBashToolDefinition, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { BashExecutionPort, IsolatedBashExecution } from '../../modules/processes/bash-execution.js';
@@ -14,7 +15,8 @@ const Parameters = Type.Object({
 }, { additionalProperties: false });
 
 /** 复用 SDK 的前台输出、截断与错误呈现，后台由同一执行端口登记并返回稳定身份。 */
-export function managedBashTool(sessionId: string, directory: string, processes: BashExecutionPort, native?: NativeTaskTools): ToolDefinition<typeof Parameters> {
+export function managedBashTool(sessionId: string, directory: string, processes: BashExecutionPort, native?: NativeTaskTools, platform: NodeJS.Platform = process.platform): ToolDefinition<typeof Parameters> {
+  const shell = createCommandShell(platform);
   const isolated: IsolatedBashExecution | undefined = native ? (command, options) => native.execute('/bin/bash', ['--noprofile', '--norc', '-c', command], {
     signal: options.signal, timeoutMs: Math.min(options.timeoutMs ?? 60000, 60000), onData: options.onData, onSpawn: options.onSpawn, fenced: true,
   }) : undefined;
@@ -22,8 +24,9 @@ export function managedBashTool(sessionId: string, directory: string, processes:
     name: 'bash', label: 'bash', description: (native
       ? '在任务独立目录按原隔离规则执行 bash，不支持 cwd 参数。'
       : '执行 bash，cwd 可选，默认会话原工作目录；工作会话与共用后端的新任务可指定当前已确认项目主/附目录及合法子目录。启动前动态核对真实目录和当前范围。cwd 只决定本次启动位置，不改会话目录，不提供文件系统隔离；文件独立授权不授予执行目录许可，全局 Multivac 仍只用原目录。') +
+      (platform === 'win32' ? `实际解释器为 ${shell.syntax}。原生程序使用 argv，npm/npx 请使用 .cmd；不支持 profile 或执行策略修改。` : '') +
       '所有执行均登记。mode 默认 foreground，等待命令结果；持续服务使用 background，返回 processId，可查询日志和停止。后台直接填写持续运行的命令，由管理器保持运行。timeout 为秒，可选：前台限制运行时间，后台只限制启动等待；任务自身时限和额度仍有效。',
-    promptSnippet: '执行并管理 bash 命令，支持前台与后台模式。',
+    promptSnippet: platform === 'win32' ? `执行并管理 ${shell.syntax} 命令，支持前台与后台模式。` : '执行并管理 bash 命令，支持前台与后台模式。',
     promptGuidelines: ['普通命令默认前台。用户要求启动并保持服务时选择 mode=background；使用返回的 processId 查询日志和停止。切换会话和一轮回答结束不停止后台进程。',
       'background 的 timeout 只限制启动等待，不限制服务寿命。返回 processId 只证明进程启动；确认服务可用时还须核对实际访问和进程状态。',
       native ? '隔离任务不支持 cwd 参数，文件、网络、凭据及派生进程边界保持原规则。'
@@ -33,8 +36,20 @@ export function managedBashTool(sessionId: string, directory: string, processes:
       if (native && params.cwd !== undefined) throw new Error('隔离任务 bash 不支持指定 cwd，沿用任务原目录。');
       if (params.mode === 'background') {
         const result = await processes.execute(sessionId, directory, toolCallId, params, signal, () => {}, isolated);
-        if (result.process.state === 'failed') throw new Error(result.process.reason);
+        if (result.process.state === 'failed' || platform === 'win32' && result.process.state === 'recovery') throw new Error(result.process.reason);
         return { content: [{ type: 'text', text: JSON.stringify(result.process) }], details: undefined };
+      }
+      if (platform === 'win32') {
+        let output = Buffer.alloc(0), truncated = false;
+        const result = await processes.execute(sessionId, directory, toolCallId, params, signal, data => {
+          output = Buffer.concat([output, data]);
+          if (output.length > 64 * 1024) { output = output.subarray(-64 * 1024); truncated = true; }
+          onUpdate?.({ content: [{ type: 'text', text: output.toString('utf8') }], details: undefined });
+        }, isolated);
+        const text = `${truncated ? '输出仅保留最后 64 KiB。\n' : ''}${output.toString('utf8')}`;
+        if (result.exitCode === null) throw new Error(`${result.process.reason}\n${text}`);
+        if (result.exitCode !== 0) throw new Error(`Windows PowerShell 5.1 退出码 ${result.exitCode}。\n${text}`);
+        return { content: [{ type: 'text', text: text || '命令已退出（0）。' }], details: undefined };
       }
       const foreground = createBashToolDefinition(directory, { exposeSessionEnvironment: false, operations: {
         exec: async (_command, _cwd, options) => {

@@ -1,3 +1,4 @@
+import { powershellCommandShell } from './powershell-command.js';
 export interface CommandShell {
   readonly name: string;
   readonly syntax: string;
@@ -10,3 +11,7 @@ export const bashCommandShell: CommandShell = {
   name: 'bash', syntax: 'bash（--noprofile --norc）',
   launch: command => ({ file: '/bin/bash', args: ['--noprofile', '--norc', '-c', BASH_ANCHOR_COMMAND, 'multivac-bash', command] }),
 };
+
+export function createCommandShell(platform: NodeJS.Platform = process.platform): CommandShell {
+  return platform === 'win32' ? powershellCommandShell() : bashCommandShell;
+}
