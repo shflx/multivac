@@ -1,3 +1,4 @@
+import { UNKNOWN_CHANGE_ORIGIN } from '@multivac/contracts';
 import { NoteHttpAccess } from '../adapters/http/note-access.js';
 import { SqliteNoteEncryption } from '../storage/sqlite-note-encryption.js';
 import { SqliteProtectedTranscripts } from '../storage/sqlite-protected-transcripts.js';
@@ -27,7 +28,9 @@ import { GitPublishService } from '../application/git-publish-service.js';
 import { GitReadService, workingGitBoundary } from '../application/git-read-service.js';
 import { TaskGitService } from '../application/task-git-service.js';
 import { InboxService } from '../application/inbox-service.js';
-import { ReminderScheduler } from '../application/reminder-scheduler.js';
+import { ScheduleScheduler } from '../application/schedule-scheduler.js';
+import { ScheduleService } from '../application/schedule-service.js';
+import { SqliteScheduleNotifications } from '../storage/sqlite-schedule-notifications.js';
 import { NotificationDeliveryService } from '../application/notification-delivery-service.js';
 import { NotificationChannelManagementService } from '../application/notification-channel-management-service.js';
 import { WechatBindingService } from '../application/wechat-binding-service.js';
@@ -1139,16 +1142,28 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     return `${title} · ${project}`;
   };
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders, mcp.authorizations, describeInboxSource);
+  const scheduleNotifications = new SqliteScheduleNotifications(store.schedules.db, store.schedules);
+  scheduleNotifications.migrate();
+  const scheduleChanged = (id: string) => workbenchEvents.publish({ type: 'schedules.changed', id, origin: UNKNOWN_CHANGE_ORIGIN });
+  const schedules = new ScheduleService(store.schedules, () => new Date(), scheduleChanged);
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
-  });
+  }, () => new Date(), store.schedules);
   const wechatNotifications = new WechatBindingService(store.notificationChannels, store.wechatBindings,
     new PrivateWechatStore(join(paths.dataDir, 'notification-secrets', 'wechat')));
   wechatNotifications.initialize();
   const notificationDelivery = new NotificationDeliveryService(store.notificationChannels, [new WechatNotificationAdapter(wechatNotifications)]);
   notificationDelivery.start(workbenchEvents);
-  const reminderScheduler = new ReminderScheduler(store.reminders, workbenchEvents);
-  reminderScheduler.start();
+  const scheduleScheduler = new ScheduleScheduler(store.schedules, {
+    async run(item) {
+      if (item.snapshot.action.kind !== 'reminder') return { status: 'failed', summary: 'Agent 执行适配器尚未接入。' };
+      const notification = scheduleNotifications.deliver(item, new Date().toISOString());
+      workbenchEvents.publish({ type: 'inbox.changed', id: notification.id, origin: UNKNOWN_CHANGE_ORIGIN });
+      return { status: 'succeeded', summary: 'Inbox 提醒已送达。', notificationId: notification.id };
+    },
+    async stop() { return true; },
+  }, scheduleChanged);
+  scheduleScheduler.start();
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.sessions.get(id)?.title);
   const skills: SkillService = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills'),parseSkillFrontmatter), workbenchEvents, id => projectService.getProject(id), {
     context: id => {
@@ -1238,14 +1253,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts, mcpManagement, mcpResources,
+    terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, schedules, mcp, mcpAccounts, mcpManagement, mcpResources,
     server,
     remoteAccess,
     paths,
     workPaths,
     ready: ready.then(async () => { await managedProcesses.recover(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
     close() {
-      reminderScheduler.stop();
+      const schedulesStopped = scheduleScheduler.close();
       const hadNotifications = notificationDelivery.hasActivity || wechatNotifications.hasActivity || notificationChannels.hasActivity;
       const notificationsStopped = Promise.allSettled([notificationDelivery.close(), wechatNotifications.close(), notificationChannels.close()]);
       remoteAccess.close();
@@ -1284,9 +1299,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
-      if (hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb || hadNotifications) {
+      if (schedulesStopped || hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb || hadNotifications) {
         const processesStopped = managedProcesses.activeCount ? managedProcesses.close() : Promise.resolve();
-        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped, notificationsStopped]).then(results => {
+        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped, notificationsStopped, schedulesStopped]).then(results => {
           // 无法核对终端停止时仍保留数据库和运行时，让迟到退出能够写回真实状态。
           if (results[0]?.status === 'rejected') throw results[0].reason;
           finish();

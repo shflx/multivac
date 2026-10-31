@@ -101,7 +101,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
   else actions = <><button className="secondary-button" disabled={busy} onClick={() => decide('deny')}>不采用</button><button className="primary-button" disabled={busy || !draft.trim()} onClick={() => decide('answer')}>提交回应</button></>;
   return <>
     <div className="inbox-detail-scroll" ref={body} onScroll={event => { if (active) scroll.current[item.id] = event.currentTarget.scrollTop; }}>
-      {notification && <section className="inbox-evidence"><h3>提醒内容</h3><p className="inbox-notification-text">{notification.text}</p><Facts entries={[
+      {notification && <section className="inbox-evidence"><h3>{notification.source === 'agent' ? 'Agent 执行结果' : '提醒内容'}</h3><p className="inbox-notification-text">{notification.text}</p><Facts entries={[
         ['原计划时间', `${notification.localTime.replace('T', ' ')} (${notification.timeZone})`],
         ['绝对时间', notification.scheduledAt], ['实际送达', new Date(notification.createdAt).toLocaleString()],
       ]} />{Date.parse(notification.createdAt) - Date.parse(notification.scheduledAt) > 30_000 && <p className="inbox-muted">本通知晚于原计划时间送达。服务关闭期间无法准时触发，重启后补发。</p>}<p className="inbox-muted">查看仅消除未读；点击“知道了”结束待处理。</p></section>}

@@ -39,6 +39,16 @@ export class SqliteScheduleRepository implements ScheduleRepository {
   save(item: Schedule): void {
     this.db.prepare('INSERT INTO schedule VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET state=excluded.state,kind=excluded.kind,name=excluded.name,next_at=excluded.next_at,record_json=excluded.record_json')
       .run(item.scheduleId, item.state, item.action.kind, item.name, item.nextAt, JSON.stringify(item));
+    if (item.legacyReminderId && item.action.kind === 'reminder' && item.rule.kind === 'once') {
+      const row = this.db.prepare('SELECT record_json FROM reminder WHERE id=?').get(item.legacyReminderId);
+      if (row) {
+        const old = JSON.parse(String(row.record_json));
+        const status = item.state === 'active' ? 'scheduled' : item.state === 'paused' || item.state === 'deleted' ? 'cancelled' : old.status;
+        const next = { ...old, revision: item.revision, text: item.action.text, scheduledAt: item.rule.scheduledAt,
+          localTime: item.rule.localTime, timeZone: item.timeZone, status, updatedAt: item.updatedAt };
+        this.db.prepare('UPDATE reminder SET status=?,scheduled_at=?,record_json=? WHERE id=?').run(status, next.scheduledAt, JSON.stringify(next), item.legacyReminderId);
+      }
+    }
   }
   page(query: ScheduleQuery = {}) {
     const clauses: string[] = [], args: (string | number)[] = [];

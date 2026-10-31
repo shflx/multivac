@@ -72,3 +72,16 @@ test('仅提醒来源、独立测试不创建Inbox；未确认手机不能启用
     assert.equal(f.outbox.deliveries('wechat').items.filter(d => d.kind==='test').length, 1);
   } finally { f.db.close(); }
 });
+
+test('周期提醒可外发，Agent 结果即使形似旧身份也不可外发', () => {
+  const f = fixture();
+  try {
+    f.enable();
+    const base = { revision: 1, text: '安排通知', scheduledAt: now, localTime: now.slice(0,19), timeZone: 'UTC', createdAt: now, acknowledgedAt: null, sourceSessionId: 'session', reminderId: null, reminderRevision: null };
+    const reminder = { ...base, id: 'notification:planned:one', source: 'reminder', scheduleId: 'schedule', occurrenceId: 'planned:one' };
+    const agent = { ...base, id: 'notification:agent:1', source: 'agent', reminderId: 'agent', reminderRevision: 1 };
+    for (const n of [reminder,agent]) f.db.prepare('INSERT INTO inbox_notification VALUES (?,?)').run(n.id, JSON.stringify(n));
+    f.outbox.reconcile(now); f.outbox.reconcile(now);
+    assert.deepEqual(f.records('wechat').map(d => d.notificationId), [reminder.id]);
+  } finally { f.db.close(); }
+});

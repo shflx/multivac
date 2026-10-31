@@ -40,6 +40,8 @@ test('暂停仅阻止后续，待核对轮次不重放并阻止重叠；其他�
   assert.equal(f.repo.get(f.item.scheduleId)!.nextAt, '2026-01-04T09:00:00.000Z');
   f.service.control('session', { commandId: 'again', scheduleId: f.item.scheduleId, revision: 3, operation: 'trigger' });
   f.scheduler.tick(); await Promise.resolve();
+  const inFlight = f.repo.active(f.item.scheduleId)!;
+  f.repo.saveOccurrence({ ...inFlight, snapshot: { ...inFlight.snapshot, action: { kind: 'agent', instruction: '检查', agentId: 'general', projectId: null, directory: null, budget: { maxMillis: 1000, maxToolCalls: 1, maxOutputBytes: 1024 } } } });
   const recovery = new ScheduleScheduler(f.repo, f.runner, () => {}, f.now); recovery.recover();
   assert.equal(f.repo.active(f.item.scheduleId)!.status, 'reconcile');
   const overlap = f.service.control('session', { commandId: 'overlap', scheduleId: f.item.scheduleId, revision: 3, operation: 'trigger' });

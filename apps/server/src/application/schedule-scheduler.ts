@@ -11,7 +11,7 @@ export interface ScheduleActionRunner {
 }
 const LEASE_MS = 30_000;
 const LATE_MS = 60_000;
-const idFor = (id: string, at: string) => `planned:${createHash('sha256').update(JSON.stringify([id, at])).digest('hex')}`;
+export const scheduledOccurrenceId = (id: string, at: string) => `planned:${createHash('sha256').update(JSON.stringify([id, at])).digest('hex')}`;
 
 /** 单机持久调度。只提交短事务；模型和人工等待不阻塞其他安排。 */
 export class ScheduleScheduler {
@@ -31,7 +31,7 @@ export class ScheduleScheduler {
   recover(): void {
     this.repository.transaction(() => {
       for (const item of this.repository.unsettled()) {
-        if (item.status === 'pending') this.repository.saveOccurrence({ ...item, leaseOwner: null, leaseUntil: null });
+        if (item.status === 'pending' || item.snapshot.action.kind === 'reminder' && item.status !== 'stopping') this.repository.saveOccurrence({ ...item, status: 'pending', leaseOwner: null, leaseUntil: null });
         else this.repository.saveOccurrence({ ...item, status: 'reconcile', reason: '服务重启，旧执行及副作用结果需要只读核对，未自动重跑。', leaseUntil: null });
       }
     });
@@ -90,7 +90,7 @@ export class ScheduleScheduler {
     if (schedule.rule.kind !== 'once' && Date.parse(next) < boundary) {
       const recent = previewSchedule(schedule.rule, schedule.timeZone, new Date(boundary), 16).filter(x => x.scheduledAt <= now);
       const last = recent.at(-1);
-      const record = makeOccurrence(schedule, idFor(schedule.scheduleId, next), next, 'planned');
+      const record = makeOccurrence(schedule, scheduledOccurrenceId(schedule.scheduleId, next), next, 'planned');
       this.savePlanned({ ...record, status: 'skipped', reason: `长期离线错过区间 ${next} 至 ${last?.scheduledAt ?? now}；仅考虑最近一次，不逐次补跑。`, endedAt: now });
       next = last?.scheduledAt ?? previewSchedule(schedule.rule, schedule.timeZone, this.now(), 1)[0]!.scheduledAt;
     }
@@ -101,7 +101,7 @@ export class ScheduleScheduler {
       const following = previewSchedule(schedule.rule, schedule.timeZone, new Date(next), 1)[0]?.scheduledAt ?? null;
       const late = Date.parse(now) - Date.parse(next) > LATE_MS;
       const catchUp = schedule.rule.kind === 'once' && schedule.action.kind === 'reminder' || schedule.missedPolicy === 'latest' && (!following || following > now);
-      const record = makeOccurrence(schedule, idFor(schedule.scheduleId, next), next, 'planned');
+      const record = makeOccurrence(schedule, scheduledOccurrenceId(schedule.scheduleId, next), next, 'planned');
       record.localTime = preview.localTime;
       const reason = preview.skipReason ? 'DST 不存在的日历时刻，已跳过。' : this.repository.active(schedule.scheduleId)
         ? '上一轮尚未结束或待核对，本轮不重叠。' : late && !catchUp ? '服务离线或时间调整错过，按策略跳过。' : null;

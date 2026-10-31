@@ -191,7 +191,10 @@ export class SqliteNotificationChannelRepository implements NotificationChannelR
         for (const row of rows) {
           const notification = JSON.parse(String(row.record_json)) as InboxNotification;
           // 来源只能是持久提醒通知；身份同时核对，不能把其他 Inbox 事项转换为通知。
-          if (notification.id !== `notification:${notification.reminderId}:${notification.reminderRevision}`) continue;
+          if (notification.source === 'agent') continue;
+          const legacy = notification.reminderId && notification.id === `notification:${notification.reminderId}:${notification.reminderRevision}`;
+          const scheduled = notification.source === 'reminder' && notification.occurrenceId && notification.id === `notification:${notification.occurrenceId}`;
+          if (!legacy && !scheduled) continue;
           const before = this.db.prepare('SELECT id FROM notification_delivery WHERE notification_id=? AND channel_id=?').get(notification.id, range.channel_id!);
           if (!before) {
             const record = this.insertDelivery(String(range.channel_id), Number(range.config_version), Number(range.binding_generation), {

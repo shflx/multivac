@@ -1,3 +1,5 @@
+import type { ScheduleRepository } from '../modules/schedules/repository.js';
+import { reminderSchedule } from '../modules/schedules/legacy-reminder.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Check } from 'typebox/value';
 import { CreateReminderSchema, UpdateReminderSchema, CancelReminderSchema, ReminderQuerySchema, normalizeReminderTime, reminderLocalTime,
@@ -9,7 +11,7 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 /** 用户明确安排的单次提醒，不与 Task 或执行生命周期关联。 */
 export class ReminderService {
   constructor(private readonly repository: ReminderRepository, private readonly requireSession: (id: string) => void,
-    private readonly now: () => Date = () => new Date()) {}
+    private readonly now: () => Date = () => new Date(), private readonly schedules?: ScheduleRepository) {}
   context(timeZone?: string) {
     const now = this.now();
     let localTime: string | null = null;
@@ -18,7 +20,7 @@ export class ReminderService {
       catch { throw new TaskServiceError('INVALID_REQUEST', '用户时区无效，请核对 IANA 时区。'); }
     }
     return { currentTime: now.toISOString(), timeZone: timeZone ?? null, localTime,
-      limitation: '仅支持单次提醒，原通知保留在 Inbox；已启用的通知渠道可额外发送文本副本。服务关闭期间无法准时通知，重启后补发并显示原计划时间。' };
+      limitation: '旧接口支持单次提醒；周期与 Agent 请使用定时安排工具。原通知保留在 Inbox；已启用的通知渠道可额外发送文本副本。服务关闭期间无法准时通知，重启后补发并显示原计划时间。' };
   }
   get(id: string): Reminder {
     const item = this.repository.get(id);
@@ -44,7 +46,7 @@ export class ReminderService {
       const reminder: Reminder = { reminderId: randomUUID(), revision: 1, text: input.text.trim(), scheduledAt,
         timeZone: input.timeZone, localTime: input.localTime, sourceSessionId: sessionId, status: 'scheduled',
         createdAt: now, updatedAt: now, notificationId: null, failure: null };
-      this.repository.save(reminder); this.repository.schedule(reminder);
+      this.repository.save(reminder); this.schedule(reminder);
       return reminder;
     });
   }
@@ -56,7 +58,7 @@ export class ReminderService {
       const scheduledAt = this.time(input);
       const next = { ...current, revision: current.revision + 1, text: input.text.trim(), scheduledAt,
         timeZone: input.timeZone, localTime: input.localTime, updatedAt: this.now().toISOString() };
-      this.repository.save(next); this.repository.schedule(next);
+      this.repository.save(next); this.schedule(next);
       return next;
     });
   }
@@ -67,8 +69,13 @@ export class ReminderService {
       const current = this.scheduled(input.reminderId, input.revision);
       const next: Reminder = { ...current, revision: current.revision + 1, status: 'cancelled', updatedAt: this.now().toISOString() };
       this.repository.save(next); this.repository.invalidate(next.reminderId);
+      this.schedules?.save(reminderSchedule(next));
       return next;
     });
+  }
+  private schedule(reminder: Reminder): void {
+    if (this.schedules) { this.repository.invalidate(reminder.reminderId); this.schedules.save(reminderSchedule(reminder)); }
+    else this.repository.schedule(reminder);
   }
   private scheduled(id: string, revision: number): Reminder {
     const current = this.get(id);

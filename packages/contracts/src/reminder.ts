@@ -35,7 +35,9 @@ export const ReminderSchema = Type.Object({
 }, { additionalProperties: false });
 export type Reminder = Type.Static<typeof ReminderSchema>;
 export const InboxNotificationSchema = Type.Object({
-  id: Id, reminderId: Id, reminderRevision: Type.Integer({ minimum: 1 }), revision: Type.Integer({ minimum: 1 }),
+  id: Id, reminderId: Type.Union([Id, Type.Null()]), reminderRevision: Type.Union([Type.Integer({ minimum: 1 }), Type.Null()]),
+  source: Type.Optional(Type.Union([Type.Literal('reminder'), Type.Literal('agent')])),
+  scheduleId: Type.Optional(Id), occurrenceId: Type.Optional(Id), revision: Type.Integer({ minimum: 1 }),
   text: Type.String(), ...ReminderTimeSchema.properties, sourceSessionId: Id,
   createdAt: Type.String(), acknowledgedAt: Type.Union([Type.String(), Type.Null()]),
 }, { additionalProperties: false });
