@@ -17,6 +17,27 @@ function fixture(policy: 'skip' | 'latest' = 'skip') {
   const scheduler = new ScheduleScheduler(repo, runner, () => {}, now);
   return { db, repo, service, item, runner, calls, scheduler, now, setTime: (at: string) => { time = new Date(at); } };
 }
+test('空闲调度器关闭时同步返回', () => {
+  const f = fixture();
+  try { f.scheduler.start(); assert.equal(f.scheduler.close(), undefined); }
+  finally { f.db.close(); }
+});
+test('存在在途动作时，关闭等待停止核对和原执行收尾', async () => {
+  const f = fixture(); f.setTime('2026-01-01T09:00:00Z');
+  let finish!: () => void;
+  let stopped = false;
+  f.runner.run = async () => { await new Promise<void>(resolve => { finish = resolve; }); return { status: 'stopped', summary: '已停止' }; };
+  f.runner.stop = async () => { stopped = true; finish(); return true; };
+  try {
+    f.scheduler.tick(); await Promise.resolve();
+    const closing = f.scheduler.close();
+    assert.ok(closing instanceof Promise);
+    await closing;
+    assert.equal(stopped, true);
+    assert.equal(f.repo.history(f.item.scheduleId).items[0]!.status, 'stopped');
+    assert.equal(f.repo.active(f.item.scheduleId), null);
+  } finally { f.db.close(); }
+});
 test('重复和竞争扫描不重复执行；游标先提交、单次手动不移动计划', async () => {
   const f = fixture(); f.setTime('2026-01-01T09:00:00Z');
   const other = new ScheduleScheduler(f.repo, f.runner, () => {}, f.now);

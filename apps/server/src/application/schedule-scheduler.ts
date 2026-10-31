@@ -66,11 +66,13 @@ export class ScheduleScheduler {
     }
   }
   /** 停止服务不再派发；所有在途轮次须停止核对，失败保留 reconcile 占用。 */
-  async close(): Promise<void> {
+  close(): Promise<void> | void {
     this.stopped = true;
     if (this.timer) clearTimeout(this.timer); this.timer = null;
     const items = this.repository.unsettled().filter(item => item.leaseOwner === this.owner && item.status !== 'pending');
-    await Promise.all(items.map(async item => {
+    // 空闲关闭保持同步，让既有应用关闭入口立即释放数据目录；在途轮次仍等待停止核对。
+    if (!items.length && !this.running.size) return;
+    return Promise.all(items.map(async item => {
       let confirmed = false;
       try { confirmed = await this.runner.stop(item); if (confirmed) await this.running.get(item.occurrenceId); } catch (error) { this.onError(error); }
       this.repository.transaction(() => {
@@ -79,7 +81,7 @@ export class ScheduleScheduler {
         this.repository.saveOccurrence({ ...current, status: confirmed ? 'stopped' : 'reconcile', endedAt: confirmed ? this.now().toISOString() : null,
           reason: confirmed ? '服务关闭，已确认本次停止。' : '服务关闭，本次停止尚未确认，禁止自动重跑。', leaseUntil: null });
       });
-    }));
+    })).then(() => {});
   }
   async settle(): Promise<void> { await Promise.all([...this.running.values()]); }
   private materialize(schedule: Schedule, now: string): void {
