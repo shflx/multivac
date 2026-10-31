@@ -138,6 +138,7 @@ test('真实 Pi：内部工具按会话注入，工作会话可查询和更新�
       'list_skills', 'propose_skill', 'list_notes', 'read_note', 'create_note', 'update_note', 'get_note_operation',
       'query_mcp_management', 'propose_mcp_management', 'list_mcp_tools', 'call_mcp_tool',
       'get_reminder_context', 'create_reminder', 'list_reminders', 'get_reminder', 'update_reminder', 'cancel_reminder', 'reconcile_reminder_command',
+      'get_schedule_context', 'create_schedule', 'list_schedules', 'get_schedule', 'update_schedule', 'control_schedule', 'reconcile_schedule_command', 'preview_schedule',
     ].sort());
     assert.match(listed.requests[0]!.systemPrompt, /# Multivac 内部工具/u);
     assert.match(listed.requests[0]!.systemPrompt, /- list_workspaces（查询）：列出工作区/u);
