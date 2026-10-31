@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { runProgramSync } from '../apps/server/src/runtime/program-launch.ts';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -10,7 +10,7 @@ const major = Number(process.versions.node.split('.')[0]);
 const minor = Number(process.versions.node.split('.')[1]);
 if (major < 22 || major === 22 && minor < 19) throw new Error('需要Node >=22.19.0。');
 const root = process.cwd();
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const npm = 'npm';
 const checks = [
   { name: '仓库类型检查（先构建contracts）', command: npm, args: ['run', 'check'] },
   { name: '新增模块引用与新增迁移SQL', command: process.execPath, args: ['scripts/notes-static-check.mjs'] },
@@ -36,7 +36,7 @@ const save = () => writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
 save();
 for (const [index, check] of checks.entries()) {
   console.log(`正在验证：${check.name}`);
-  const result = spawnSync(check.command, check.args, { cwd: root, stdio: 'inherit', shell: false });
+  const result = runProgramSync(check.command, check.args, { encoding: 'utf8', cwd: root, stdio: 'inherit', shell: false });
   report.checks[index].exitCode = result.status;
   report.checks[index].error = result.error?.message ?? (result.signal ? `进程信号：${result.signal}` : null);
   report.checks[index].status = !result.error && result.status === 0 ? 'pass' : 'failed';

@@ -13,3 +13,11 @@ Windows 可变文件替换前保留旧文件的唯一硬链接副本，替换后
 选模恢复记录继续独占发布，不覆盖既有记录。压缩证据先刷新文件后调用模型，证据失败不继续压缩；追加后失败保留结果未知。笔记转换在数据库持久状态保护下恢复，普通文件确认前保留密文记录。
 
 待实机核对：NTFS 替换及文件占用行为、硬链接权限、断电/重启后的恢复、SQLite 与 Pi 的真实持久化。
+
+## 安装与程序启动
+
+npm 脚本不再使用 POSIX 环境变量赋值。开发入口仍等待 API ready 后启动 Web，启动失败终止已启动的服务。macOS 启动入口保留原有远程默认值；Windows 默认关闭远程，且仍受能力门禁阻止启动。
+
+共用 program-launch 区分原生 argv 与批处理。Windows npm/npx 使用 .cmd 并显式调用 cmd.exe /d /s /v:off /c，不触发 npm.ps1 或改变 PowerShell 执行策略；stdio 原样传输。批处理参数中的双引号、百分号、感叹号、换行及 NUL 无法在本实现中可靠表达，会明确拒绝，需改用 Node/原生程序 argv。
+
+本地 node-pty 1.1.0 包包含 win32-x64/conpty.node、conpty_console_list.node、conpty.dll 与 OpenConsole.exe。补丁脚本原已仅对 darwin-arm64 spawn-helper 校验执行位，Windows 会跳过。锁文件登记 sharp win32-x64 0.35.5；本轮下载包内容检查超时，未核实该包的实际归档，须在 Windows 安装时核对。未在 macOS 加载 Windows 原生二进制。

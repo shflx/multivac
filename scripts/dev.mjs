@@ -1,4 +1,5 @@
-import { fork, spawn } from 'node:child_process';
+import { spawnProgram } from '../apps/server/src/runtime/program-launch.ts';
+import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { waitForServerReady } from './dev-readiness.mjs';
 import { resolveRuntimeConfig, runtimeEnvironment } from '../apps/server/src/runtime-config.ts';
@@ -45,7 +46,7 @@ const server = track(fork(fileURLToPath(new URL('../apps/server/src/main.ts', im
 
 try {
   await waitForServerReady(server);
-  if (!stopping) track(spawn('npm', ['run', 'dev', '-w', '@multivac/web'], { stdio: 'inherit', env: environment }));
+  if (!stopping) track(spawnProgram('npm', ['run', 'dev', '-w', '@multivac/web'], { stdio: 'inherit', env: environment }));
 } catch (error) {
   if (!stopping) {
     console.error(error.message);
