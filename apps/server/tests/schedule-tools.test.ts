@@ -29,6 +29,11 @@ test('对话工具复用统一服务：浏览器时区、两类动作、查询�
   assert.equal(repo.get(saved.scheduleId)!.state, 'paused');
   await call('create_schedule', { ...draft, commandId: 'agent', action: { kind: 'agent', instruction: '读取目录', agentId: 'general', projectId: null, directory: null, budget: clock.defaultBudget } });
   assert.equal(repo.page({kind:'agent'}).total, 1);
+  const {commandId: _commandId, ...previewDraft} = draft;
+  await assert.rejects(call('preview_schedule', {...previewDraft, rule:{kind:'once',scheduledAt:'2036-01-01T09:00:00',localTime:'2036-01-01T09:00:00'}}), /偏移|时间|时刻/);
+  const before = repo.history(saved.scheduleId).total;
+  const preview = JSON.parse((await call('preview_schedule', previewDraft)).content);
+  assert.equal(preview.length, 3); assert.equal(repo.history(saved.scheduleId).total, before);
   assert.equal(service.context().timeZone, null); db.close();
 });
 test('持久保存后回执读取丢失时只读对账，不伪报未执行或重建', async () => {

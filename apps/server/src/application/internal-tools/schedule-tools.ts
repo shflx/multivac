@@ -1,5 +1,5 @@
 import { Type } from 'typebox';
-import { CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, ScheduleQuerySchema, ScheduleDraftSchema, previewSchedule } from '@multivac/contracts';
+import { CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, ScheduleQuerySchema, ScheduleDraftSchema } from '@multivac/contracts';
 import { defineInternalTool } from './internal-tool-service.js';
 import { taskToolFailure } from './task-tool-errors.js';
 import { TaskServiceError } from '../../modules/tasks/task-error.js';
@@ -42,6 +42,6 @@ export const SCHEDULE_TOOLS = [
   }),
   defineInternalTool({ name: 'preview_schedule', effect: 'query', requires: ['schedules'], parameters: ScheduleDraftSchema,
     description: '按完整安排草稿只读预览最近三次时间；同正式调度规则。DST 缺失显示跳过、重复取较早偏移。预览不保存、不触发，不替代单次时间偏移澄清。',
-    async execute(params, context) { return { content: JSON.stringify(previewSchedule(params.rule, params.timeZone, new Date(context.services.schedules.context(params.timeZone).currentTime))), result: { summary: '已读取触发预览', refs: [] } }; },
+    async execute(params, context) { try { return { content: JSON.stringify(context.services.schedules.preview(params)), result: { summary: '已读取触发预览', refs: [] } }; } catch (error) { return taskToolFailure('预览定时安排', error); } },
   }),
 ];

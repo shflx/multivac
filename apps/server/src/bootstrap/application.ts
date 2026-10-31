@@ -444,7 +444,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       createGroup: (input, origin) => tasks.createGroup(input, origin),
     },
     inbox: { page: (query) => inbox.page(query), get: (id) => inbox.get(id), respond: (id, input, origin) => inbox.respond(id, input, origin) },
-    schedules: { context: zone => schedules.context(zone), page: query => schedules.page(query), get: id => schedules.get(id), detail: (id, offset, limit) => schedules.detail(id, offset, limit),
+    schedules: { context: zone => schedules.context(zone), preview: draft => schedules.preview(draft), page: query => schedules.page(query), get: id => schedules.get(id), detail: (id, offset, limit) => schedules.detail(id, offset, limit),
       create: (actor, input) => schedules.create(actor, input), update: (actor, input) => schedules.update(actor, input), control: (actor, input) => schedules.control(actor, input), reconcile: (actor, id) => schedules.reconcile(actor, id) },
     scheduleInputs: { ask: (...args) => scheduleInputs.ask(...args) },
     reminders: {

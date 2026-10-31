@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { GLOBAL_ASSISTANT_SESSION_ID, CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, ScheduleDraftSchema, ScheduleQuerySchema, previewSchedule, validateScheduleRule } from '@multivac/contracts';
+import { GLOBAL_ASSISTANT_SESSION_ID, CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, ScheduleDraftSchema, ScheduleQuerySchema } from '@multivac/contracts';
 import type { ScheduleService } from '../../application/schedule-service.js';
 import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { readJsonBody, RequestBodyTooLargeError } from './json-body.js';
@@ -34,7 +34,7 @@ export function createScheduleRequestHandler(service: ScheduleService) {
         if (url.pathname === '/api/schedules' && Check(CreateScheduleSchema, input)) send(200, service.create(GLOBAL_ASSISTANT_SESSION_ID, input));
         else if (url.pathname === '/api/schedules/update' && Check(UpdateScheduleSchema, input)) send(200, service.update(GLOBAL_ASSISTANT_SESSION_ID, input));
         else if (url.pathname === '/api/schedules/control' && Check(ControlScheduleSchema, input)) send(200, service.control(GLOBAL_ASSISTANT_SESSION_ID, input));
-        else if (url.pathname === '/api/schedules/preview' && Check(ScheduleDraftSchema, input)) { const now = new Date(service.context().currentTime); validateScheduleRule(input.rule, input.timeZone, now); send(200, { items: previewSchedule(input.rule, input.timeZone, now) }); }
+        else if (url.pathname === '/api/schedules/preview' && Check(ScheduleDraftSchema, input)) send(200, { items: service.preview(input) });
         else throw new SyntaxError();
       } else send(405, { error: { code: 'INVALID_REQUEST', message: '不支持的请求方法。' } });
     } catch (error) {

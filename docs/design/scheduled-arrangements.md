@@ -39,7 +39,7 @@ Schedule 保存版本化的动作和时间规则，Occurrence 保存一次计划
 
 停止事实未知或服务重启遇到在途 Agent 时保留 reconcile，占用不会自动解除。用户可检查原会话、进程和副作用；本版不提供将未知结果改写成成功的恢复按钮。服务关闭不会保证外部 MCP 操作已停止。公开结果只声明已观测事实。
 
-旧提醒迁移保留 ID/revision、原命令回执及 notification:<reminderId>:<revision>。已 claimed 的本地通知通过事务和唯一 ID 核对，不并行启动旧提醒调度器。知道了只处理通知，不暂停安排。Agent 通知标记为 agent，现有微信渠道明确排除该来源。
+旧提醒迁移保留 ID/revision、原命令回执及 notification:<reminderId>:<revision>。已 claimed 的本地通知通过事务和唯一 ID 核对，不并行启动旧提醒调度器。旧单次改为周期后保留原回执与旧通知，旧单次入口标记为已取消；新周期每轮按 Occurrence 生成通知，旧工具不能覆盖新周期。知道了只处理通知，不暂停安排。Agent 通知标记为 agent，现有微信渠道明确排除该来源。
 
 ## 验证边界
 

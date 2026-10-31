@@ -29,7 +29,7 @@ export class SqliteScheduleNotifications {
       const current = this.schedules.occurrence(item.occurrenceId);
       if (!current || current.leaseOwner !== item.leaseOwner || !['running', 'waiting', 'stopping', 'reconcile'].includes(current.status)) throw new Error('本次通知执行归属已变化。');
       const schedule = item.snapshot;
-      const legacy = schedule.legacyReminderId && item.source === 'planned';
+      const legacy = schedule.legacyReminderId && schedule.rule.kind === 'once' && item.source === 'planned';
       const id = legacy ? `notification:${schedule.legacyReminderId}:${schedule.revision}` : `notification:${item.occurrenceId}`;
       const notification: InboxNotification = { id, revision: 1, reminderId: legacy ? schedule.legacyReminderId : null,
         reminderRevision: legacy ? schedule.revision : null, source: schedule.action.kind, scheduleId: schedule.scheduleId, occurrenceId: item.occurrenceId,

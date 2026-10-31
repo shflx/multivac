@@ -23,6 +23,10 @@ test('管理 HTTP 契约、命令回执、历史分页及版本冲突；本机�
     assert.equal((await get('/api/schedules/commands/missing')).status,200);
     const page=await (await get('/api/schedules?query=管理&limit=1')).json();assert.equal(Check(SchedulePageSchema,page),true);assert.equal(page.total,1);
     assert.equal((await get('/api/schedules?offset=-1')).status,400);
+    assert.equal((await get('/api/schedules/context?timeZone=not-a-zone')).status,400);
+    const invalidOnce = {...draft, rule:{kind:'once',scheduledAt:'2036-01-01T09:00:00',localTime:'2036-01-01T09:00:00'}};
+    assert.equal((await post('/api/schedules/preview',invalidOnce)).status,400);
+    assert.equal((await post('/api/schedules/preview',{...invalidOnce,rule:{...invalidOnce.rule,scheduledAt:'2036-01-01T10:00:00Z'}})).status,400);
     assert.equal((await post('/api/schedules/control',{scheduleId:item.scheduleId,revision:9,operation:'pause',commandId:'conflict'})).status,409);
     for(const commandId of ['one','two']) await post('/api/schedules/control',{scheduleId:item.scheduleId,revision:1,operation:'trigger',commandId});
     const detail=await (await get(`/api/schedules/${item.scheduleId}?limit=1`)).json();assert.equal(Check(ScheduleDetailSchema,detail),true);assert.equal(detail.history.total,2);assert.equal(detail.history.nextOffset,1);
