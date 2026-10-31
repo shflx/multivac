@@ -1,3 +1,4 @@
+import { secureWindowsPrivateDirectory } from './private-directory.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { closeSync, constants, fchmodSync, fstatSync, linkSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,7 +20,7 @@ function readStoredToken(path: string): string {
       throw new Error('保存的远程 token 文件无效，请在本机检查 remote-access-token 文件。');
     }
     // 已有文件同样收紧权限，凭据只允许所属用户读写。
-    fchmodSync(descriptor, 0o600);
+    if (process.platform !== 'win32') fchmodSync(descriptor, 0o600);
     return content.trimEnd();
   } finally {
     closeSync(descriptor);
@@ -28,6 +29,7 @@ function readStoredToken(path: string): string {
 
 /** 首次显式开启远程访问时生成 256 位随机 token，此后按数据目录复用。 */
 export function loadOrCreateRemoteToken(dataDir: string): string {
+  secureWindowsPrivateDirectory(dataDir, 'remote-access-token');
   const path = remoteTokenPath(dataDir);
   try {
     return readStoredToken(path);
@@ -40,7 +42,7 @@ export function loadOrCreateRemoteToken(dataDir: string): string {
   const token = randomBytes(32).toString('hex');
   const descriptor = openSync(temporaryPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   try {
-    fchmodSync(descriptor, 0o600);
+    if (process.platform !== 'win32') fchmodSync(descriptor, 0o600);
     writeFileSync(descriptor, `${token}\n`, { flush: true });
     // 完整写入后以不覆盖已有文件的方式发布；并发启动时复用先发布的 token。
     try {

@@ -1,3 +1,4 @@
+import { secureWindowsPrivateDirectory } from './private-directory.js';
 import { publishReplacementSync } from './file-durability.js';
 import { chmodSync, closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,9 +14,10 @@ export class PrivateWechatStore implements PrivateWechatBindingStore {
   load(): PrivateWechatBinding | null {
     try {
       const directory = lstatSync(this.root);
-      if (!directory.isDirectory() || directory.isSymbolicLink() || (directory.mode & 0o077)) throw new Error();
+      if (!directory.isDirectory() || directory.isSymbolicLink() || (process.platform !== 'win32' && (directory.mode & 0o077))) throw new Error();
+      secureWindowsPrivateDirectory(this.root, 'binding.json');
       const stat = lstatSync(this.path());
-      if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077)) throw new Error();
+      if (!stat.isFile() || stat.isSymbolicLink() || (process.platform !== 'win32' && (stat.mode & 0o077))) throw new Error();
       const value = JSON.parse(readFileSync(this.path(), 'utf8')) as PrivateWechatBinding;
       if (!value || ![value.channelId, value.botId, value.userId, value.token].every(s => typeof s === 'string' && s.trim()) ||
         !Number.isSafeInteger(value.generation) || value.generation < 1 || checkedIlinkBase(value.apiBase) !== value.apiBase ||
@@ -33,7 +35,8 @@ export class PrivateWechatStore implements PrivateWechatBindingStore {
     mkdirSync(this.root, { recursive: true, mode: 0o700 });
     const stat = lstatSync(this.root);
     if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('微信私有目录不可用。');
-    chmodSync(this.root, 0o700);
+    if (process.platform === 'win32') secureWindowsPrivateDirectory(this.root, 'binding.json');
+    else chmodSync(this.root, 0o700);
     const temporary = join(this.root, `.binding-${randomUUID()}.tmp`);
     const fd = openSync(temporary, 'wx', 0o600);
     try { writeFileSync(fd, JSON.stringify(value)); fsyncSync(fd); }

@@ -1,3 +1,4 @@
+import { securePiAuthFile } from './pi-credential-security.js';
 import type { CreateModelRuntimeOptions } from '@earendil-works/pi-coding-agent';
 import { ModelAccessError } from '../../modules/model-settings/model-access.js';
 
@@ -15,7 +16,23 @@ interface PiStorageModule {
 async function loadPiStorage(): Promise<PiStorageModule> {
   return await import(new URL('./core/auth-storage.js', import.meta.resolve('@earendil-works/pi-coding-agent')).href) as PiStorageModule;
 }
-export async function createPiCredentialStore(path: string): Promise<Store> { return (await loadPiStorage()).AuthStorage.create(path); }
+export async function createPiCredentialStore(path: string): Promise<Store> {
+  if (process.platform === 'win32') await securePiAuthFile(path);
+  const store = (await loadPiStorage()).AuthStorage.create(path);
+  if (process.platform !== 'win32') return store;
+  const checked = async <T>(operation: () => Promise<T>): Promise<T> => {
+    await securePiAuthFile(path);
+    const result = await operation();
+    await securePiAuthFile(path);
+    return result;
+  };
+  return {
+    read: (provider, options) => checked(() => store.read(provider, options)),
+    list: options => checked(() => store.list(options)),
+    modify: (provider, fn, options) => checked(() => store.modify(provider, fn, options)),
+    delete: (provider, options) => checked(() => store.delete(provider, options)),
+  };
+}
 
 /** Pi 0.85.1 未从根入口导出 AuthStorage；仅适配其原生存储接口，不解析/生成凭据 JSON。 */
 export async function createGuardedPiCredentialStore(path: string, version: string,

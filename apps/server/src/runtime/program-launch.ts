@@ -27,3 +27,14 @@ export function runProgramSync(file: string, args: readonly string[], options: S
   return spawnSync(launch.file, launch.args, { ...options, shell: false,
     ...(launch.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}) });
 }
+
+/** 子进程只接收执行所需环境，不自动继承服务端模型或连接器秘密。 */
+export function childEnvironment(source: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  const keys = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER', 'LOGNAME', 'TERM'];
+  if (platform === 'win32') keys.push('SystemRoot', 'SYSTEMROOT', 'WINDIR', 'ComSpec', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'USERNAME');
+  const result: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && keys.some(allowed => platform === 'win32' ? key.toUpperCase() === allowed.toUpperCase() : key === allowed)) result[key] = value;
+  }
+  return result;
+}
