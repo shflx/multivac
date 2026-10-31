@@ -1,3 +1,4 @@
+import { bashCommandShell, type CommandShell } from '../runtime/executors/command-shell.js';
 import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, stat, appendFile, writeFile } from 'node:fs/promises';
@@ -33,7 +34,7 @@ export class BashProcessService {
   private readonly stoppedExecutions = new Set<string>();
   private readonly stoppedSessions = new Set<string>();
   constructor(private readonly repository: ManagedProcessRepository, private readonly root: string,
-    private readonly supervisors: ProcessSupervisors, private readonly changed: () => void, private readonly graceMillis = 1000) {}
+    private readonly supervisors: ProcessSupervisors, private readonly changed: () => void, private readonly graceMillis = 1000, private readonly shell: CommandShell = bashCommandShell) {}
 
   get activeCount() { return this.live.size; }
   private paths(id: string) { return { log: join(this.root, `${id}.log`), receipt: join(this.root, `${id}.exit.json`) }; }
@@ -180,7 +181,7 @@ export class BashProcessService {
         // 退出凭据落库后才释放 live，应用关闭会等待这一段收尾。
         void this.reconcile(id).finally(() => { this.live.delete(id); ready(); exited(null); closed(); });
       });
-      child.stdin.write(JSON.stringify({ ...this.paths(id), token: record.token, directory, command: input.command, env, graceMillis: this.graceMillis,
+      child.stdin.write(JSON.stringify({ ...this.paths(id), token: record.token, directory, command: input.command, shellLaunch: this.shell.launch(input.command), env, graceMillis: this.graceMillis,
         maxBytes: limits?.maxBytes ?? null,
         timeoutMillis: Math.min(input.mode === 'background' || input.timeout === undefined ? Infinity : input.timeout * 1000, limits?.maxMillis ?? Infinity) === Infinity
           ? null : Math.min(input.mode === 'background' || input.timeout === undefined ? Infinity : input.timeout * 1000, limits?.maxMillis ?? Infinity) }) + '\n');

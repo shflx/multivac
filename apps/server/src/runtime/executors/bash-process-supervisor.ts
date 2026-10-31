@@ -37,8 +37,7 @@ input.once('line',line=>{
   config=JSON.parse(line);
   fs.writeFileSync(config.log,'',{mode:0o600,flag:'wx'});
   // 根 bash 等待私有管道放行后才退出。原命令不继承握手 fd，stdin 仍为 /dev/null。
-  const command='/bin/bash --noprofile --norc -c "$1" 3<&- 4>&-; multivac_command_status=$?; printf "%s\\n" "$multivac_command_status" >&4; IFS= read -r -u 3; exit "$multivac_command_status"';
-  child=spawn('/bin/bash',['--noprofile','--norc','-c',command,'multivac-bash',config.command],{
+  child=spawn(config.shellLaunch.file,config.shellLaunch.args,{
     cwd:config.directory,env:config.env,detached:true,stdio:['ignore','pipe','pipe','pipe','pipe']
   });
   child.stdio[3].on('error',()=>{});
