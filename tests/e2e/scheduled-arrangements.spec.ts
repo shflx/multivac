@@ -34,6 +34,8 @@ test('每日和每周 Agent、双窗口编辑启停、手动执行不移游标�
   test.setTimeout(45000);await openSchedules(page);const name=`Agent验收-${crypto.randomUUID()}`;
   await page.getByRole('button',{name:'新建安排',exact:true}).click();let form=page.getByRole('form',{name:'新建安排'});
   await form.getByLabel('名称',{exact:true}).fill(name);await form.getByLabel('动作类型').selectOption('agent');
+  await expect(form.getByRole('combobox',{name:'智能体',exact:true})).toHaveValue('general');
+  await expect(form.getByRole('combobox',{name:'智能体',exact:true}).getByRole('option',{name:'Multivac（协调）',exact:true})).toHaveCount(0);
   await form.getByLabel('执行指令').fill('bash执行：'+JSON.stringify({command:'node -e "setInterval(()=>{},1000)"',mode:'foreground'}));
   await form.getByLabel('IANA 时区').fill('UTC');await form.getByLabel('当地时间',{exact:true}).fill('23:59');await form.getByLabel('最长时长（毫秒）').fill('30000');
   await form.getByRole('button',{name:'保存安排'}).click();await expect(detail(page).getByRole('heading',{name,exact:true})).toBeVisible();
