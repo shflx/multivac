@@ -8,7 +8,7 @@ export function validateScheduleZone(zone: string): void {
 }
 
 /** 将日历时刻映射为绝对时刻；重复时刻固定取较早偏移，缺失时刻仅提供记录水位。 */
-export function resolveScheduleLocal(localTime: string, timeZone: string): SchedulePreview {
+function localCandidates(localTime: string, timeZone: string): { candidates: number[]; matches: number[] } {
   validateScheduleZone(timeZone);
   const nominal = Date.parse(`${localTime}Z`);
   if (!Number.isFinite(nominal) || new Date(nominal).toISOString().slice(0, 19) !== localTime) throw new Error('日历时间无效。');
@@ -20,6 +20,16 @@ export function resolveScheduleLocal(localTime: string, timeZone: string): Sched
   }
   const candidates = [...offsets].map(offset => nominal - offset).sort((a, b) => a - b);
   const matches = candidates.filter(at => reminderLocalTime(new Date(at), timeZone) === localTime);
+  return { candidates, matches };
+}
+
+/** 单次表单列出重复时刻的所有绝对时间，让用户明确选择偏移。 */
+export function scheduleLocalInstants(localTime: string, timeZone: string): string[] {
+  return localCandidates(localTime, timeZone).matches.map(at => new Date(at).toISOString());
+}
+
+export function resolveScheduleLocal(localTime: string, timeZone: string): SchedulePreview {
+  const { candidates, matches } = localCandidates(localTime, timeZone);
   const at = matches[0] ?? candidates.find(at => reminderLocalTime(new Date(at), timeZone) > localTime);
   if (at === undefined) throw new Error('无法解析该日历时刻。');
   return { scheduledAt: new Date(at).toISOString(), localTime, skipReason: matches.length ? null : 'dst-gap' };

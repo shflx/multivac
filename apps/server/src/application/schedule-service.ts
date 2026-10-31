@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Check } from 'typebox/value';
-import { CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, previewSchedule, validateScheduleRule, reminderLocalTime, ScheduleQuerySchema, DEFAULT_TASK_BUDGET, DEFAULT_AGENT_ID,
+import { CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, previewSchedule, validateScheduleZone, validateScheduleRule, reminderLocalTime, ScheduleQuerySchema, DEFAULT_TASK_BUDGET, DEFAULT_AGENT_ID,
   type Schedule, type ScheduleDraft, type CreateSchedule, type UpdateSchedule, type ControlSchedule, type ScheduleOccurrence, type ScheduleQuery } from '@multivac/contracts';
 import type { ScheduleRepository } from '../modules/schedules/repository.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
@@ -16,11 +16,20 @@ export class ScheduleService {
     return item;
   }
   context(timeZone?: string) {
+    try { if (timeZone) validateScheduleZone(timeZone); }
+    catch { throw new TaskServiceError('INVALID_REQUEST', '用户时区无效，请核对 IANA 时区。'); }
     return { currentTime: this.now().toISOString(), timeZone: timeZone ?? null, localTime: timeZone ? reminderLocalTime(this.now(), timeZone) : null,
       defaultAgentId: DEFAULT_AGENT_ID, defaultBudget: { maxMillis: this.defaultBudget().maxMillis, maxOutputBytes: this.defaultBudget().maxOutputBytes, maxToolCalls: 256 },
       limitation: '服务关闭或系统休眠时不执行。周期及 Agent 默认跳过错过，可选只补最近一次；旧单次提醒补发。同安排不重叠，未知结果不重放。Agent 结果只进 Inbox，权限仍走原人工授权。' };
   }
-  page(query: ScheduleQuery = {}) { if (!Check(ScheduleQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', '安排查询无效。'); return this.repository.page(query); }
+  page(query: ScheduleQuery = {}) {
+    if (!Check(ScheduleQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', '安排查询无效。');
+    const page = this.repository.page(query);
+    return { ...page, items: page.items.map(item => {
+      const latest = this.repository.history(item.scheduleId, 0, 1).items[0];
+      return { ...item, latest: latest ? { occurrenceId: latest.occurrenceId, status: latest.status, plannedAt: latest.plannedAt } : null };
+    }) };
+  }
   detail(id: string, offset = 0, limit = 30) {
     const schedule = this.get(id);
     return { schedule, active: this.repository.active(id), history: this.repository.history(id, offset, limit),

@@ -1178,19 +1178,24 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const title = task?.title ?? (taskId ? '来源任务' : sessionId === GLOBAL_ASSISTANT_SESSION_ID ? '全局 Multivac' : session?.title ?? '工作会话');
     return `${title} · ${project}`;
   };
-  const scheduleInputs = new ScheduleInputService(new SqliteScheduleInputs(store.schedules.db), store.schedules, id => workbenchEvents.publish({ type: 'inbox.changed', id, origin: UNKNOWN_CHANGE_ORIGIN }));
+  const scheduleChanged = (id: string) => workbenchEvents.publish({ type: 'schedules.changed', id, origin: UNKNOWN_CHANGE_ORIGIN });
+  const scheduleInputRepository = new SqliteScheduleInputs(store.schedules.db);
+  const scheduleInputs = new ScheduleInputService(scheduleInputRepository, store.schedules, id => {
+    workbenchEvents.publish({ type: 'inbox.changed', id, origin: UNKNOWN_CHANGE_ORIGIN });
+    const input = scheduleInputRepository.get(id);
+    if (input) scheduleChanged(input.scheduleId);
+  });
   scheduleInputs.recover();
   const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders, mcp.authorizations, describeInboxSource, scheduleInputs);
   const scheduleNotifications = new SqliteScheduleNotifications(store.schedules.db, store.schedules);
   scheduleNotifications.migrate();
-  const scheduleChanged = (id: string) => workbenchEvents.publish({ type: 'schedules.changed', id, origin: UNKNOWN_CHANGE_ORIGIN });
   const schedules = new ScheduleService(store.schedules, () => new Date(), scheduleChanged, draft => {
     if (draft.action.kind === 'agent' && !draft.action.projectId && draft.action.directory) throw new Error('无项目安排使用独立执行目录。');
     if (draft.action.kind === 'agent' && draft.action.projectId) projectService.getProject(draft.action.projectId);
   }, () => preferencesService.defaultTaskBudget());
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
-  }, () => new Date(), store.schedules);
+  }, () => new Date(), store.schedules, scheduleChanged);
   const wechatNotifications = new WechatBindingService(store.notificationChannels, store.wechatBindings,
     new PrivateWechatStore(join(paths.dataDir, 'notification-secrets', 'wechat')));
   wechatNotifications.initialize();
@@ -1290,6 +1295,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const notificationChannels = new NotificationChannelManagementService(store.notificationChannels, wechatNotifications);
   const server = createMultivacHttpServer({
     terminals,
+    schedules,
     notificationChannels,
     skills,
     webSettings,

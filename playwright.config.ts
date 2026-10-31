@@ -2,7 +2,9 @@ import { defineConfig } from '@playwright/test';
 
 const apiPort = process.env.MULTIVAC_E2E_API_PORT ?? '4317';
 const webPort = process.env.MULTIVAC_E2E_WEB_PORT ?? '5173';
-const webUrl = process.env.MULTIVAC_E2E_WEB_URL ?? `http://127.0.0.1:${webPort}`;
+// 正式构建可由独立测试 API 同源提供，避免占用已有 Vite 入口或放宽本机门禁。
+const sameOrigin = process.env.MULTIVAC_E2E_SAME_ORIGIN === '1';
+const webUrl = process.env.MULTIVAC_E2E_WEB_URL ?? `http://127.0.0.1:${sameOrigin ? apiPort : webPort}`;
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -26,12 +28,12 @@ export default defineConfig({
       // 默认会直接 SIGKILL 进程组；先发 SIGTERM，让服务脚本清理临时数据目录与工作文件根目录。
       gracefulShutdown: { signal: 'SIGTERM', timeout: 5_000 },
     },
-    {
+    ...(sameOrigin ? [] : [{
       command: `npm run dev -w @multivac/web -- --host 127.0.0.1 --port ${webPort}`,
       env: { MULTIVAC_E2E_API_PORT: apiPort, MULTIVAC_MODE: 'development' },
       url: webUrl,
       reuseExistingServer: false,
       timeout: 30_000,
-    },
+    }]),
   ],
 });

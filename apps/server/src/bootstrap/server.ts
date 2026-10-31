@@ -1,3 +1,5 @@
+import { createScheduleRequestHandler } from '../adapters/http/schedule-routes.js';
+import type { ScheduleService } from '../application/schedule-service.js';
 import { createNoteVaultRequestHandler } from '../adapters/http/note-vault-routes.js';
 import { createNoteEncryptionRequestHandler } from '../adapters/http/note-encryption-routes.js';
 import { notesFailure } from '../adapters/http/notes-routes.js';
@@ -112,6 +114,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 export interface MultivacHttpServerOptions {
   terminals?: TerminalService;
   webSettings?: WebSettingsService;
+  schedules?: ScheduleService;
   notificationChannels?: NotificationChannelManagementService;
   remoteAccess?: RemoteAccess;
   webRoot?: string;
@@ -180,6 +183,7 @@ export interface MultivacHttpServerOptions {
 export function createMultivacHttpServer(options: MultivacHttpServerOptions): Server {
   const terminalRoutes = options.terminals ? createTerminalRoutes(options.terminals) : undefined;
   const webSettingsRoutes = options.webSettings ? createWebSettingsRequestHandler(options.webSettings) : undefined;
+  const scheduleRoutes = options.schedules ? createScheduleRequestHandler(options.schedules) : undefined;
   const notificationRoutes = options.notificationChannels ? createNotificationChannelRequestHandler(options.notificationChannels) : undefined;
   const noteSuggestionRoutes = options.noteSuggestions ? createNoteSuggestionsRequestHandler(options.noteSuggestions) : undefined;
   const noteAssistantRoutes = options.noteAssistant ? createNoteAssistantRequestHandler(options.noteAssistant) : undefined;
@@ -301,6 +305,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (toolAuthorizationRoutes && await toolAuthorizationRoutes(request, response)) return;
       if (proposalRoutes && await proposalRoutes(request, response)) return;
       if (webSettingsRoutes && await webSettingsRoutes(request, response)) return;
+      if (scheduleRoutes && await scheduleRoutes(request, response)) return;
       if (notificationRoutes && await notificationRoutes(request, response)) return;
       if (preferencesRoutes && await preferencesRoutes(request, response)) return;
       if (usageRoutes && await usageRoutes(request, response)) return;

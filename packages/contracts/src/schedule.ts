@@ -64,3 +64,27 @@ export const ScheduleQuerySchema = Type.Object({
   kind: Type.Optional(Type.Union([Type.Literal('reminder'),Type.Literal('agent')])), query: Type.Optional(Type.String({ maxLength: 200 })),
   offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
 }, { additionalProperties: false });
+
+export const ScheduleSchema = Type.Object({ ...ScheduleDraftSchema.properties,
+  scheduleId: Id, revision: Type.Integer({ minimum: 1 }), state: Type.Union([Type.Literal('active'),Type.Literal('paused'),Type.Literal('completed'),Type.Literal('deleted')]),
+  nextAt: Type.Union([Type.String(),Type.Null()]), sourceSessionId: Id, createdAt: Type.String(), updatedAt: Type.String(), legacyReminderId: Type.Union([Id,Type.Null()]),
+}, { additionalProperties: false });
+export const ScheduleOccurrenceSchema = Type.Object({
+  occurrenceId: Id, scheduleId: Id, scheduleRevision: Type.Integer(), snapshot: ScheduleSchema,
+  source: Type.Union([Type.Literal('planned'),Type.Literal('manual')]), plannedAt: Type.String(), localTime: Type.String(),
+  startedAt: Type.Union([Type.String(),Type.Null()]), endedAt: Type.Union([Type.String(),Type.Null()]),
+  status: Type.Union(['pending','running','waiting','stopping','succeeded','failed','stopped','skipped','reconcile'].map(x => Type.Literal(x))),
+  reason: Type.Union([Type.String(),Type.Null()]), summary: Type.Union([Type.String(),Type.Null()]),
+  sessionId: Type.Union([Id,Type.Null()]), notificationId: Type.Union([Id,Type.Null()]), leaseOwner: Type.Union([Type.String(),Type.Null()]), leaseUntil: Type.Union([Type.String(),Type.Null()]),
+  executionSnapshot: Type.Union([Type.Record(Type.String(),Type.Unknown()),Type.Null()]),
+}, { additionalProperties: false });
+const NullableOccurrence = Type.Union([ScheduleOccurrenceSchema,Type.Null()]);
+const PageFields = { total: Type.Integer({ minimum: 0 }), nextOffset: Type.Union([Type.Integer({ minimum: 0 }),Type.Null()]) };
+const LatestOccurrenceSchema = Type.Object({ occurrenceId: Id, status: ScheduleOccurrenceSchema.properties.status, plannedAt: Type.String() }, { additionalProperties: false });
+export const SchedulePageSchema = Type.Object({ items: Type.Array(Type.Object({ ...ScheduleSchema.properties, latest: Type.Union([LatestOccurrenceSchema,Type.Null()]) }, { additionalProperties: false })), ...PageFields }, { additionalProperties: false });
+export const ScheduleDetailSchema = Type.Object({ schedule: ScheduleSchema, active: NullableOccurrence,
+  history: Type.Object({ items: Type.Array(ScheduleOccurrenceSchema), ...PageFields }, { additionalProperties: false }),
+  preview: Type.Array(Type.Object({ scheduledAt: Type.String(), localTime: Type.String(), skipReason: Type.Union([Type.Literal('dst-gap'),Type.Null()]) })),
+}, { additionalProperties: false });
+export type ScheduleDetail = { schedule: Schedule; active: ScheduleOccurrence | null; history: {items: ScheduleOccurrence[]; total: number; nextOffset: number | null}; preview: SchedulePreview[] };
+export type ScheduleList = Omit<SchedulePage, 'items'> & { items: (Schedule & {latest: Pick<ScheduleOccurrence, 'occurrenceId' | 'status' | 'plannedAt'> | null})[] };

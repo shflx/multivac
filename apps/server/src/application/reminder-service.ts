@@ -11,7 +11,7 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 /** 用户明确安排的单次提醒，不与 Task 或执行生命周期关联。 */
 export class ReminderService {
   constructor(private readonly repository: ReminderRepository, private readonly requireSession: (id: string) => void,
-    private readonly now: () => Date = () => new Date(), private readonly schedules?: ScheduleRepository) {}
+    private readonly now: () => Date = () => new Date(), private readonly schedules?: ScheduleRepository, private readonly changed: (id: string) => void = () => {}) {}
   context(timeZone?: string) {
     const now = this.now();
     let localTime: string | null = null;
@@ -40,7 +40,7 @@ export class ReminderService {
   create(sessionId: string, input: CreateReminder): Reminder {
     if (!Check(CreateReminderSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '创建提醒参数无效。');
     this.requireSession(sessionId);
-    return this.repository.command(this.commandKey(sessionId, input.commandId), fingerprint({ sessionId, kind: 'create', ...input }), () => {
+    const result = this.repository.command(this.commandKey(sessionId, input.commandId), fingerprint({ sessionId, kind: 'create', ...input }), () => {
       const scheduledAt = this.time(input);
       const now = this.now().toISOString();
       const reminder: Reminder = { reminderId: randomUUID(), revision: 1, text: input.text.trim(), scheduledAt,
@@ -49,11 +49,12 @@ export class ReminderService {
       this.repository.save(reminder); this.schedule(reminder);
       return reminder;
     });
+    this.changed(result.reminderId); return result;
   }
   update(sessionId: string, input: UpdateReminder): Reminder {
     if (!Check(UpdateReminderSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '修改提醒参数无效。');
     this.requireSession(sessionId);
-    return this.repository.command(this.commandKey(sessionId, input.commandId), fingerprint({ sessionId, kind: 'update', ...input }), () => {
+    const result = this.repository.command(this.commandKey(sessionId, input.commandId), fingerprint({ sessionId, kind: 'update', ...input }), () => {
       const current = this.scheduled(input.reminderId, input.revision);
       const scheduledAt = this.time(input);
       const next = { ...current, revision: current.revision + 1, text: input.text.trim(), scheduledAt,
@@ -61,17 +62,19 @@ export class ReminderService {
       this.repository.save(next); this.schedule(next);
       return next;
     });
+    this.changed(result.reminderId); return result;
   }
   cancel(sessionId: string, input: CancelReminder): Reminder {
     if (!Check(CancelReminderSchema, input)) throw new TaskServiceError('INVALID_REQUEST', '取消提醒参数无效。');
     this.requireSession(sessionId);
-    return this.repository.command(this.commandKey(sessionId, input.commandId), fingerprint({ sessionId, kind: 'cancel', ...input }), () => {
+    const result = this.repository.command(this.commandKey(sessionId, input.commandId), fingerprint({ sessionId, kind: 'cancel', ...input }), () => {
       const current = this.scheduled(input.reminderId, input.revision);
       const next: Reminder = { ...current, revision: current.revision + 1, status: 'cancelled', updatedAt: this.now().toISOString() };
       this.repository.save(next); this.repository.invalidate(next.reminderId);
       this.schedules?.save(reminderSchedule(next));
       return next;
     });
+    this.changed(result.reminderId); return result;
   }
   private schedule(reminder: Reminder): void {
     if (this.schedules) { this.repository.invalidate(reminder.reminderId); this.schedules.save(reminderSchedule(reminder)); }

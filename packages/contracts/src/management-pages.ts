@@ -7,10 +7,10 @@ import { Type } from 'typebox';
  */
 
 /** 管理中已实现的页面（与界面的管理页注册表一致）。 */
-export const MANAGEMENT_PAGE_IDS = ['tasks', 'runs', 'inbox', 'reading', 'notes', 'archive', 'projects', 'agents', 'models', 'preferences', 'usage', 'skills', 'notifications'] as const;
+export const MANAGEMENT_PAGE_IDS = ['tasks', 'schedules', 'runs', 'inbox', 'reading', 'notes', 'archive', 'projects', 'agents', 'models', 'preferences', 'usage', 'skills', 'notifications'] as const;
 export const ManagementPageIdSchema = Type.Union([
   Type.Literal('archive'), Type.Literal('projects'), Type.Literal('agents'), Type.Literal('models'), Type.Literal('preferences'),
-  Type.Literal('tasks'), Type.Literal('inbox'), Type.Literal('runs'), Type.Literal('reading'), Type.Literal('notes'), Type.Literal('usage'),
+  Type.Literal('schedules'), Type.Literal('tasks'), Type.Literal('inbox'), Type.Literal('runs'), Type.Literal('reading'), Type.Literal('notes'), Type.Literal('usage'),
   Type.Literal('skills'), Type.Literal('notifications'),
 ]);
 export type ManagementPageIdValue = (typeof MANAGEMENT_PAGE_IDS)[number];
@@ -21,6 +21,7 @@ export const MANAGEMENT_PAGE_LABELS: Readonly<Record<ManagementPageIdValue, stri
   notifications: '设置 · 通知渠道',
   reading: '应用 · 读书',
   notes: '应用 · 笔记',
+  schedules: '工作 · 定时安排',
   tasks: '待办', inbox: 'Inbox', runs: '运行',
   archive: '设置 · 归档',
   projects: '设置 · 项目',

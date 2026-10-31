@@ -51,6 +51,7 @@ docs/design/*
 docs/third-party/*
 !docs/third-party/openclaw-weixin-LICENSE.txt
 !docs/design/work-session-agent.md
+!docs/design/scheduled-arrangements.md
 output/
 .multica/
 poc/

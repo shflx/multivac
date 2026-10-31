@@ -20,6 +20,7 @@ const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = { skills: ['Skill', '�
   reading: ['书架', '书伴', '读书', 'reading'],
   notes: ['笔记', 'Markdown', '梳理助手', 'notes'],
   inbox: ['请求', '授权', '澄清', '验收', '恢复'],
+  schedules: ['定时', '安排', '提醒', 'schedule'],
   runs: ['运行', '执行', '进程', 'runs'],
   usage: ['统计', '用量', 'token', '缓存', 'usage'],
   notifications: ['通知渠道', '微信', '提醒', '投递'],

@@ -1,0 +1,11 @@
+import { Type } from 'typebox';
+import { SchedulePageSchema, ScheduleDetailSchema, ScheduleSchema, ScheduleOccurrenceSchema, ScheduleBudgetSchema, type ScheduleDetail, type ScheduleList, type CreateSchedule, type UpdateSchedule, type ControlSchedule } from '@multivac/contracts';
+import { fetchJson } from './assistant-api.js';
+const ContextSchema = Type.Object({ currentTime: Type.String(), timeZone: Type.Union([Type.String(),Type.Null()]), localTime: Type.Union([Type.String(),Type.Null()]), defaultAgentId: Type.String(), defaultBudget: ScheduleBudgetSchema, limitation: Type.String() });
+const ResultSchema = Type.Union([ScheduleSchema, ScheduleOccurrenceSchema]);
+export const getScheduleContext = (zone: string) => fetchJson(`/api/schedules/context?timeZone=${encodeURIComponent(zone)}`, undefined, ContextSchema).then(context => ({ ...context, receivedAt: Date.now() }));
+export const listSchedules = (query: URLSearchParams): Promise<ScheduleList> => fetchJson(`/api/schedules?${query}`, undefined, SchedulePageSchema) as Promise<ScheduleList>;
+export const getSchedule = (id: string, offset = 0): Promise<ScheduleDetail> => fetchJson(`/api/schedules/${id}?offset=${offset}&limit=20`, undefined, ScheduleDetailSchema) as Promise<ScheduleDetail>;
+export const reconcileSchedule = (id: string) => fetchJson(`/api/schedules/commands/${id}`, undefined, Type.Object({ commandId: Type.String(), saved: Type.Boolean(), result: Type.Union([ResultSchema,Type.Null()]) }));
+export type ScheduleWrite = { path: '' | '/update'; body: CreateSchedule | UpdateSchedule } | { path: '/control'; body: ControlSchedule };
+export const writeSchedule = (command: ScheduleWrite) => fetchJson(`/api/schedules${command.path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(command.body) }, ResultSchema);

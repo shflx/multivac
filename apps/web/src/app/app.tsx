@@ -1,3 +1,4 @@
+import { SchedulesPage } from '../features/schedules/schedules-page.js';
 import { rememberedTerminalSelection } from '../features/terminals/terminal-selection.js';
 import { useTerminals } from '../features/terminals/terminals-provider.js';
 import { DailyQuote } from './daily-quote.js';
@@ -474,6 +475,7 @@ export function App() {
     notes: <Suspense fallback={<p role="status">正在打开笔记…</p>}><NotesApp active={showManagement && currentPage === 'notes'} /></Suspense>,
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
     inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
+    schedules: <SchedulesPage active={showManagement && currentPage === 'schedules'} onSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} onInbox={(notificationId) => { setInboxSelected(notificationId); void openManagementPage('inbox'); }} />,
     runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)}><ProcessesSection active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} /></RunsPage>,
     skills: <CapabilitiesPage active={showManagement && currentPage === 'skills'} onDirtyChange={setSkillsDirty} onBusyChange={setSkillsBusy} discardSignal={skillsDiscard} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,
