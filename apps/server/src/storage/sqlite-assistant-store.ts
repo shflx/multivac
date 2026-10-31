@@ -10,6 +10,7 @@ import { SqliteMcpRepository, MCP_MIGRATION } from './sqlite-mcp-repository.js';
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
+import { SCHEDULE_MIGRATION, SqliteScheduleRepository } from './sqlite-schedule-repository.js';
 import { REMINDER_MIGRATION, SqliteReminderRepository } from './sqlite-reminder-repository.js';
 import { NOTIFICATION_CHANNEL_MIGRATION } from './notification-channel-schema.js';
 import { SqliteNotificationChannelRepository } from './sqlite-notification-channel-repository.js';
@@ -340,6 +341,7 @@ const MIGRATIONS = [
   NOTE_PROTECTION_MIGRATION,
   NOTE_ENCRYPTION_REPAIR_MIGRATION,
   NOTE_KEYPAIR_MIGRATION,
+  SCHEDULE_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -417,6 +419,7 @@ export class SqliteAssistantStore {
   readonly humanRequests: SqliteHumanRequestRepository;
   readonly inbox: SqliteInboxRepository;
   readonly reminders: SqliteReminderRepository;
+  readonly schedules: SqliteScheduleRepository;
   readonly notificationChannels: SqliteNotificationChannelRepository;
   readonly wechatBindings: SqliteWechatBindingRepository;
   readonly artifacts: SqliteArtifactRepository;
@@ -478,6 +481,7 @@ export class SqliteAssistantStore {
       this.usage = new SqliteUsageRepository(this.database);
       this.inbox = new SqliteInboxRepository(this.database);
       this.reminders = new SqliteReminderRepository(this.database);
+      this.schedules = new SqliteScheduleRepository(this.database);
       this.notificationChannels = new SqliteNotificationChannelRepository(this.database);
       this.wechatBindings = new SqliteWechatBindingRepository(this.database);
       this.images = new SqliteImageRepository(this.database);
