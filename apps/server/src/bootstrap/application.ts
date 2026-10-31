@@ -1,4 +1,9 @@
-import { UNKNOWN_CHANGE_ORIGIN } from '@multivac/contracts';
+import { ScheduleInputService } from '../application/schedule-input-service.js';
+import { SqliteScheduleInputs } from '../storage/sqlite-schedule-inputs.js';
+import { requestScheduleInputTool } from '../application/internal-tools/schedule-input-tool.js';
+import { ScheduleAgentExecution, type ScheduleExecutionSnapshot } from '../application/schedule-agent-execution.js';
+import { isPathWithin } from '../modules/sessions/working-directory.js';
+import { DEFAULT_WORKSPACE_ID, UNKNOWN_CHANGE_ORIGIN } from '@multivac/contracts';
 import { NoteHttpAccess } from '../adapters/http/note-access.js';
 import { SqliteNoteEncryption } from '../storage/sqlite-note-encryption.js';
 import { SqliteProtectedTranscripts } from '../storage/sqlite-protected-transcripts.js';
@@ -328,6 +333,12 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       workingDirectories.validate(directory);
       return directory;
     },
+    scheduleControl: (id, toolCallId) => store.schedules.bySession(id) ? {
+      check: () => { scheduleAgent.lease(id, 'check', toolCallId, 0); },
+      start: (marker, bytes) => ({ maxBytes: scheduleAgent.lease(id, 'starting', marker, bytes), maxMillis: Math.max(1, scheduleAgent.remainingMillis(id)) }),
+      progress: (marker, bytes) => scheduleAgent.lease(id, 'progress', marker, bytes),
+      settle: marker => { scheduleAgent.lease(id, 'settled', marker, 0); },
+    } : undefined,
     taskControl: (run, toolCallId) => {
       const check = () => {
         if (store.taskRuns.bySession(run.sessionId)?.runId !== run.runId) throw new Error('原任务 Run 已失效。');
@@ -433,6 +444,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       createGroup: (input, origin) => tasks.createGroup(input, origin),
     },
     inbox: { page: (query) => inbox.page(query), get: (id) => inbox.get(id), respond: (id, input, origin) => inbox.respond(id, input, origin) },
+    scheduleInputs: { ask: (...args) => scheduleInputs.ask(...args) },
     reminders: {
       context: (zone) => reminders.context(zone), get: (id) => reminders.get(id), page: (query) => reminders.page(query),
       create: (sessionId, input) => reminders.create(sessionId, input), update: (sessionId, input) => reminders.update(sessionId, input),
@@ -669,6 +681,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return commands && commandId ? { commandId, windowId: commands.currentPromptWindowId() } : null;
     },
   });
+  const scheduleTools = new InternalToolService({
+    tools: [...WORK_SESSION_TASK_TOOLS.filter(tool => ['list_mcp_tools','call_mcp_tool','read_git','read_project_resource','list_managed_processes','read_managed_process_log','stop_managed_process','stop_session_processes'].includes(tool.name)), ...webTools, requestScheduleInputTool],
+    services: internalToolServices, calls: store.internalToolCalls,
+    currentTurn: id => { const commandId = sessionRuntimes.get(id)?.commands.currentPromptCommandId(); return commandId ? { commandId, windowId: null } : null; },
+  });
   const readingConfig = readingRuntimeConfig(workConfig);
   const noteConfig = noteRuntimeConfig(workConfig);
   const taskTools: InternalToolService = new InternalToolService({
@@ -750,6 +767,22 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       internalTools: readingPageTools, prepareText: prepareSkillText(record.sessionId),
       contextForRefs: (sessionId, refs) => readingService.contextForRefs(sessionId, refs),
     });
+    const scheduled = store.schedules.bySession(record.sessionId);
+    if (scheduled) {
+      const snapshot = scheduled.executionSnapshot as unknown as ScheduleExecutionSnapshot | null;
+      if (!snapshot) throw new Error('定时会话执行快照尚未就绪。');
+      return {
+        runtimeConfig: snapshot.runtimeConfig,
+        resolveNewSessionRuntimeConfig: async () => snapshot.runtimeConfig,
+        internalTools: scheduleTools,
+        prepareText: prepareSkillText(record.sessionId),
+        authorizeSend: command => scheduleAgent.assertSend(record.sessionId, command.commandId),
+        resolveAgentExecution: async id => {
+          if (id !== snapshot.agentExecution.executor.agentId || agents.requireExecutable(id).revision !== snapshot.agentExecution.executor.revision) throw new Error('本次智能体配置已经失效。');
+          return snapshot.agentExecution;
+        },
+      };
+    }
     const run = store.taskRuns.bySession(record.sessionId);
     const taskRuntime = run ? taskSessionConfig(record.sessionId) : null;
     if (run && taskRuntime) return taskSessionPolicy({
@@ -783,6 +816,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     let runtime: AssistantSessionRuntime;
     try {
       runtime = new AssistantSessionRuntime(runtimeDependencies, {
+        beforeModelMutation: () => { if (store.schedules.bySession(record.sessionId)) throw new Error('定时会话使用冻结模型，不能手动切换。'); },
         canReadContent: () => !noteId || store.noteCodec.canRead(noteId),
         ...policy,
         sessionId: record.sessionId,
@@ -1009,9 +1043,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return sessionRuntimes.acquire(record);
     },
   });
-  adapter.bindTaskLease((id, phase, marker, bytes) => taskExecution.nativeLease(id, phase, marker, bytes), id => {
+  adapter.bindTaskLease((id, phase, marker, bytes) => store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : taskExecution.nativeLease(id, phase, marker, bytes), id => {
     const run = store.taskRuns.bySession(id);
-    return run ? run.executionMode ?? 'native-isolated' : null;
+    return run ? run.executionMode ?? 'native-isolated' : store.schedules.bySession(id) ? 'workspace' : null;
   });
   const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime);
   const taskGit: TaskGitService = new TaskGitService({
@@ -1029,16 +1063,16 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return { runId: run.runId, directory: run.directory.path, sourceDirectory };
     },
   });
-  const webAccess = new WebAccessService(() => webSettings.resolve(), {
-    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 512 * 1024,
+  const webAccess: WebAccessService = new WebAccessService(() => webSettings.resolve(), {
+    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 512 * 1024,
     remainingMillis: id => {
       const run = store.taskRuns.bySession(id);
-      return run ? taskExecution.budget(run.rootTaskId ?? run.taskId).remainingMillis : 30000;
+      return run ? taskExecution.budget(run.rootTaskId ?? run.taskId).remainingMillis : store.schedules.bySession(id) ? scheduleAgent.remainingMillis(id) : 30000;
     },
   });
   const gitRead = new GitReadService({
     channel: taskGit.channel,
-    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 1024 * 1024,
+    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 1024 * 1024,
     boundary: async (id) => {
       if (store.taskRuns.bySession(id)) return taskGit.readBoundary(id);
       const record = sessionRegistry.get(id);
@@ -1089,6 +1123,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           || task.status !== 'running' && !preparing || task.currentRunId !== run.runId)
           throw new McpError('rule-denied', 'MCP 任务执行已停止或需要恢复核对。');
       }
+      if (store.schedules.bySession(sessionId)) scheduleAgent.lease(sessionId, 'check', 'mcp-context', 0);
       const directory = record.workingDirectory ? realpathSync(record.workingDirectory.path) : null;
       if (!directory || taskProtectedPaths.some(path => runtimePathsOverlap(path, directory)) || run?.directory && realpathSync(run.directory.path) !== directory)
         throw new McpError('rule-denied', 'MCP 工作目录缺失、进入内部保护范围或不匹配当前运行。');
@@ -1107,7 +1142,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       const url = new URL(service.transport.url);
       return url.protocol === 'https:' || url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
     },
-    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 2_000_000,
+    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 2_000_000,
     redactor: async (id, revision) => {
       const credentials = await mcpAccounts.credentials(id, revision);
       const secrets = [...Object.values(credentials.environment), ...Object.values(credentials.headers).flatMap(value => [value, value.replace(/^Bearer /u, '')])]
@@ -1141,7 +1176,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const title = task?.title ?? (taskId ? '来源任务' : sessionId === GLOBAL_ASSISTANT_SESSION_ID ? '全局 Multivac' : session?.title ?? '工作会话');
     return `${title} · ${project}`;
   };
-  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders, mcp.authorizations, describeInboxSource);
+  const scheduleInputs = new ScheduleInputService(new SqliteScheduleInputs(store.schedules.db), store.schedules, id => workbenchEvents.publish({ type: 'inbox.changed', id, origin: UNKNOWN_CHANGE_ORIGIN }));
+  scheduleInputs.recover();
+  const inbox = new InboxService(humanRequests, toolAuthorization, store.inbox, workbenchEvents, gitPublish, store.reminders, mcp.authorizations, describeInboxSource, scheduleInputs);
   const scheduleNotifications = new SqliteScheduleNotifications(store.schedules.db, store.schedules);
   scheduleNotifications.migrate();
   const scheduleChanged = (id: string) => workbenchEvents.publish({ type: 'schedules.changed', id, origin: UNKNOWN_CHANGE_ORIGIN });
@@ -1154,16 +1191,58 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   wechatNotifications.initialize();
   const notificationDelivery = new NotificationDeliveryService(store.notificationChannels, [new WechatNotificationAdapter(wechatNotifications)]);
   notificationDelivery.start(workbenchEvents);
+  const scheduleAgent: ScheduleAgentExecution = new ScheduleAgentExecution(store.schedules, {
+    async prepare(item, sessionId) {
+      const action = item.snapshot.action;
+      if (action.kind !== 'agent') throw new Error('动作类型错误。');
+      const project = action.projectId ? projectService.getProject(action.projectId) : null;
+      const identity = { sessionId, title: item.snapshot.name, createdAt: new Date().toISOString() };
+      let directory = workingDirectories.allocateForNewSession(project, identity);
+      if (action.directory) {
+        if (!project) throw new Error('无项目安排只能使用独立执行目录。');
+        const real = realpathSync(action.directory);
+        const mounted = project.directories.find(dir => isPathWithin(real, realpathSync(dir.path)));
+        if (!mounted) throw new Error('计划目录不再属于当前项目范围。');
+        directory = { kind: mounted.kind === 'managed' ? 'project-managed' : 'project-mounted', path: real };
+      }
+      const execution = await resolveWorkSessionAgent({ agentId: action.agentId, agents, settings: modelSettingsService, base: workConfig,
+        conventions: { projectConstraints: project?.defaultConstraints ?? '', projectResources: project ? projectResources.context(project.projectId) : '', agentsFile: readWorkingDirectoryAgentsFile(directory.path) } });
+      return { agentExecution: execution, workingDirectory: directory, workspaceId: project?.projectId ?? DEFAULT_WORKSPACE_ID,
+        runtimeConfig: { ...workConfig, model: execution.model, systemPrompt: `${workConfig.systemPrompt}\n\n你在独立定时会话中执行本次用户指令。安排与触发不是 Task/TaskRun，不创建任务、不进入验收。不继承其他轮次上下文。需要用户回应或授权时使用 Inbox，不自行批准。结果只在当前会话与 Inbox 保存，不自动外发。\n${execution.instructions}` },
+        tools: ['read','edit','write','bash', ...scheduleTools.specs.map(tool => tool.name)] };
+    },
+    createSession(item, snapshot) {
+      const sessionId = item.sessionId!;
+      store.sessions.insertIfAbsent({ sessionId, title: `${item.snapshot.name} · ${item.source === 'manual' ? '手动' : item.localTime}`, kind: 'work', workspaceId: snapshot.workspaceId,
+        createdAt: new Date().toISOString(), workingDirectory: snapshot.workingDirectory, initialModel: snapshot.agentExecution.model });
+      workingDirectories.prepare(snapshot.workingDirectory);
+      workbenchEvents.publish({ type: 'session.changed', origin: UNKNOWN_CHANGE_ORIGIN, change: 'created', session: workspaceSessionService.get(sessionId) });
+    },
+    runtime(id) { return sessionRuntimes.acquire(workspaceSessionService.resolve(id)); },
+    async stopTools(id, commandId) { scheduleInputs.cancel(id); await Promise.all([managedProcesses.bash.stopExecution(id, commandId), mcp.cancelSession(id)]); },
+    stopped(id) { return !sessionRuntimes.get(id)?.commands.isRunning() && adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id) && mcp.stopped(id) && webAccess.stopped(id)
+      && managedProcesses.list(true).filter(p => p.sessionId === id).every(p => ['exited','failed'].includes(p.state)); },
+    waiting(id) { return scheduleInputs.all().some(r => r.sessionId === id && r.status === 'pending') || toolAuthorization.all().some(r => r.sessionId === id && r.status === 'pending') || mcp.authorizations.all().some(r => r.identity.sessionId === id && r.status === 'pending'); },
+    summary(id) { return sessionTranscripts.readMessages(id).filter(m => m.role === 'assistant').at(-1)?.text ?? '执行未提供摘要。'; },
+    notify(item, text) { const n = scheduleNotifications.deliver(item, new Date().toISOString(), text); workbenchEvents.publish({ type: 'inbox.changed', id: n.id, origin: UNKNOWN_CHANGE_ORIGIN }); return n.id; },
+    changed: scheduleChanged,
+  });
+  const unsubscribeScheduleEvents = eventStream.subscribe(event => scheduleAgent.event(event));
   const scheduleScheduler = new ScheduleScheduler(store.schedules, {
-    async run(item) {
-      if (item.snapshot.action.kind !== 'reminder') return { status: 'failed', summary: 'Agent 执行适配器尚未接入。' };
+    async run(item, patch) {
+      if (item.snapshot.action.kind === 'agent') return scheduleAgent.run(item, patch);
       const notification = scheduleNotifications.deliver(item, new Date().toISOString());
       workbenchEvents.publish({ type: 'inbox.changed', id: notification.id, origin: UNKNOWN_CHANGE_ORIGIN });
       return { status: 'succeeded', summary: 'Inbox 提醒已送达。', notificationId: notification.id };
     },
-    async stop() { return true; },
+    async stop(item) { return item.snapshot.action.kind === 'agent' ? scheduleAgent.stop(item) : true; },
   }, scheduleChanged);
   scheduleScheduler.start();
+  for (const occurrence of store.schedules.unsettled()) {
+    if (occurrence.status !== 'reconcile' || occurrence.notificationId || occurrence.snapshot.action.kind !== 'agent') continue;
+    const notification = scheduleNotifications.deliver(occurrence, new Date().toISOString(), `${occurrence.snapshot.name} · 待恢复核对\n${occurrence.reason}`);
+    workbenchEvents.publish({ type: 'inbox.changed', id: notification.id, origin: UNKNOWN_CHANGE_ORIGIN });
+  }
   const usageStatistics = new UsageStatisticsService(usage, id => id === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : store.sessions.get(id)?.title);
   const skills: SkillService = new SkillService(store.skills, new SkillPackages(join(paths.dataDir, 'skills'),parseSkillFrontmatter), workbenchEvents, id => projectService.getProject(id), {
     context: id => {
@@ -1296,6 +1375,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeNoteLocks();
         for (const timer of stopChecks) clearTimeout(timer);
         noteSecurity.close();
+        unsubscribeScheduleEvents();
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。

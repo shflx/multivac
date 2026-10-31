@@ -24,6 +24,7 @@ function DecisionOptions({ legend, choices, value, onChange, disabled }: { legen
 }
 
 function receipt(item: InboxItem): string {
+  if (item.scheduleInput) return `回应已保存：${item.scheduleInput.answer}`;
   if (item.notification) return '已知道，通知处理结束。';
   if (item.mcp?.revokedAt) return '本次 MCP 许可已撤销；这不代表已开始的远端操作已停止。';
   if (item.mcp) return item.mcp.status === 'allowed' ? '已允许本次 MCP 调用，实际执行结果请在来源会话核对。' : item.mcp.status === 'denied' ? '已拒绝本次 MCP 调用。' : 'MCP 请求已过期、取消或失效，未因此取得许可。';
@@ -106,7 +107,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
         ['绝对时间', notification.scheduledAt], ['实际送达', new Date(notification.createdAt).toLocaleString()],
       ]} />{Date.parse(notification.createdAt) - Date.parse(notification.scheduledAt) > 30_000 && <p className="inbox-muted">本通知晚于原计划时间送达。服务关闭期间无法准时触发，重启后补发。</p>}<p className="inbox-muted">查看仅消除未读；点击“知道了”结束待处理。</p></section>}
       {resolved ? <div ref={result} className="inbox-decision-result" role="status" tabIndex={-1}><CheckCircle2 aria-hidden="true" /><h3>{receipt(item)}</h3>{human?.reason && <p>{human.reason}</p>}{!next && <div className="inbox-completion inline"><h3>全部处理完毕</h3><p>新的决策请求会显示在这里。</p></div>}</div> : <>
-        {notification ? null : mcp ? <McpRequestEvidence request={mcp} {...(!resolved && mcp.classificationRequired && !mcp.effects.length ? { effects: mcpEffects, onEffects: setMcpEffects, disabled: busy } : {})} /> : authorization ? <section className="inbox-evidence"><h3>拟执行的操作</h3><Facts entries={[
+        {item.scheduleInput ? <section className="inbox-evidence"><h3>本次定时执行需要回应</h3><p>{item.scheduleInput.question}</p>{responseField('回应', '填写对本问题的回应；不扩大原执行权限')}</section> : notification ? null : mcp ? <McpRequestEvidence request={mcp} {...(!resolved && mcp.classificationRequired && !mcp.effects.length ? { effects: mcpEffects, onEffects: setMcpEffects, disabled: busy } : {})} /> : authorization ? <section className="inbox-evidence"><h3>拟执行的操作</h3><Facts entries={[
           ['操作', AUTHORIZATION_TOOL_ACTIONS[authorization.toolName]], ['目标路径', <code>{authorization.targetPath}</code>], ['工作目录', <code>{authorization.workingDirectory.path}</code>], ['有效期', authorizationDeadline(authorization)],
         ]} /><p className="inbox-operation-effect">目标路径位于当前工作目录之外，需要你的授权。</p><DecisionOptions legend="允许范围" value={safeChoice} onChange={choose} disabled={busy} choices={[
           { value: 'once', label: '仅这一次', description: '再次执行相同操作时仍需确认' },

@@ -49,6 +49,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   get_inbox_request: { displayName: '读取 Inbox 请求' },
   respond_inbox_request: { displayName: '转交用户决定' },
   propose_git_publish: { displayName: '申请 Git 分支发布' },
+  request_schedule_input: { displayName: '提出定时执行澄清' },
   request_task_input: { displayName: '提出任务澄清' },
   list_runs: { displayName: '查询任务运行' },
   list_managed_processes: { displayName: '查询后台进程' },

@@ -52,3 +52,9 @@ export interface SchedulePreview { scheduledAt: string; localTime: string; skipR
 export interface ScheduleQuery { state?: Schedule['state']; kind?: ScheduleAction['kind']; query?: string; offset?: number; limit?: number }
 export interface SchedulePage { items: Schedule[]; total: number; nextOffset: number | null }
 export const OCCURRENCE_ACTIVE: readonly OccurrenceStatus[] = ['pending', 'running', 'waiting', 'stopping', 'reconcile'];
+export const ScheduleInputRequestSchema = Type.Object({
+  requestId: Id, scheduleId: Id, occurrenceId: Id, sessionId: Id, revision: Type.Integer({ minimum: 1 }),
+  question: Type.String({ minLength: 1, maxLength: 4000 }), status: Type.Union([Type.Literal('pending'),Type.Literal('answered'),Type.Literal('invalidated')]),
+  answer: Type.String({ maxLength: 4000 }), createdAt: Type.String(), updatedAt: Type.String(),
+}, { additionalProperties: false });
+export type ScheduleInputRequest = Type.Static<typeof ScheduleInputRequestSchema>;

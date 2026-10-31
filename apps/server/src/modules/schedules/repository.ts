@@ -13,5 +13,6 @@ export interface ScheduleRepository {
   history(id: string, offset?: number, limit?: number): { items: ScheduleOccurrence[]; total: number; nextOffset: number | null };
   active(id: string): ScheduleOccurrence | null;
   due(now: string): Schedule[];
+  bySession(id: string): ScheduleOccurrence | null;
   unsettled(): ScheduleOccurrence[];
 }

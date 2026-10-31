@@ -10,7 +10,7 @@ import { SqliteMcpRepository, MCP_MIGRATION } from './sqlite-mcp-repository.js';
 import { READING_CONTENT_MIGRATION } from './sqlite-book-content.js';
 import { SqliteUsageRepository } from './sqlite-usage-repository.js';
 import { INBOX_MIGRATION, SqliteInboxRepository } from './sqlite-inbox-repository.js';
-import { SCHEDULE_MIGRATION, SqliteScheduleRepository } from './sqlite-schedule-repository.js';
+import { SCHEDULE_EXECUTION_MIGRATION, SCHEDULE_MIGRATION, SqliteScheduleRepository } from './sqlite-schedule-repository.js';
 import { REMINDER_MIGRATION, SqliteReminderRepository } from './sqlite-reminder-repository.js';
 import { NOTIFICATION_CHANNEL_MIGRATION } from './notification-channel-schema.js';
 import { SqliteNotificationChannelRepository } from './sqlite-notification-channel-repository.js';
@@ -342,6 +342,7 @@ const MIGRATIONS = [
   NOTE_ENCRYPTION_REPAIR_MIGRATION,
   NOTE_KEYPAIR_MIGRATION,
   SCHEDULE_MIGRATION,
+  SCHEDULE_EXECUTION_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */

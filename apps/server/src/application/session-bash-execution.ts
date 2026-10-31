@@ -10,6 +10,7 @@ export function sessionBashExecution(dependencies: Parameters<typeof projectBash
   currentDirectory: (sessionId: string) => WorkingDirectory;
   runs: Pick<TaskRunRepository, 'bySession'>;
   bash: Pick<BashProcessService, 'execute'>;
+  scheduleControl?: (sessionId: string, toolCallId: string) => BashRunControl | undefined;
   taskControl?: (run: TaskRun, toolCallId: string) => BashRunControl;
 }): BashExecutionPort {
   const scope = projectBashScope({ ...dependencies, taskExecutionMode: id => {
@@ -35,11 +36,11 @@ export function sessionBashExecution(dependencies: Parameters<typeof projectBash
       }
     };
     validateExecution();
-    const control = run?.executionMode === 'workspace' ? dependencies.taskControl?.(run, toolCallId) : undefined;
+    const control = run?.executionMode === 'workspace' ? dependencies.taskControl?.(run, toolCallId) : dependencies.scheduleControl?.(sessionId, toolCallId);
     if (run?.executionMode === 'workspace' && !control) throw new Error('任务执行租约尚未接入。');
     const plan = scope(sessionId, runtimeDirectory, input.cwd);
     return dependencies.bash.execute({ sessionId, executionId, directory: plan.directory,
-      ...(run ? { taskId: run.taskId, runId: run.runId } : {}) }, toolCallId, input, signal, onData, isolated, () => {
+      ...(run ? { taskId: run.taskId, runId: run.runId } : {}) }, toolCallId, !run && control ? { ...input, requiredWhileRunning: true } : input, signal, onData, isolated, () => {
       validateExecution();
       plan.revalidate();
       control?.check();

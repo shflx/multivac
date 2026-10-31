@@ -73,7 +73,7 @@ export class ScheduleScheduler {
     const items = this.repository.unsettled().filter(item => item.leaseOwner === this.owner && item.status !== 'pending');
     await Promise.all(items.map(async item => {
       let confirmed = false;
-      try { confirmed = await this.runner.stop(item); } catch (error) { this.onError(error); }
+      try { confirmed = await this.runner.stop(item); if (confirmed) await this.running.get(item.occurrenceId); } catch (error) { this.onError(error); }
       this.repository.transaction(() => {
         const current = this.repository.occurrence(item.occurrenceId);
         if (!current || !OCCURRENCE_ACTIVE.includes(current.status)) return;

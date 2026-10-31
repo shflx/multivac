@@ -49,6 +49,7 @@ export interface AssistantSessionRuntimeDependencies {
 }
 
 export interface AssistantSessionRuntimeOptions {
+  beforeModelMutation?: () => void;
   canReadContent?: () => boolean;
   supportsContextManagement?: () => boolean;
   prepareText?: (text: string, commandId: string) => { text: string; skill?: CoordinatorSkill };
@@ -202,7 +203,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       ...(dependencies.modelAccessService ? { access: dependencies.modelAccessService } : {}),
       lock,
       sessionId: options.sessionId,
-      beforeMutation: () => this.context?.settleRecoveredOperation(),
+      beforeMutation: () => { options.beforeModelMutation?.(); this.context?.settleRecoveredOperation(); },
       isRunning: () => this.commands.isRunning() || Boolean(this.context?.blocksExecution()),
       ...(dependencies.onModelSelectionChanged ? { onChanged: dependencies.onModelSelectionChanged } : {}),
     });

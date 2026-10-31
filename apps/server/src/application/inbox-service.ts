@@ -17,7 +17,7 @@ export type InboxSourceDescriber = (source: { taskId: string | null; sessionId: 
 export class InboxService {
   constructor(private readonly humans: HumanRequestService, private readonly authorization: ToolAuthorizationService,
     private readonly states: InboxStateRepository, private readonly events: WorkbenchEvents, private readonly external?: GitPublishService, private readonly reminders?: ReminderRepository, private readonly mcp?: McpAuthorizationService,
-    private readonly describeSource?: InboxSourceDescriber) {}
+    private readonly describeSource?: InboxSourceDescriber, private readonly scheduleInputs?: import('./schedule-input-service.js').ScheduleInputService) {}
 
   private all(): InboxItem[] {
     const humans = this.humans.list();
@@ -63,6 +63,12 @@ export class InboxService {
       taskId: null, sessionId: notification.sourceSessionId, artifactVersionId: null,
       human: null, authorization: null, notification, state: this.states.get(notification.id),
     });
+    for (const request of this.scheduleInputs?.all() ?? []) items.push({
+      id: request.requestId, kind: 'clarification', revision: request.revision, status: request.status,
+      title: request.question, createdAt: request.createdAt, updatedAt: request.updatedAt, blocksWork: request.status === 'pending',
+      taskId: null, sessionId: request.sessionId, artifactVersionId: null, human: null, authorization: null,
+      scheduleInput: request, state: this.states.get(request.requestId),
+    });
     const describe = this.describeSource;
     return (describe ? items.map((item) => ({ ...item, sourceLabel: describe(item) })) : items).sort(compareInboxItems);
   }
@@ -104,7 +110,7 @@ export class InboxService {
   }
   async respond(id: string, input: InboxDecision, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
     const item = this.get(id);
-    if (item.notification) return this.decide(id, input, origin);
+    if (item.notification || item.scheduleInput) return this.decide(id, input, origin);
     if (input.decision === 'acknowledge') throw new TaskServiceError('INVALID_REQUEST', '知道了仅用于普通通知。');
     if (!item.human || item.authorization || item.external || item.mcp) throw new TaskServiceError('INVALID_REQUEST', '权限与外发请求只能由用户在界面中处理。');
     await this.humans.respond(item.human.requestId, input, origin); return this.get(id);
@@ -116,6 +122,7 @@ export class InboxService {
   async decide(id: string, input: InboxDecision, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<InboxItem> {
     const item = this.get(id);
     if (!Check(InboxDecisionSchema, input)) throw new TaskServiceError('INVALID_REQUEST', 'Inbox 决定参数无效。');
+    if (item.scheduleInput) { this.scheduleInputs!.decide(id, input); this.events.publish({ type: 'inbox.changed', id, origin }); return this.get(id); }
     if (item.notification) {
       if (input.decision !== 'acknowledge' || !this.reminders) throw new TaskServiceError('INVALID_REQUEST', '普通通知只接受“知道了”，不能用于其他决定。');
       this.reminders.acknowledge(id, input.revision, input.commandId, fingerprint({ id, ...input }), new Date().toISOString());

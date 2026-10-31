@@ -27,7 +27,7 @@ export class SqliteScheduleNotifications {
   deliver(item: ScheduleOccurrence, now: string, text?: string): InboxNotification {
     return this.schedules.transaction(() => {
       const current = this.schedules.occurrence(item.occurrenceId);
-      if (!current || current.leaseOwner !== item.leaseOwner || !['running', 'waiting', 'stopping'].includes(current.status)) throw new Error('本次通知执行归属已变化。');
+      if (!current || current.leaseOwner !== item.leaseOwner || !['running', 'waiting', 'stopping', 'reconcile'].includes(current.status)) throw new Error('本次通知执行归属已变化。');
       const schedule = item.snapshot;
       const legacy = schedule.legacyReminderId && item.source === 'planned';
       const id = legacy ? `notification:${schedule.legacyReminderId}:${schedule.revision}` : `notification:${item.occurrenceId}`;

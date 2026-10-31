@@ -1,3 +1,4 @@
+import { ScheduleInputRequestSchema } from './schedule.js';
 import { Type } from 'typebox';
 import { InboxNotificationSchema } from './reminder.js';
 import { HumanRequestSchema, DecideHumanRequestSchema } from './human-request.js';
@@ -23,6 +24,7 @@ export const InboxItemSchema = Type.Object({
   authorization: Type.Union([ToolAuthorizationRequestSchema, Type.Null()]),
   external: Type.Optional(ExternalOperationSchema),
   mcp: Type.Optional(McpFactSchemas.authorization),
+  scheduleInput: Type.Optional(ScheduleInputRequestSchema),
   notification: Type.Optional(InboxNotificationSchema),
   state: InboxStateSchema,
 }, { additionalProperties: false });

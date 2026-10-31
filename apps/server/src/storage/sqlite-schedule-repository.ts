@@ -82,8 +82,15 @@ export class SqliteScheduleRepository implements ScheduleRepository {
   due(now: string): Schedule[] {
     return this.db.prepare("SELECT record_json FROM schedule WHERE state='active' AND next_at<=? ORDER BY next_at,id LIMIT 100").all(now).map(row => JSON.parse(String(row.record_json)) as Schedule);
   }
+  bySession(id: string): ScheduleOccurrence | null {
+    const row = this.db.prepare("SELECT record_json FROM schedule_occurrence WHERE json_extract(record_json,'$.sessionId')=? LIMIT 1").get(id);
+    return row ? JSON.parse(String(row.record_json)) as ScheduleOccurrence : null;
+  }
   unsettled(): ScheduleOccurrence[] {
     const placeholders = OCCURRENCE_ACTIVE.map(() => '?').join(',');
     return this.db.prepare(`SELECT record_json FROM schedule_occurrence WHERE status IN (${placeholders})`).all(...OCCURRENCE_ACTIVE).map(row => JSON.parse(String(row.record_json)) as ScheduleOccurrence);
   }
 }
+
+export const SCHEDULE_EXECUTION_MIGRATION = `CREATE INDEX IF NOT EXISTS schedule_occurrence_session ON schedule_occurrence(json_extract(record_json,'$.sessionId'));
+CREATE TABLE IF NOT EXISTS schedule_input (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, record_json TEXT NOT NULL) STRICT;`;
