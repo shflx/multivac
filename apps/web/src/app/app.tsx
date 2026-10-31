@@ -324,11 +324,18 @@ export function App() {
   }
 
   /** 进入管理并打开指定页面；已在管理中时只切换页面。 */
-  async function openManagementPage(page: ManagementPageId): Promise<void> {
-    if (page === 'inbox' && narrow) { openInboxDrawer(); return; }
+  async function openManagementPage(page: ManagementPageId, inboxItemId?: string | null): Promise<void> {
+    if (page === 'inbox' && narrow) {
+      openInboxDrawer();
+      if (inboxItemId !== undefined) { setInboxSelected(inboxItemId); setInboxDetail(inboxItemId !== null); }
+      return;
+    }
     if (managementMode && page !== currentPage && !await allowManagementChange()) return;
-    // 从抽屉展开属于同一次处理，保留原位回执；从管理导航重新进入则重新选择待处理项。
-    if (page === 'inbox' && !inboxOpen) clearResolvedInboxSelection();
+    // 来源指定了通知时保留该选择；普通导航仍收起旧回执，抽屉展开保留原位现场。
+    if (page === 'inbox') {
+      if (inboxItemId !== undefined) { setInboxSelected(inboxItemId); setInboxDetail(inboxItemId !== null); }
+      else if (!inboxOpen) clearResolvedInboxSelection();
+    }
     // 兼容旧页面状态及历史回执；未知页回到注册表默认页，避免空白容器。
     page = resolveManagementPage(page);
     setOpenedPages((current) => current.has(page) ? current : new Set(current).add(page));
@@ -475,7 +482,7 @@ export function App() {
     notes: <Suspense fallback={<p role="status">正在打开笔记…</p>}><NotesApp active={showManagement && currentPage === 'notes'} /></Suspense>,
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
     inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
-    schedules: <SchedulesPage active={showManagement && currentPage === 'schedules'} onSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} onInbox={(notificationId) => { setInboxSelected(notificationId); void openManagementPage('inbox'); }} />,
+    schedules: <SchedulesPage active={showManagement && currentPage === 'schedules'} onSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} onInbox={(notificationId) => { void openManagementPage('inbox', notificationId); }} />,
     runs: <RunsPage active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => void openTaskSession(id)}><ProcessesSection active={showManagement && currentPage === 'runs'} onOpenTask={(id) => void openTask(id)} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} /></RunsPage>,
     skills: <CapabilitiesPage active={showManagement && currentPage === 'skills'} onDirtyChange={setSkillsDirty} onBusyChange={setSkillsBusy} discardSignal={skillsDiscard} onOpenSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} />,
     tasks: <TaskPanel active={showManagement && currentPage === 'tasks'} onOpenSession={(id) => void openTaskSession(id)} />,

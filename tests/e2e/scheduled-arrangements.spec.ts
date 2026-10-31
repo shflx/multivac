@@ -81,3 +81,30 @@ test('计划 Agent 在独立会话完成，人工等待由 Inbox 原请求继续
   await expect(detail(page).locator('.schedule-current')).toHaveCount(0);
   for(const width of [768,390]) {await page.setViewportSize({width,height:900});if(width === 390) await expect(page.getByRole('heading',{name:'管理请在桌面使用',exact:true})).toBeVisible(); else await expect(detail(page)).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();await page.screenshot({path:testInfo.outputPath(`schedule-${width}.png`),fullPage:true});}
 });
+
+
+test('通知跳转保留指定安排结果，不被更新的通知替换且不重复写已读', async ({ page }) => {
+  const errors: string[] = [], stateWrites: string[] = [];
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  page.on('request', request => { if (request.method() === 'POST' && /\/api\/inbox\/[^/]+\/state$/.test(request.url())) stateWrites.push(request.url()); });
+  await openSchedules(page);
+  const id = crypto.randomUUID(), older = `较早结果-${id}`, newer = `更新结果-${id}`;
+  for (const name of [older, newer]) {
+    await page.getByRole('button', { name: '新建安排', exact: true }).click();
+    const form = page.getByRole('form', { name: '新建安排' });
+    await form.getByLabel('名称', { exact: true }).fill(name);
+    await form.getByLabel('提醒内容').fill(name);
+    await form.getByRole('button', { name: '保存安排', exact: true }).click();
+    await expect(detail(page).getByRole('heading', { name, exact: true })).toBeVisible();
+    await detail(page).getByRole('button', { name: '立即执行', exact: true }).click();
+    await confirm(page, '立即执行一次');
+    await expect(detail(page).locator('[data-occurrence-status=succeeded]')).toHaveCount(1);
+  }
+  await page.getByRole('region', { name: '安排列表' }).getByRole('button', { name: new RegExp(older) }).click();
+  await detail(page).getByRole('button', { name: '查看 Inbox', exact: true }).click();
+  const inbox = page.getByRole('main', { name: 'Inbox', exact: true });
+  await expect(inbox.getByRole('heading', { name: older, exact: true })).toBeVisible();
+  await expect(inbox.getByRole('button', { name: new RegExp(older) }).getByRole('img', { name: '未查看', exact: true })).toHaveCount(0);
+  expect(stateWrites.length).toBe(1);
+  expect(errors).toEqual([]);
+});
