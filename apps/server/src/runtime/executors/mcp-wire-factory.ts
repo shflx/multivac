@@ -1,3 +1,6 @@
+import { childEnvironment, programLaunch } from '../program-launch.js';
+import { createPlatformCapabilities } from '../platform-capabilities.js';
+import { WINDOWS_STDIO_SUPERVISOR } from './windows-stdio-supervisor.js';
 import { spawn } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
@@ -15,7 +18,7 @@ import { MCP_STDIO_SUPERVISOR } from './mcp-stdio-supervisor.js';
  * stdio 使用工作会话 bash 同一托管方式，任务另加 Run 租约与额度，
  * 以用户身份运行在独立进程组中，可联网、可派生子进程，靠登记启用、连接确认与逐次调用许可把关。
  */
-export function mcpWireFactory(host: McpExecutionHost, accounts: Pick<McpAccountService, 'credentials' | 'assertCurrent'>, protectedPaths: readonly string[], repository: McpRepository): McpWireFactory {
+export function mcpWireFactory(host: McpExecutionHost, accounts: Pick<McpAccountService, 'credentials' | 'assertCurrent'>, protectedPaths: readonly string[], repository: McpRepository, platform: NodeJS.Platform = process.platform): McpWireFactory {
   const rules = new McpRules(repository);
   return { async assertCatalog(service, account, catalog) {
     const credentials = await accounts.credentials(account.accountId, account.revision), text = mcpCanonical(catalog);
@@ -40,6 +43,8 @@ export function mcpWireFactory(host: McpExecutionHost, accounts: Pick<McpAccount
       assertCurrent: () => verify(),
     });
     if (service.transport.kind !== 'stdio') throw new McpError('unsupported-transport', '不支持旧 HTTP+SSE。');
+    const denial = createPlatformCapabilities({ platform, arch: process.arch }).denial('mcpStdio');
+    if (denial) throw new McpError('unsupported-transport', denial);
     const transport = service.transport;
     return new McpStdioWire(async () => {
       await verify();
@@ -49,22 +54,34 @@ export function mcpWireFactory(host: McpExecutionHost, accounts: Pick<McpAccount
       verify();
       if (signal?.aborted) throw new McpError('cancelled', 'MCP 连接已取消。');
       if (Object.keys(credentials.environment).some(key => !transport.environmentKeys.includes(key))) throw new McpError('credential-unavailable', 'MCP 私有环境不适用。');
-      return supervisedChannel(transport.command, transport.args, initial.workingDirectory, credentials.environment, verify, initial.host === 'task' ? {host, context} : undefined);
+      return supervisedChannel(transport.command, transport.args, initial.workingDirectory, credentials.environment, verify, initial.host === 'task' ? {host, context} : undefined, platform);
     });
   } };
 }
-/** 工作会话与全局对话沿用 bash 的环境白名单，不继承服务端模型密钥；私有凭据不能覆盖这些运行环境。 */
-const SESSION_ENVIRONMENT = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER', 'LOGNAME', 'TERM'];
+/** 私有凭据不得覆盖 Windows 监护器的解释器/运行环境；账号声明不扩大执行边界。 */
+export function mcpProcessEnvironment(environment: Record<string, string>, source: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  const base = childEnvironment(source, platform);
+  if (platform === 'win32') {
+    const reserved = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER', 'LOGNAME', 'TERM', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'USERNAME'];
+    if (Object.keys(environment).some(key => reserved.some(name => name.toLowerCase() === key.toLowerCase()) || /^(?:NODE_|OPENSSL_|UV_|LD_|DYLD_)/iu.test(key)))
+      throw new McpError('credential-unavailable', 'MCP 私有环境不能覆盖 Windows 监护运行环境。');
+    return { ...environment, ...base };
+  }
+  // 保留原 POSIX 白名单覆盖规则，不能把配置凭据当作执行器环境。
+  const env: NodeJS.ProcessEnv = { ...environment };
+  for (const key of ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'SHELL', 'USER', 'LOGNAME', 'TERM']) { delete env[key]; if (source[key]) env[key] = source[key]; }
+  return env;
+}
 
 /** 经监护器启动的 stdio：关闭时等监护器确认整个进程组退出；单条消息上限由 McpStdioWire 约束。 */
-function supervisedChannel(command: string, args: string[], directory: string, environment: Record<string, string>, verify: () => void, task?: { host: McpExecutionHost; context: McpConnectionContext }): McpStdioChannel {
+function supervisedChannel(command: string, args: string[], directory: string, environment: Record<string, string>, verify: () => void, task?: { host: McpExecutionHost; context: McpConnectionContext }, platform: NodeJS.Platform = process.platform): McpStdioChannel {
   verify();
-  const env: NodeJS.ProcessEnv = { ...environment };
-  for (const key of SESSION_ENVIRONMENT) { delete env[key]; if (process.env[key]) env[key] = process.env[key]; }
+  const env = mcpProcessEnvironment(environment, process.env, platform);
+  const launch = programLaunch(command, args, platform, env);
   const marker = `mcp-connection:${randomUUID()}`;
   const limit = task?.host.lease(task.context.sessionId, 'starting', marker, 0);
   let bytes = 0;
-  const child = spawn(process.execPath, ['-e', MCP_STDIO_SUPERVISOR, JSON.stringify({ command, args, cwd: directory, graceMillis: 1000 })], {
+  const child = spawn(process.execPath, ['-e', platform === 'win32' ? WINDOWS_STDIO_SUPERVISOR : MCP_STDIO_SUPERVISOR, JSON.stringify(platform === 'win32' ? { ...launch, cwd: directory } : { command: launch.file, args: launch.args, cwd: directory, graceMillis: 1000 })], {
     cwd: directory, env, stdio: ['pipe', 'pipe', 'pipe'],
   });
   let ended = false, failure: unknown;
@@ -86,7 +103,7 @@ function supervisedChannel(command: string, args: string[], directory: string, e
     try {
       if (task && (task.host.lease(task.context.sessionId, 'progress', marker, size) <= 0 || bytes > limit!)) throw new Error('MCP 连接额度已耗尽。');
       return true;
-    } catch { child.stdin.end(); child.kill('SIGTERM'); return false; }
+    } catch { child.stdin.end(); if (platform !== 'win32') child.kill('SIGTERM'); return false; }
   };
   child.stdout.on('data', (chunk: Buffer) => { if (count(chunk.length)) for (const data of dataListeners) data(chunk); });
   // stderr 只排空，不落入公开日志、事件或模型上下文。
@@ -102,6 +119,6 @@ function supervisedChannel(command: string, args: string[], directory: string, e
       await new Promise<void>((resolve, reject) => child.stdin.write(value, error => error ? reject(new McpError('connection-failed', 'MCP stdio 写入失败。')) : resolve()));
     },
     // 关闭输入并请求监护器停止进程组；只有监护器确认组内无存活成员后退出，才视为已停止。
-    async close() { if (!ended) { child.stdin.end(); child.kill('SIGTERM'); } await closed; },
+    async close() { if (!ended) { child.stdin.end(); if (platform !== 'win32') child.kill('SIGTERM'); } await closed; },
   };
 }

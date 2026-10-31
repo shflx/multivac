@@ -80,3 +80,11 @@ TaskWorkingDirectories 在读取项目来源或创建目录、分支前核对 ta
 Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 继续限 macOS，不能借任务开放。
 
 Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。gitPublish 能力同样关闭，当前不会在 Windows 运行 Git。NUL/hooks、Git Credential Manager 和真实 worktree 行为仍待实机验证。
+
+## MCP stdio
+
+Windows stdio 启动复用 program-launch：Node、uvx 等原生 argv 直接运行，npm/npx 与配置的 .cmd/.bat 经 cmd.exe；不把协议或命令送入 PowerShell 格式化管道。独立 Node 根先等待 CIM 身份握手，再启动服务；协议 stdout/stderr 字节直通，退出事实走单独 IPC。根在目标结束后继续保留，直到已观察后代消失才释放；连接停止需再次确认整个观察范围退出。
+
+连接前沿用账号、目录、项目、分类和逐次许可核对，取消及未知调用不重发。Windows 关闭连接通过结束输入请求监护清理，不强杀监护器后冒充服务已退出。CIM 查询失败、异常退出等无法证明停止时保留原租约和恢复事实。私有凭据只注入配置声明的环境，不进入公开日志；Windows 按大小写保护执行环境，拒绝覆盖 PATH、ComSpec、NODE_/OPENSSL_ 等监护运行变量。未自动继承服务端模型密钥。
+
+MCP stdio 能力仍关闭。替身核对握手、字节传输、取消前不启动与查询失败不提供证明；macOS 真实 stdio/HTTP、任务/工作会话许可和版本回归通过。Windows npx/uvx 与真实服务协议、后代退出均待实机验证，采样遗漏边界同 ProcessSupervisor。
