@@ -20,7 +20,7 @@ npm 脚本不再使用 POSIX 环境变量赋值。开发入口仍等待 API read
 
 共用 program-launch 区分原生 argv 与批处理。Windows npm/npx 使用 .cmd 并显式调用 cmd.exe /d /s /v:off /c，不触发 npm.ps1 或改变 PowerShell 执行策略；stdio 原样传输。批处理参数中的双引号、百分号、感叹号、换行及 NUL 无法在本实现中可靠表达，会明确拒绝，需改用 Node/原生程序 argv。
 
-本地 node-pty 1.1.0 包包含 win32-x64/conpty.node、conpty_console_list.node、conpty.dll 与 OpenConsole.exe。补丁脚本原已仅对 darwin-arm64 spawn-helper 校验执行位，Windows 会跳过。锁文件登记 sharp win32-x64 0.35.5；本轮下载包内容检查超时，未核实该包的实际归档，须在 Windows 安装时核对。未在 macOS 加载 Windows 原生二进制。
+本地 node-pty 1.1.0 包包含 win32-x64/conpty.node、conpty_console_list.node、conpty.dll 与 OpenConsole.exe。补丁脚本原已仅对 darwin-arm64 spawn-helper 校验执行位，Windows 会跳过。sharp win32-x64 0.35.5 的实际归档已取得，SHA-512 与锁文件一致，包声明 win32/x64、Node >=20.9.0；其中 sharp-win32-x64-0.35.5.node、libvips-42.dll 与 libvips-cpp-8.18.7.dll 均为 PE x64。包内容核对不等于安装加载验证；未在 macOS 加载 Windows 原生二进制。
 
 ## 路径和目录移动
 
