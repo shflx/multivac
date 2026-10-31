@@ -1,5 +1,6 @@
+import { publishReplacement } from './file-durability.js';
 import { randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
@@ -38,9 +39,7 @@ export class FileModelAccessStore implements ModelAccessStore {
       const handle = await open(temporary, 'wx', 0o600);
       try { await handle.writeFile(JSON.stringify(state)); await handle.sync(); } finally { await handle.close(); }
       beforeCommit?.();
-      await rename(temporary, this.path);
-      const parent = await open(directory, 'r');
-      try { await parent.sync(); } finally { await parent.close(); }
+      await publishReplacement(temporary, this.path);
     } finally { await unlink(temporary).catch(() => {}); }
   }
 }

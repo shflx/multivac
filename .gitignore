@@ -38,6 +38,7 @@ docs/design/*
 !docs/design/notes.md
 !docs/reminders.md
 !docs/runtime-configuration.md
+!docs/windows-native.md
 !docs/session-context-management.md
 !docs/note-encryption.md
 !docs/harness-integration.md

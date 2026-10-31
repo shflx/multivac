@@ -1,3 +1,4 @@
+import { syncDirectorySync } from './file-durability.js';
 import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -172,7 +173,7 @@ export class SqliteNoteEncryption implements NoteEncryption {
           if (existsSync(path)) {
             if (digest(this.file(path)) !== digest(bytes)) throw new NotesError('旧讨论文件已变化，保留副本等待人工核对。', 409);
             unlinkSync(path);
-            const directory = openSync(dirname(path), 'r'); try { fsyncSync(directory); } finally { closeSync(directory); }
+            syncDirectorySync(dirname(path));
           }
           database.prepare('UPDATE app_note_protected_file SET cleanup_pending=0 WHERE path=?').run(path);
           this.fault?.('after-cleanup');
@@ -197,7 +198,12 @@ export class SqliteNoteEncryption implements NoteEncryption {
             const file = openSync(temporary, 'wx', 0o600); try { writeFileSync(file, bytes); fsyncSync(file); } finally { closeSync(file); }
             this.fault?.('restore-written');
             renameSync(temporary, path);
-            const directory = openSync(dirname(path), 'r'); try { fsyncSync(directory); } finally { closeSync(directory); }
+            syncDirectorySync(dirname(path));
+          }
+          if (process.platform === 'win32') {
+            const restored = openSync(path, 'r+');
+            try { fsyncSync(restored); } finally { closeSync(restored); }
+            syncDirectorySync(dirname(path));
           }
           this.fault?.('after-cleanup');
         }

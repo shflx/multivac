@@ -1,4 +1,5 @@
-import { chmodSync, closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { publishReplacementSync } from './file-durability.js';
+import { chmodSync, closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { checkedIlinkBase } from '../modules/notifications/wechat/client.js';
@@ -38,9 +39,7 @@ export class PrivateWechatStore implements PrivateWechatBindingStore {
     try { writeFileSync(fd, JSON.stringify(value)); fsyncSync(fd); }
     finally { closeSync(fd); }
     try {
-      renameSync(temporary, this.path());
-      const directory = openSync(this.root, 'r');
-      try { fsyncSync(directory); } finally { closeSync(directory); }
+      publishReplacementSync(temporary, this.path());
     } finally { try { unlinkSync(temporary); } catch { /* 已原子移动。 */ } }
   }
   clear(): void {

@@ -1,3 +1,4 @@
+import { syncDirectory } from './file-durability.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { withRuntimeIdentityKeys } from '@multivac/contracts';
 import { link, mkdir, open, readFile, unlink } from 'node:fs/promises';
@@ -115,12 +116,7 @@ export class FileModelSelectionRecoveryRepository implements ModelSelectionRecov
   constructor(private readonly root: string) {}
 
   private async syncDirectory(): Promise<void> {
-    const directory = await open(this.root, 'r');
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
+    await syncDirectory(this.root);
   }
 
   async get(runtimeSessionId: string): Promise<ModelSelectionRecoveryRecord | undefined> {

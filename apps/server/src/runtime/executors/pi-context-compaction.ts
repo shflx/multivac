@@ -1,3 +1,4 @@
+import { syncDirectorySync } from '../../storage/file-durability.js';
 import { createHash } from 'node:crypto';
 import { closeSync, fsyncSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -31,14 +32,14 @@ function transcript(path: string, sessionId: string) {
   return { bytes, entries: entries as SessionEntry[] };
 }
 function syncFile(path: string) {
-  const fd = openSync(path, 'r');
+  const fd = openSync(path, process.platform === 'win32' ? 'r+' : 'r');
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 function saveEvidence(path: string, evidence: unknown) {
   // 独占创建，完整写入并同步文件及目录后才允许调用模型；残缺证据只会保持待核对。
   const fd = openSync(path, 'wx', 0o600);
   try { writeFileSync(fd, JSON.stringify(evidence)); fsyncSync(fd); } finally { closeSync(fd); }
-  syncFile(dirname(path));
+  syncDirectorySync(dirname(path));
 }
 export function unknownCompaction(operation: ContextCompactionOperation): ContextCompactionOperation {
   return { ...operation, status: 'reconciliation-required', commitState: 'unknown', finishedAt: null,
