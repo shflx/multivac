@@ -16,7 +16,7 @@
 .schedules-page small,.schedules-page .muted {color:var(--muted);font-size:12px;line-height:1.6;}
 .schedule-list-item>svg {flex-shrink:0;margin-top:2px;}
 .schedule-detail {padding:0 24px;min-width:0;}
-.schedule-detail h2 {font-size:20px;margin:0 0 12px;}
+.schedule-detail h2 {font-size:20px;margin:0 0 12px;overflow-wrap:anywhere;}
 .schedule-detail h3 {font-size:14px;margin:22px 0 12px;}
 .schedule-state {font-size:12px;color:var(--muted);}
 .schedule-content {white-space:pre-wrap;line-height:1.7;}
@@ -34,6 +34,7 @@
 .schedule-editor input,.schedule-editor select,.schedule-editor textarea,.schedule-filters input,.schedule-filters select {background:var(--surface);border:1px solid var(--line);border-radius:6px;color:inherit;padding:8px 10px;min-width:0;font:inherit;}
 .schedule-editor textarea {resize:vertical;}.schedule-rule,.schedule-budget {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;}
 .schedule-weekdays {display:flex;flex-wrap:wrap;gap:12px;border:1px solid var(--line);border-radius:6px;padding:12px;}.schedule-weekdays label {flex-direction:row;align-items:center;}
+.schedule-weekdays input {width:16px;height:16px;margin:0;padding:0;accent-color:var(--accent);}
 .schedules-page button:disabled {cursor:default;opacity:.5;}
 @media(max-width:1000px) {.schedule-columns {grid-template-columns:minmax(210px,260px) minmax(0,1fr);}.schedule-detail {padding:0 16px;}.schedule-rule,.schedule-budget {grid-template-columns:1fr;}}
 @media(max-width:720px) {.schedule-columns {grid-template-columns:1fr;}.schedule-list {border-right:0;border-bottom:1px solid var(--line);padding:0 0 16px;max-height:320px;overflow:auto;}.schedule-detail {padding:22px 0;}.schedule-filters input {max-width:none;flex:1;}.schedule-toolbar {gap:6px;}}
