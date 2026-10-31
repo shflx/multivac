@@ -57,7 +57,7 @@ export async function prepareNodeDependencies(sourceRoot: string, target: string
 }
 
 /** 提示词中的依赖说明：没有 package-lock.json 时不提及；标记与当前锁文件一致才视为已准备。 */
-export async function describeNodeDependencies(directory: string): Promise<string | null> {
+export async function describeNodeDependencies(directory: string, platform: NodeJS.Platform = process.platform): Promise<string | null> {
   let lock: Buffer;
   try { lock = await readFile(join(directory, LOCKFILE)); }
   catch { return null; }
@@ -65,5 +65,6 @@ export async function describeNodeDependencies(directory: string): Promise<strin
     const marker = JSON.parse(await readFile(join(directory, MARKER), 'utf8')) as { lockSha256?: unknown };
     if (marker.lockSha256 === lockHash(lock)) return '依赖：已按项目主目录的 package-lock.json 准备 node_modules（未联网、未执行依赖脚本），可按项目要求使用共用 bash 安装或更新依赖，仍受任务预算约束。';
   } catch { /* 没有准备标记。 */ }
+  if (platform !== 'darwin') return '依赖：当前平台不使用 APFS 克隆，任务目录未自动准备 node_modules；请通过共用命令工具安装依赖后核对，不把未准备视为已安装。';
   return '依赖：任务目录未准备 node_modules（锁文件与项目主目录不一致，或主目录尚未安装依赖），可使用共用 bash 安装项目依赖后运行检查；失败时记录真实原因并修复。';
 }

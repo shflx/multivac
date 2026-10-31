@@ -1,9 +1,11 @@
+import { createCommandShell } from '../runtime/executors/command-shell.js';
 import type { HumanRequest, Task } from '@multivac/contracts';
 
 export interface TaskPromptContext {
   /** 启动时固定的后代数量；不按当前任务关系重新推断执行范围。 */
   childCount: number;
   resumed: boolean;
+  platform?: NodeJS.Platform;
   /** 同一执行会话中已持久化的人工回应；新会话仍使用完整任务说明。 */
   inboxResponses?: readonly Pick<HumanRequest, 'requestId' | 'question' | 'decision' | 'answer'>[];
   /** 任务目录的依赖准备情况；无锁文件时为空，不提及。 */
@@ -27,6 +29,7 @@ const DELIVERY_INSTRUCTIONS = [
 
 /** 用户字段保留原文；只按服务端固定范围省略无关的执行流程，不裁剪历史或恢复检查点。 */
 export function renderTaskExecutionPrompt(task: Pick<Task, 'taskId' | 'title' | 'goal' | 'scope' | 'acceptanceCriteria' | 'feedback' | 'acceptance'>, context: TaskPromptContext): string {
+  const interpreter = (context.platform ?? process.platform) === 'win32' ? `命令工具名仍为 bash，实际解释器为 ${createCommandShell('win32').syntax}。使用 PowerShell 语法与 npm.cmd/npx.cmd；专用受控 Git 和旧隔离执行器仍不可用。` : null;
   if (context.resumed && context.inboxResponses?.length) {
     return [
       `用户已回应任务请求（taskId="${task.taskId}"）。`,
@@ -34,6 +37,7 @@ export function renderTaskExecutionPrompt(task: Pick<Task, 'taskId' | 'title' | 
       `沿用本会话已有任务上下文。继续前用 get_task(taskId="${task.taskId}") 核对当前任务、原人工请求、运行停止事实及最近进展；已有恢复检查点保留，未知工具结果先只读对账，不重放副作用。回应不扩大目录、权限或验收边界。`,
       ...(context.childCount > 0 ? [`固定子任务：${context.childCount} 项，用 get_task_execution_tree 核对当前进度，沿用原固定范围。`] : []),
       // 依赖可能在回应期间补齐，增量提示也如实说明当前情况。
+      ...(interpreter ? [interpreter] : []),
       ...(context.dependencies ? [context.dependencies] : []),
     ].join('\n\n');
   }
@@ -42,6 +46,7 @@ export function renderTaskExecutionPrompt(task: Pick<Task, 'taskId' | 'title' | 
     ...(context.resumed ? [`继续或重做前用 get_task(taskId="${task.taskId}") 核对当前状态、原人工请求、运行停止事实及最近进展，历史仅供参考；涉及未知工具结果先只读对账，不重放副作用。沿用已有恢复检查点；如需核对代码，使用 inspect_task_git。`] : []),
     context.childCount > 0 ? `固定子任务：${context.childCount} 项。\n${TREE_INSTRUCTIONS}` : '固定子任务：0 项，直接处理当前任务。',
     DELIVERY_INSTRUCTIONS,
+    ...(interpreter ? [interpreter] : []),
     ...(context.dependencies ? [context.dependencies] : []),
   ].join('\n\n');
 }

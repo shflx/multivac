@@ -1,4 +1,5 @@
-import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
+import { gitEnvironment, gitNullDevice } from './git-platform.js';
+import { createPlatformCapabilities, type PlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { taskBranchName, taskDirectoryName } from './task-directory-names.js';
@@ -14,12 +15,22 @@ const MAX_BYTES = 64 * 1024 * 1024;
 
 /** 只由服务端分配目录；从不向用户工作树写回、覆盖或清理成果。 */
 export class TaskWorkingDirectories {
-  constructor(private readonly root: string, private readonly project: (id: string) => Project, private readonly protectedPaths: readonly string[] = []) {}
+  constructor(private readonly root: string, private readonly project: (id: string) => Project, private readonly protectedPaths: readonly string[] = [], private readonly capabilities: PlatformCapabilities = createPlatformCapabilities()) {}
 
   async prepare(task: Task, runId: string, signal: AbortSignal): Promise<{ directory: WorkingDirectory; baseline: string | null }> {
+    const denial = this.capabilities.denial('taskExecution') ?? this.capabilities.denial('command');
+    if (denial) throw new Error(denial);
+    signal.throwIfAborted();
     const base = join(this.root, 'tasks');
     await mkdir(base, { recursive: true, mode: 0o700 });
     if ((await lstat(base)).isSymbolicLink() || !isPathWithin(await realpath(this.root), await realpath(base))) throw new Error('任务目录根发生变化，未启动执行。');
+    let hooksPath = gitNullDevice(this.capabilities.platform);
+    if (this.capabilities.platform === 'win32') {
+      hooksPath = join(base, '.disabled-git-hooks');
+      await mkdir(hooksPath, { recursive: true });
+      if ((await lstat(hooksPath)).isSymbolicLink() || !isPathWithin(await realpath(base), await realpath(hooksPath)) || (await readdir(hooksPath)).length)
+        throw new Error('Git 禁用 hooks 目录不可用。');
+    }
     const name = taskDirectoryName(task, runId);
     const target = join(base, name);
     const sourceRoot = await this.sourceRoot(task);
@@ -27,9 +38,9 @@ export class TaskWorkingDirectories {
     let kind: WorkingDirectory['kind'] = 'task-isolated';
     signal.throwIfAborted();
     if (sourceRoot) {
-      const git = async (args: string[]) => (await executeFile('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-C', sourceRoot, ...args], {
+      const git = async (args: string[]) => (await executeFile(this.capabilities.platform === 'win32' ? 'git.exe' : 'git', ['-c', `core.hooksPath=${hooksPath}`, '-c', 'core.fsmonitor=false', '-C', sourceRoot, ...args], {
         maxBuffer: MAX_BYTES, timeout: 60000,
-        env: { PATH: process.env.PATH, HOME: base, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+        env: gitEnvironment(this.capabilities.platform, process.env, 'worktree', base), signal,
       })).stdout.trim();
       let repositoryRoot: string | null = null;
       try { repositoryRoot = await git(['rev-parse', '--show-toplevel']); }
@@ -52,8 +63,6 @@ export class TaskWorkingDirectories {
     } else await mkdir(target, { mode: 0o700 });
     signal.throwIfAborted();
     // worktree 组织修改位置；执行能力由与工作会话共用的后端核对，不把 cwd 当沙箱。
-    const denial = createPlatformCapabilities().denial('command');
-    if (denial) throw new Error(denial);
     return { directory: { kind, path: resolve(target) }, baseline };
   }
 

@@ -1,3 +1,5 @@
+import { gitEnvironment, gitNullDevice } from './git-platform.js';
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
@@ -13,13 +15,18 @@ export interface GitPublishSource { directory: string; taskId: string | null; ca
 /** 只发布固定提交到不存在的新分支，不运行 shell，不使用仓库 hooks。 */
 export class GitPublishService {
   constructor(private readonly repository: ExternalOperationRepository, private readonly events: WorkbenchEvents,
-    private readonly source: (sessionId: string) => GitPublishSource, private readonly allowLocalForTest = false) {
+    private readonly source: (sessionId: string) => GitPublishSource, private readonly allowLocalForTest = false, private readonly platform: NodeJS.Platform = process.platform) {
     for (const operation of repository.operations()) if (operation.status === 'executing') this.save({ ...operation, status: 'unknown', result: '进程中断，发布结果未知；只能只读核对远端。' });
   }
+  private assertPlatform(): void {
+    const denial = createPlatformCapabilities({ platform: this.platform, arch: process.arch }).denial('gitPublish');
+    if (denial) throw new TaskServiceError('INVALID_REQUEST', denial);
+  }
   private async git(cwd: string, args: string[]): Promise<string> {
-    const { stdout } = await exec('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${this.allowLocalForTest ? 'always' : 'never'}`, ...args], {
+    this.assertPlatform();
+    const { stdout } = await exec(this.platform === 'win32' ? 'git.exe' : 'git', ['-c', `core.hooksPath=${gitNullDevice(this.platform)}`, '-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${this.allowLocalForTest ? 'always' : 'never'}`, ...args], {
       cwd, timeout: 30000, maxBuffer: 128 * 1024,
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1' },
+      env: gitEnvironment(this.platform, process.env, 'publish'),
     });
     return stdout.trim();
   }
@@ -50,6 +57,7 @@ export class GitPublishService {
       if (previous.remote !== input.remote || previous.ref !== `refs/heads/${input.branch}`) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一命令不能改变发布目标。');
       return previous;
     }
+    this.assertPlatform();
     const source = this.source(sessionId);
     const cwd = await realpath(source.directory);
     const target = await this.git(cwd, ['remote', 'get-url', '--push', input.remote]);
@@ -88,6 +96,7 @@ export class GitPublishService {
     }
     if (input.revision !== operation.revision) throw new TaskServiceError('TASK_CONFLICT', '发布请求版本已变化。');
     if (input.decision === 'deny') return this.save({ ...operation, status: 'denied', result: '用户拒绝，未执行发布；本地成果保留。' });
+    this.assertPlatform();
     // 先持久化唯一执行权；后续任何失败均不重放 push。
     let current = this.save({ ...operation, status: 'executing', result: '已获单次批准，正在复核目标。' });
     try {

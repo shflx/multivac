@@ -1,4 +1,4 @@
-export type PlatformCapability = 'startup' | 'terminal' | 'mcpStdio' | 'taskTools' | 'command' | 'managedProcess' | 'controlledGit' | 'skillRun' | 'skillCopy' | 'reveal' | 'open' | 'trash' | 'remote';
+export type PlatformCapability = 'startup' | 'taskExecution' | 'gitPublish' | 'terminal' | 'mcpStdio' | 'taskTools' | 'command' | 'managedProcess' | 'controlledGit' | 'skillRun' | 'skillCopy' | 'reveal' | 'open' | 'trash' | 'remote';
 export interface PlatformCapabilities {
   readonly platform: NodeJS.Platform;
   readonly arch: string;
@@ -10,6 +10,8 @@ export function createPlatformCapabilities(host: { platform: NodeJS.Platform; ar
   const mac = host.platform === 'darwin';
   const reasons: Record<PlatformCapability, string | null> = {
     startup: null,
+    taskExecution: null,
+    gitPublish: null,
     terminal: mac && host.arch === 'arm64' ? null : '项目终端仅支持 macOS arm64 本机桌面。',
     mcpStdio: host.platform === 'win32' ? '当前平台尚不支持 MCP stdio。' : null,
     taskTools: mac ? null : '当前平台尚无通过验证的原生任务工具隔离，未启动任务。',

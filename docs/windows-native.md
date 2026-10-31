@@ -72,3 +72,11 @@ npm.cmd start
 建议绑定 Tailscale 地址，不默认绑定全部网卡。服务打印实际监听地址（IPv6 使用方括号）；不自动更改 Windows 防火墙或网络。token 自动生成前依赖私有 ACL，失败不生成/轮换，损坏不静默重建。手动 token 保持优先且不打印。
 
 远程仍只提供已有全局对话与 Inbox，手机登录不授予终端、工作会话、目录或其他本机能力。保留完整 Host/Origin、实际回环对端、来源绑定和登录撤销；不信任转发头。IPv4、IPv6 和映射 IPv6 仅规范化原有回环身份，Tailscale IPv4/IPv6 不判为本机。真实 Windows 启动、ACL、手机 Tailscale 登录和连接撤销尚待实机验证。
+
+## 新任务和 Git 工作目录
+
+TaskWorkingDirectories 在读取项目来源或创建目录、分支前核对 taskExecution/command 能力。Windows 分支为 Git for Windows 使用 git.exe、本地路径、独立空 hooks 目录和 NUL 全局配置；保持固定 HEAD 的独立 worktree，不改写 dirty 来源工作树。共用命令与监护分别接 CommandShell 和 ProcessSupervisor，旧隔离 Run 不自动迁移。
+
+Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 继续限 macOS，不能借任务开放。
+
+Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。gitPublish 能力同样关闭，当前不会在 Windows 运行 Git。NUL/hooks、Git Credential Manager 和真实 worktree 行为仍待实机验证。

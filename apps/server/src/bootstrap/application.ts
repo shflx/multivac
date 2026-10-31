@@ -987,7 +987,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   processObservation.unref();
   // 任务目录、Git 通道与只读 Git 不得触及的执行器内部目录；非 Pi 执行器只保护数据目录。
   const taskProtectedPaths = [...new Set([...adapter.protectedPaths, paths.dataDir])];
-  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), taskProtectedPaths);
+  const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), taskProtectedPaths, platformCapabilities);
   const taskExecution: TaskExecutionService = new TaskExecutionService({
     tasks, runs: store.taskRuns, requests: store.humanRequests, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),

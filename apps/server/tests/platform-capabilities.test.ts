@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPlatformCapabilities, type PlatformCapability } from '../src/runtime/platform-capabilities.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
-const capabilities: PlatformCapability[] = ['startup', 'terminal', 'mcpStdio', 'taskTools', 'command', 'managedProcess', 'controlledGit', 'skillRun', 'skillCopy', 'reveal', 'open', 'trash', 'remote'];
+const capabilities: PlatformCapability[] = ['startup', 'taskExecution', 'gitPublish', 'terminal', 'mcpStdio', 'taskTools', 'command', 'managedProcess', 'controlledGit', 'skillRun', 'skillCopy', 'reveal', 'open', 'trash', 'remote'];
 test('Windows 所有能力统一关闭，启动在数据初始化前拒绝', () => {
   const platform = { platform: 'win32' as const, arch: 'x64' };
   for (const key of capabilities) assert.match(createPlatformCapabilities(platform).denial(key)!, /尚待 Windows 11 x64 实机验证/);
