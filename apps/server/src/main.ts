@@ -1,3 +1,4 @@
+import { listenerHttpUrl } from './adapters/http/loopback-peer.js';
 import { APP_NAME } from '@multivac/contracts';
 import { createMultivacApplication } from './bootstrap/application.js';
 import { resolveMode, resolveRuntimeConfig, runtimeEnvironment } from './runtime-config.js';
@@ -30,7 +31,9 @@ process.once('SIGINT', close);
 process.once('SIGTERM', close);
 
 server.listen(port, host, () => {
-  console.log(`${APP_NAME} ${config.mode} [${config.instanceId}] server: http://${host}:${port}`);
+  const address = server.address();
+  const url = address && typeof address !== 'string' ? listenerHttpUrl(address.address, address.port) : listenerHttpUrl(host, port);
+  console.log(`${APP_NAME} ${config.mode} [${config.instanceId}] server: ${url}`);
   console.log(`数据目录：${config.dataDir}；工作根：${config.workRoot}`);
   if (remote.enabled) {
     console.log('远程对话入口已启用，需要访问 token 登录。');

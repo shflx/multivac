@@ -1,7 +1,7 @@
+import { isLocalLoopbackPeer } from './loopback-peer.js';
 import type { IncomingMessage } from 'node:http';
 
 const LOCAL_HOSTS = ['127.0.0.1', 'localhost', '[::1]'] as const;
-const LOOPBACK_PEERS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 export interface LocalEntry {
   hostOrigin: string;
@@ -37,7 +37,7 @@ export class LocalEntryPolicy {
   }
 
   allows(request: IncomingMessage, requireOrigin = false): boolean {
-    if (!LOOPBACK_PEERS.has(request.socket.remoteAddress ?? '')) return false;
+    if (!isLocalLoopbackPeer(request.socket.remoteAddress ?? '')) return false;
     for (const name of ['host', 'origin']) {
       const occurrences = (request.rawHeaders ?? []).filter((value, index) => index % 2 === 0 && value.toLowerCase() === name).length;
       if (occurrences > 1) return false;

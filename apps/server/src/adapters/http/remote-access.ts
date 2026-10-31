@@ -1,9 +1,11 @@
+import { isLocalLoopbackPeer } from './loopback-peer.js';
+import { createPlatformCapabilities } from '../../runtime/platform-capabilities.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { LocalEntryPolicy } from './local-entry-policy.js';
 
 export const REMOTE_COOKIE = 'multivac_remote';
-const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+const localHost = (host: string) => host === 'localhost' || isLocalLoopbackPeer(host.replace(/^\[|\]$/gu, ''));
 const LOGIN_TTL = 12 * 60 * 60 * 1000;
 const RATE_WINDOW = 60_000;
 const MAX_LOGINS = 256;
@@ -35,7 +37,7 @@ function validOrigin(value: string): boolean {
 }
 function validateRemoteEndpoint(config: RemoteAccessConfig): void {
   if (config.enabled && config.origin && !validOrigin(config.origin)) throw new Error('MULTIVAC_REMOTE_ORIGIN 必须是完整的 http/https origin，不含路径或凭据，或留空允许多个入口。');
-  if (config.enabled && config.origin && LOCAL_HOSTS.has(new URL(config.origin).hostname)) throw new Error('远程 origin 需使用局域网地址或专用域名，本机 localhost 入口保留完整功能。');
+  if (config.enabled && config.origin && localHost(new URL(config.origin).hostname)) throw new Error('远程 origin 需使用局域网地址或专用域名，本机 localhost 入口保留完整功能。');
   if (config.enabled && !config.host.trim()) throw new Error('远程监听地址不能为空。');
 }
 export function validateRemoteConfig(config: RemoteAccessConfig): RemoteAccessConfig {
@@ -45,8 +47,10 @@ export function validateRemoteConfig(config: RemoteAccessConfig): RemoteAccessCo
   validateRemoteEndpoint(config);
   return { ...config };
 }
-export function remoteConfigFromEnvironment(environment: NodeJS.ProcessEnv, defaultToken?: () => string): RemoteAccessConfig {
+export function remoteConfigFromEnvironment(environment: NodeJS.ProcessEnv, defaultToken?: () => string, platform: NodeJS.Platform = process.platform): RemoteAccessConfig {
   const enabled = environment.MULTIVAC_REMOTE_ENABLED === '1';
+  const denial = createPlatformCapabilities({ platform, arch: process.arch }).denial('remote');
+  if (enabled && denial) throw new Error(denial);
   if (environment.MULTIVAC_REMOTE_ENABLED && !['0', '1'].includes(environment.MULTIVAC_REMOTE_ENABLED)) {
     throw new Error('MULTIVAC_REMOTE_ENABLED 只能是 0 或 1。');
   }
@@ -109,7 +113,7 @@ export class RemoteAccess {
     try {
       const url = new URL(`http://${host}`);
       // Host 只能是主机与端口，不能携带凭据、路径或转发头中的本机身份。
-      if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || LOCAL_HOSTS.has(url.hostname)) return null;
+      if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || localHost(url.hostname)) return null;
       // HTTP 默认端口可能被 URL 规范化移除；允许标准的显式 :80 写法。
       if (host !== url.host && host !== `${url.host}:80`) return null;
       return host;

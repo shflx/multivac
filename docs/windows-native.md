@@ -55,3 +55,20 @@ Windows 通过 Win32_Process 记录根和已观察后代，每次终止前核对
 Windows 无 POSIX SIGTERM 语义，CIM Terminate 不保证优雅退出。采样间已脱离且未观察到的后代不保证回收；初次身份无法确认时不放行命令也不宣称停止。当前不自动发现 Windows 后台子进程监听端口，port 保持 null。取消、超时和输出额度复用原服务协议，未知结果保留恢复。ProcessSupervisor 装配点可在后续实机证明确有需要时替换为 Job Object；本轮不增加原生辅助程序。
 
 托管进程首轮是否提供仍待决定，Windows managed() 拒绝，managed-process-supervisor 的隔离实现保持原样。以上均只经 macOS 替身验证，未在 Windows 执行 CIM 或停止真实进程。
+
+## 远程访问（后续实机验证用）
+
+Windows 默认关闭远程；当前即使显式开启也会在生成 token 前被 PlatformCapabilities 拒绝。下列为后续验证时的 PowerShell 5.1 配置写法，不代表当前已开放：
+
+```powershell
+$env:MULTIVAC_REMOTE_ENABLED = '1'
+# 将下面地址换成这台 Windows 机器实际的 Tailscale 地址。
+$env:MULTIVAC_REMOTE_HOST = '100.101.102.103'
+# 可选，仅限制该手机访问来源；协议、主机、端口须与实际访问完全一致。
+$env:MULTIVAC_REMOTE_ORIGIN = 'http://100.101.102.103:4317'
+npm.cmd start
+```
+
+建议绑定 Tailscale 地址，不默认绑定全部网卡。服务打印实际监听地址（IPv6 使用方括号）；不自动更改 Windows 防火墙或网络。token 自动生成前依赖私有 ACL，失败不生成/轮换，损坏不静默重建。手动 token 保持优先且不打印。
+
+远程仍只提供已有全局对话与 Inbox，手机登录不授予终端、工作会话、目录或其他本机能力。保留完整 Host/Origin、实际回环对端、来源绑定和登录撤销；不信任转发头。IPv4、IPv6 和映射 IPv6 仅规范化原有回环身份，Tailscale IPv4/IPv6 不判为本机。真实 Windows 启动、ACL、手机 Tailscale 登录和连接撤销尚待实机验证。
