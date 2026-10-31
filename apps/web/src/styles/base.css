@@ -2164,6 +2164,15 @@ svg {
   cursor: pointer;
 }
 
+.send-error button:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.send-error button:disabled {
+  opacity: .55;
+}
+
 .send-error button svg {
   width: 14px;
   height: 14px;
