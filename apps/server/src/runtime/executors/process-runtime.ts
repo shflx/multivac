@@ -1,3 +1,5 @@
+import { childEnvironment } from '../program-launch.js';
+import { WINDOWS_COMMAND_SUPERVISOR } from './windows-process-supervisor.js';
 import { spawn } from 'node:child_process';
 import type { TerminalProcessFactory } from '../../modules/terminals/terminal-process.js';
 import { TerminalProcess } from './terminal-process.js';
@@ -21,7 +23,11 @@ export const nativeTaskIsolation: TaskIsolation = {
 };
 
 /** 以当前 node 运行监护脚本；只给最小 PATH，不继承服务环境与密钥。 */
-export function createProcessSupervisor(): ProcessSupervisor {
+export function createProcessSupervisor(platform: NodeJS.Platform = process.platform): ProcessSupervisor {
+  if (platform === 'win32') return {
+    managed: () => { throw new Error('Windows 托管隔离尚未决定及验证，当前不可用。'); },
+    bash: () => spawn(process.execPath, ['-e', WINDOWS_COMMAND_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: childEnvironment(process.env, platform), windowsHide: true }),
+  };
   return {
     managed: () => spawn(process.execPath, ['-e', MANAGED_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', OPENSSL_CONF: '/dev/null' } }),
     bash: () => spawn(process.execPath, ['-e', BASH_PROCESS_SUPERVISOR], { stdio: ['pipe', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin' } }),

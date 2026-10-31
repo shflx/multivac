@@ -51,6 +51,10 @@ exit $multivacExitCode`;
 }
 export function powershellCommandShell(environment: NodeJS.ProcessEnv = process.env): CommandShell {
   return { name: 'powershell', syntax: 'Windows PowerShell 5.1（不是 bash；使用 PowerShell 语法；不加载 profile）',
-    launch: command => ({ file: win32.join(environment.SystemRoot || environment.SYSTEMROOT || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(powershellCommandScript(command), 'utf16le').toString('base64')] }) };
+    launch: command => {
+      const encoded = Buffer.from('[void][Console]::In.ReadLine()\n' + powershellCommandScript(command), 'utf16le').toString('base64');
+      if (encoded.length > 30000) throw new Error('PowerShell 编码命令超过 Windows 启动长度限制，请拆分命令。');
+      return { file: win32.join(environment.SystemRoot || environment.SYSTEMROOT || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', encoded] };
+    } };
 }

@@ -112,7 +112,7 @@ export class BashProcessService {
     this.live.set(id, live);
     const pidReady = (pid: number) => {
       const current = this.repository.get(id)!; current.pid = pid; this.repository.save(current);
-      this.save(id, { pid, processGroupId: isolated ? null : pid, startedAt: new Date().toISOString(), state: current.public.state === 'stopping' ? 'stopping' : 'running', reason: 'bash 已启动，监听端口尚待观测。' }); ready();
+      this.save(id, { pid, processGroupId: isolated || this.shell.name === 'powershell' ? null : pid, startedAt: new Date().toISOString(), state: current.public.state === 'stopping' ? 'stopping' : 'running', reason: 'bash 已启动，监听端口尚待观测。' }); ready();
     };
     void (async () => {
       await mkdir(this.root, { recursive: true, mode: 0o700 });
@@ -137,6 +137,7 @@ export class BashProcessService {
         exited(result.code); ready(); this.live.delete(id); closed(); return;
       }
       validateBeforeStart?.();
+      const shellLaunch = this.shell.launch(input.command);
       const marker = `bash-process:${id}`;
       const limits = control?.start(marker, Buffer.byteLength(input.command));
       if (control) live.settle = () => control.settle(marker);
@@ -181,7 +182,7 @@ export class BashProcessService {
         // 退出凭据落库后才释放 live，应用关闭会等待这一段收尾。
         void this.reconcile(id).finally(() => { this.live.delete(id); ready(); exited(null); closed(); });
       });
-      child.stdin.write(JSON.stringify({ ...this.paths(id), token: record.token, directory, command: input.command, shellLaunch: this.shell.launch(input.command), env, graceMillis: this.graceMillis,
+      child.stdin.write(JSON.stringify({ ...this.paths(id), token: record.token, directory, command: input.command, shellLaunch, env, graceMillis: this.graceMillis,
         maxBytes: limits?.maxBytes ?? null,
         timeoutMillis: Math.min(input.mode === 'background' || input.timeout === undefined ? Infinity : input.timeout * 1000, limits?.maxMillis ?? Infinity) === Infinity
           ? null : Math.min(input.mode === 'background' || input.timeout === undefined ? Infinity : input.timeout * 1000, limits?.maxMillis ?? Infinity) }) + '\n');

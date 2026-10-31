@@ -45,3 +45,13 @@ CommandShell 先迁移现有 bash 私有握手包装，再独立增加 Windows P
 PowerShell 在执行前解析语法。终止错误停止后续语句，非终止 Error 流和原生非零退出记录为失败，后续成功语句不能清除先前失败；只用最终 $? 不足以判断。顶层多语句逐条保留退出码。为避免误报，当前明确拒绝动态命令、外部 .ps1，以及循环/分支/嵌套表达式里的原生调用或同一管道的多次原生调用；应拆成单独的顶层语句。这是已知功能限制，不能当作任意 PowerShell 脚本兼容。
 
 PowerShell 控制台与原生输入/输出协商设为 UTF-8（代码页 65001），Node 按 UTF-8 保留输出。忽略代码页设置而强行输出 OEM/ANSI 编码的旧程序仍需调用方显式转换，未经实机验证不保证自动识别任意中文代码页。替身只核对编码与包装、中文输出及失败呈现，未执行 PowerShell。
+
+## 进程监护与停止证明
+
+ProcessSupervisor 先迁移现有 Node 监护装配，再增加 Windows CIM 分支；macOS 的 ps、进程组、私有握手及信号分支保留。Windows 根 PowerShell 在 stdin 握手前不执行用户命令，CIM 观察到 PID 与 CreationDate 后才放行。PowerShell 编码参数限制为 30,000 字符以内，超限要求拆分，且在监护进程启动前拒绝。
+
+Windows 通过 Win32_Process 记录根和已观察后代，每次终止前核对 CreationDate，仅终止身份匹配的进程。CIM Terminate 返回成功不能证明退出，须等待根退出、输出管道关闭，并重新查询确认已观察范围全部消失；查询失败或缺少已知进程的创建身份时保留监护、租约及恢复状态。兼容退出凭据的 groupStopped 字段只随 treeStopped 一起生成，Windows 公共记录不伪造 processGroupId。没有使用 taskkill /T 成功作为证明。
+
+Windows 无 POSIX SIGTERM 语义，CIM Terminate 不保证优雅退出。采样间已脱离且未观察到的后代不保证回收；初次身份无法确认时不放行命令也不宣称停止。当前不自动发现 Windows 后台子进程监听端口，port 保持 null。取消、超时和输出额度复用原服务协议，未知结果保留恢复。ProcessSupervisor 装配点可在后续实机证明确有需要时替换为 Job Object；本轮不增加原生辅助程序。
+
+托管进程首轮是否提供仍待决定，Windows managed() 拒绝，managed-process-supervisor 的隔离实现保持原样。以上均只经 macOS 替身验证，未在 Windows 执行 CIM 或停止真实进程。
