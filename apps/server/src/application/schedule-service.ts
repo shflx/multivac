@@ -3,6 +3,7 @@ import { Check } from 'typebox/value';
 import { CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, ScheduleDraftSchema, previewSchedule, validateScheduleZone, validateScheduleRule, reminderLocalTime, ScheduleQuerySchema, DEFAULT_TASK_BUDGET, DEFAULT_AGENT_ID,
   type Schedule, type ScheduleDraft, type CreateSchedule, type UpdateSchedule, type ControlSchedule, type ScheduleOccurrence, type ScheduleQuery } from '@multivac/contracts';
 import type { ScheduleRepository } from '../modules/schedules/repository.js';
+import { makeOccurrence } from '../modules/schedules/occurrence.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { fingerprint } from './task-service.js';
 
@@ -125,10 +126,4 @@ export class ScheduleService {
     if (active?.status === 'pending') this.repository.saveOccurrence({ ...active, status: 'skipped', reason, endedAt: this.now().toISOString() });
   }
   private commandKey(actor: string, commandId: string): string { return `schedule:${createHash('sha256').update(JSON.stringify([actor, commandId])).digest('hex')}`; }
-}
-
-export function makeOccurrence(schedule: Schedule, id: string, at: string, source: 'planned' | 'manual'): ScheduleOccurrence {
-  return { occurrenceId: id, scheduleId: schedule.scheduleId, scheduleRevision: schedule.revision, snapshot: schedule, source,
-    plannedAt: at, localTime: reminderLocalTime(new Date(at), schedule.timeZone), startedAt: null, endedAt: null,
-    status: 'pending', reason: null, summary: null, sessionId: null, notificationId: null, leaseOwner: null, leaseUntil: null, executionSnapshot: null };
 }

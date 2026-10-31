@@ -7,4 +7,3 @@ export function reminderSchedule(item: Reminder): Schedule {
     state: item.status === 'scheduled' ? 'active' : item.status === 'cancelled' ? 'deleted' : 'completed',
     nextAt: item.status === 'scheduled' ? item.scheduledAt : null, sourceSessionId: item.sourceSessionId, createdAt: item.createdAt, updatedAt: item.updatedAt };
 }
-

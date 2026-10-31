@@ -2,8 +2,7 @@ import { reminderSchedule } from '../modules/schedules/legacy-reminder.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { InboxNotification, Reminder, Schedule, ScheduleOccurrence } from '@multivac/contracts';
 import { SqliteScheduleRepository } from './sqlite-schedule-repository.js';
-import { makeOccurrence } from '../application/schedule-service.js';
-import { scheduledOccurrenceId } from '../application/schedule-scheduler.js';
+import { makeOccurrence, scheduledOccurrenceId } from '../modules/schedules/occurrence.js';
 
 /** 与统一仓储共享连接的明确事务入口。旧回执/通知保留原表，旧计时器一次性退出消费。 */
 export class SqliteScheduleNotifications {

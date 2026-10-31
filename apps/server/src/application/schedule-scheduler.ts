@@ -1,7 +1,7 @@
-import { randomUUID, createHash } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { OCCURRENCE_ACTIVE, previewSchedule, type Schedule, type ScheduleOccurrence } from '@multivac/contracts';
 import type { ScheduleRepository } from '../modules/schedules/repository.js';
-import { makeOccurrence } from './schedule-service.js';
+import { makeOccurrence, scheduledOccurrenceId } from '../modules/schedules/occurrence.js';
 
 export interface ScheduleActionResult { status: 'succeeded' | 'failed' | 'stopped' | 'reconcile'; summary: string; notificationId?: string }
 export interface ScheduleActionRunner {
@@ -11,7 +11,6 @@ export interface ScheduleActionRunner {
 }
 const LEASE_MS = 30_000;
 const LATE_MS = 60_000;
-export const scheduledOccurrenceId = (id: string, at: string) => `planned:${createHash('sha256').update(JSON.stringify([id, at])).digest('hex')}`;
 
 /** 单机持久调度。只提交短事务；模型和人工等待不阻塞其他安排。 */
 export class ScheduleScheduler {

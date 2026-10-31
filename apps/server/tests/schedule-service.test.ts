@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { SCHEDULE_MIGRATION, SqliteScheduleRepository } from '../src/storage/sqlite-schedule-repository.js';
-import { ScheduleService, makeOccurrence } from '../src/application/schedule-service.js';
+import { ScheduleService } from '../src/application/schedule-service.js';
+import { makeOccurrence } from '../src/modules/schedules/occurrence.js';
 
 export function fixture() {
   const db = new DatabaseSync(':memory:'); db.exec(SCHEDULE_MIGRATION);
