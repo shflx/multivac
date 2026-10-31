@@ -88,3 +88,13 @@ Windows stdio 启动复用 program-launch：Node、uvx 等原生 argv 直接运�
 连接前沿用账号、目录、项目、分类和逐次许可核对，取消及未知调用不重发。Windows 关闭连接通过结束输入请求监护清理，不强杀监护器后冒充服务已退出。CIM 查询失败、异常退出等无法证明停止时保留原租约和恢复事实。私有凭据只注入配置声明的环境，不进入公开日志；Windows 按大小写保护执行环境，拒绝覆盖 PATH、ComSpec、NODE_/OPENSSL_ 等监护运行变量。未自动继承服务端模型密钥。
 
 MCP stdio 能力仍关闭。替身核对握手、字节传输、取消前不启动与查询失败不提供证明；macOS 真实 stdio/HTTP、任务/工作会话许可和版本回归通过。Windows npx/uvx 与真实服务协议、后代退出均待实机验证，采样遗漏边界同 ProcessSupervisor。
+
+## 项目终端与 CLI
+
+Windows 分支使用 node-pty ConPTY，空白终端实际启动 Windows PowerShell 5.1（不加载 Profile）。Claude Code、Codex、自定义程序沿用 argv；共用启动规则按 Windows PATH 查找原生 .exe/.com 或 .cmd/.bat，批处理参数仍受前述限制，不写入 CLI 用户配置。macOS 仍使用原登录 shell、forkpty 和原进程核对。
+
+ConPTY 的 Node 根先等 CIM 身份握手，再以继承控制台方式启动所选程序。监护器通过独立 IPC 传启动/停止事实，终端输入等待观察到 CLI 子进程后再放行，等待期间最多缓存 64 KiB。终端正文沿原画面通道传输，不进入数据库或模型上下文。停止必须同时取得 PTY 根退出与监护器确认观察范围消失；查询失败或监护器异常时保持 stop-unconfirmed，不能按旧 PID 清理、恢复旧 PID 或恢复画面。宿主 IPC 断开会请求监护器继续清理。
+
+自管 Codex app-server 仅监听动态 127.0.0.1 WebSocket 地址，与终端共用 Windows CLI 启动；复用 CIM 根握手监督，宿主输入管道关闭即请求停止。连接异常、初始化/就绪超时及正常退出均请求清理；原实例未确认停止时拒绝启动新实例，停止超时明确失败。macOS 看门狗保持原行为。终端身份、Host/Origin、远程拒绝、刷新/重开和会话 ID 跟踪规则保持原样。
+
+4 项平台替身核对默认程序、参数、输入握手、PID 复用、查询失败和停止凭据；现有真实 macOS PTY、画面与 CLI 会话跟踪定向回归通过。ConPTY、CLI 安装路径、组合键/中文输入、真实 Codex app-server 协议和服务退出仍待 Windows 实机测试。terminal 能力关闭，PROJECT_CONSTRAINTS.md 的 macOS arm64 开放边界保持不变。

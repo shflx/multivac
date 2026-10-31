@@ -1,3 +1,5 @@
+import { programLaunch } from '../program-launch.js';
+import { WINDOWS_STDIO_SUPERVISOR } from './windows-stdio-supervisor.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
@@ -41,6 +43,31 @@ interface Connection {
 export class CodexAppServer implements CodexThreads {
   private connection: Promise<Connection> | null = null;
   private closed = false;
+  private windowsChildren = new Map<ChildProcess, Promise<void>>();
+
+  constructor(private readonly platform: NodeJS.Platform = process.platform) {}
+
+  private registerWindowsChild(child: ChildProcess): void {
+    const closed = new Promise<void>((resolve, reject) => {
+      child.once('error', () => { /* close 事件前不据此认定观察范围已停止。 */ });
+      child.once('close', (code, signal) => {
+        if ((code === 0 || code === 127) && !signal) { this.windowsChildren.delete(child); resolve(); }
+        else reject(new Error('Codex app-server 的停止尚未确认。'));
+      });
+    });
+    this.windowsChildren.set(child, closed);
+    void closed.catch(() => {});
+  }
+
+  private async stopWindowsChild(child: ChildProcess): Promise<void> {
+    child.stdin?.end();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([this.windowsChildren.get(child), new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Codex app-server 的停止尚未确认。')), READY_TIMEOUT_MILLIS);
+      })]);
+    } finally { clearTimeout(timer); }
+  }
 
   async endpoint(): Promise<string> {
     return (await this.connect()).endpoint;
@@ -60,6 +87,11 @@ export class CodexAppServer implements CodexThreads {
     this.closed = true;
     const connection = await this.connection?.catch(() => null);
     this.connection = null;
+    if (this.platform === 'win32') {
+      connection?.socket.close();
+      await Promise.all([...this.windowsChildren.keys()].map(child => this.stopWindowsChild(child)));
+      return;
+    }
     if (!connection) return;
     connection.socket.close();
     if (connection.child.exitCode === null) connection.child.kill('SIGTERM');
@@ -67,6 +99,7 @@ export class CodexAppServer implements CodexThreads {
 
   private connect(): Promise<Connection> {
     if (this.closed) return Promise.reject(new Error('Codex app-server 已停止。'));
+    if (!this.connection && this.windowsChildren.size) return Promise.reject(new Error('原 Codex app-server 的停止尚未确认，暂不能启动新实例。'));
     this.connection ??= this.start().catch(error => { this.connection = null; throw error; });
     return this.connection;
   }
@@ -84,17 +117,26 @@ export class CodexAppServer implements CodexThreads {
       `while kill -0 ${process.pid} 2>/dev/null && kill -0 "$server" 2>/dev/null; do sleep 1; done`,
       'stop',
     ].join('\n');
-    const child = spawn(process.env.SHELL || '/bin/sh', ['-l', '-c', script], {
-      detached: true,
-      cwd: homedir(), env: terminalEnvironment(process.env), stdio: ['ignore', 'ignore', 'ignore'],
-    });
+    const environment = terminalEnvironment(process.env);
+    const child = this.platform === 'win32'
+      ? spawn(process.execPath, ['-e', WINDOWS_STDIO_SUPERVISOR, JSON.stringify({ ...codexAppServerLaunch(endpoint, environment), cwd: homedir() })], {
+          cwd: homedir(), env: environment, windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'],
+        })
+      : spawn(process.env.SHELL || '/bin/sh', ['-l', '-c', script], {
+          detached: true, cwd: homedir(), env: environment, stdio: ['ignore', 'ignore', 'ignore'],
+        });
+    if (this.platform === 'win32') this.registerWindowsChild(child);
     let exited = false;
     child.once('exit', () => { exited = true; });
     const deadline = Date.now() + READY_TIMEOUT_MILLIS;
     let socket: WebSocket | null = null;
     while (!socket) {
       if (exited) throw new Error('Codex app-server 启动后立即退出，请确认已安装并登录 codex。');
-      if (Date.now() > deadline) { child.kill('SIGTERM'); throw new Error('Codex app-server 启动超时。'); }
+      if (Date.now() > deadline) {
+        if (this.platform === 'win32') await this.stopWindowsChild(child);
+        else child.kill('SIGTERM');
+        throw new Error('Codex app-server 启动超时。');
+      }
       socket = await new Promise<WebSocket | null>(resolve => {
         const candidate = new WebSocket(endpoint);
         candidate.once('open', () => resolve(candidate));
@@ -118,10 +160,19 @@ export class CodexAppServer implements CodexThreads {
       for (const resolve of connection.pending.values()) resolve({ error: { message: 'Codex app-server 连接已断开。' } });
       connection.pending.clear();
     };
-    socket.once('close', () => { reset(); if (child.exitCode === null) child.kill('SIGTERM'); });
+    socket.once('close', () => {
+      reset();
+      if (this.platform === 'win32') void this.stopWindowsChild(child).catch(() => {});
+      else if (child.exitCode === null) child.kill('SIGTERM');
+    });
     child.once('exit', () => { reset(); socket?.close(); });
-    await this.request(connection, 'initialize', { clientInfo: { name: 'multivac', title: 'Multivac', version: '0.1.0' } });
-    socket.send(JSON.stringify({ method: 'initialized', params: {} }));
+    try {
+      await this.request(connection, 'initialize', { clientInfo: { name: 'multivac', title: 'Multivac', version: '0.1.0' } });
+      socket.send(JSON.stringify({ method: 'initialized', params: {} }));
+    } catch (error) {
+      if (this.platform === 'win32') { socket.close(); await this.stopWindowsChild(child); }
+      throw error;
+    }
     return connection;
   }
 
@@ -137,4 +188,12 @@ export class CodexAppServer implements CodexThreads {
       connection.socket.send(JSON.stringify({ id, method, params }));
     });
   }
+}
+
+/** app-server 只监听本机；程序与终端 CLI 共用 Windows PATH/批处理启动规则。 */
+export function codexAppServerLaunch(endpoint: string, environment: NodeJS.ProcessEnv = terminalEnvironment(process.env)) {
+  const parsed = new URL(endpoint);
+  if (parsed.protocol !== 'ws:' || parsed.hostname !== '127.0.0.1' || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash)
+    throw new Error('Codex app-server 必须使用本机回环地址。');
+  return programLaunch('codex', ['app-server', '--listen', endpoint], 'win32', environment);
 }
