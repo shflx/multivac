@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Check } from 'typebox/value';
-import { CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, previewSchedule, validateScheduleRule, reminderLocalTime,
+import { CreateScheduleSchema, UpdateScheduleSchema, ControlScheduleSchema, previewSchedule, validateScheduleRule, reminderLocalTime, ScheduleQuerySchema, DEFAULT_TASK_BUDGET, DEFAULT_AGENT_ID,
   type Schedule, type ScheduleDraft, type CreateSchedule, type UpdateSchedule, type ControlSchedule, type ScheduleOccurrence, type ScheduleQuery } from '@multivac/contracts';
 import type { ScheduleRepository } from '../modules/schedules/repository.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
@@ -9,13 +9,18 @@ import { fingerprint } from './task-service.js';
 /** 独立安排的命令入口。事务仅记录事实；执行由调度器在事务外进行。 */
 export class ScheduleService {
   constructor(readonly repository: ScheduleRepository, private readonly now: () => Date = () => new Date(),
-    private readonly changed: (id: string) => void = () => {}, private readonly validateAction: (draft: ScheduleDraft) => void = () => {}) {}
+    private readonly changed: (id: string) => void = () => {}, private readonly validateAction: (draft: ScheduleDraft) => void = () => {}, private readonly defaultBudget: () => { maxMillis: number; maxOutputBytes: number } = () => DEFAULT_TASK_BUDGET) {}
   get(id: string): Schedule {
     const item = this.repository.get(id);
     if (!item) throw new TaskServiceError('NOT_FOUND', '定时安排不存在。');
     return item;
   }
-  page(query: ScheduleQuery = {}) { return this.repository.page(query); }
+  context(timeZone?: string) {
+    return { currentTime: this.now().toISOString(), timeZone: timeZone ?? null, localTime: timeZone ? reminderLocalTime(this.now(), timeZone) : null,
+      defaultAgentId: DEFAULT_AGENT_ID, defaultBudget: { maxMillis: this.defaultBudget().maxMillis, maxOutputBytes: this.defaultBudget().maxOutputBytes, maxToolCalls: 256 },
+      limitation: '服务关闭或系统休眠时不执行。周期及 Agent 默认跳过错过，可选只补最近一次；旧单次提醒补发。同安排不重叠，未知结果不重放。Agent 结果只进 Inbox，权限仍走原人工授权。' };
+  }
+  page(query: ScheduleQuery = {}) { if (!Check(ScheduleQuerySchema, query)) throw new TaskServiceError('INVALID_REQUEST', '安排查询无效。'); return this.repository.page(query); }
   detail(id: string, offset = 0, limit = 30) {
     const schedule = this.get(id);
     return { schedule, active: this.repository.active(id), history: this.repository.history(id, offset, limit),

@@ -1,3 +1,4 @@
+import { SCHEDULE_TOOLS } from './schedule-tools.js';
 import { openTerminalTool } from './terminal-tools.js';
 import { readSessionHistoryTool, readSessionMessageTool } from './session-transcript-tools.js';
 import { MCP_MANAGEMENT_TOOLS } from './mcp-management-tools.js';
@@ -57,7 +58,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   ...RUN_TOOLS, stopSessionProcessTool, stopSessionProcessesTool,
   listTasksTool, getTaskTool, listTaskGroupsTool,
   confirmHumanTaskTool, createTaskTool, proposeCreateTaskTool, updateTaskTool, controlTaskTool, deleteTaskTool, createTaskGroupTool,
-  ...INBOX_TOOLS, ...REMINDER_TOOLS, ...TASK_REVIEW_TOOLS, proposeGitPublishTool,
+  ...INBOX_TOOLS, ...REMINDER_TOOLS, ...SCHEDULE_TOOLS, ...TASK_REVIEW_TOOLS, proposeGitPublishTool,
   listProjectsTool,
   listWorkspacesTool,
   listSessionsTool,

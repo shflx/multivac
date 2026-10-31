@@ -444,6 +444,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       createGroup: (input, origin) => tasks.createGroup(input, origin),
     },
     inbox: { page: (query) => inbox.page(query), get: (id) => inbox.get(id), respond: (id, input, origin) => inbox.respond(id, input, origin) },
+    schedules: { context: zone => schedules.context(zone), page: query => schedules.page(query), get: id => schedules.get(id), detail: (id, offset, limit) => schedules.detail(id, offset, limit),
+      create: (actor, input) => schedules.create(actor, input), update: (actor, input) => schedules.update(actor, input), control: (actor, input) => schedules.control(actor, input), reconcile: (actor, id) => schedules.reconcile(actor, id) },
     scheduleInputs: { ask: (...args) => scheduleInputs.ask(...args) },
     reminders: {
       context: (zone) => reminders.context(zone), get: (id) => reminders.get(id), page: (query) => reminders.page(query),
@@ -1182,7 +1184,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const scheduleNotifications = new SqliteScheduleNotifications(store.schedules.db, store.schedules);
   scheduleNotifications.migrate();
   const scheduleChanged = (id: string) => workbenchEvents.publish({ type: 'schedules.changed', id, origin: UNKNOWN_CHANGE_ORIGIN });
-  const schedules = new ScheduleService(store.schedules, () => new Date(), scheduleChanged);
+  const schedules = new ScheduleService(store.schedules, () => new Date(), scheduleChanged, draft => {
+    if (draft.action.kind === 'agent' && !draft.action.projectId && draft.action.directory) throw new Error('无项目安排使用独立执行目录。');
+    if (draft.action.kind === 'agent' && draft.action.projectId) projectService.getProject(draft.action.projectId);
+  }, () => preferencesService.defaultTaskBudget());
   const reminders = new ReminderService(store.reminders, (id) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
   }, () => new Date(), store.schedules);

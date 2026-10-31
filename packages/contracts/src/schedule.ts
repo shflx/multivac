@@ -58,3 +58,9 @@ export const ScheduleInputRequestSchema = Type.Object({
   answer: Type.String({ maxLength: 4000 }), createdAt: Type.String(), updatedAt: Type.String(),
 }, { additionalProperties: false });
 export type ScheduleInputRequest = Type.Static<typeof ScheduleInputRequestSchema>;
+
+export const ScheduleQuerySchema = Type.Object({
+  state: Type.Optional(Type.Union(['active','paused','completed','deleted'].map(x => Type.Literal(x)))),
+  kind: Type.Optional(Type.Union([Type.Literal('reminder'),Type.Literal('agent')])), query: Type.Optional(Type.String({ maxLength: 200 })),
+  offset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+}, { additionalProperties: false });

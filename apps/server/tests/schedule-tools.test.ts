@@ -1,0 +1,41 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { SCHEDULE_MIGRATION, SqliteScheduleRepository } from '../src/storage/sqlite-schedule-repository.js';
+import { ScheduleService } from '../src/application/schedule-service.js';
+import { SCHEDULE_TOOLS } from '../src/application/internal-tools/schedule-tools.js';
+import type { InternalToolCallContext } from '../src/application/internal-tools/internal-tool-service.js';
+
+test('对话工具复用统一服务：浏览器时区、两类动作、查询不触发和原命令对账', async () => {
+  const db = new DatabaseSync(':memory:'); db.exec(SCHEDULE_MIGRATION);
+  const repo = new SqliteScheduleRepository(db);
+  const service = new ScheduleService(repo, () => new Date('2026-01-01Z'), () => {}, () => {}, () => ({ maxMillis: 30000, maxOutputBytes: 4096 }));
+  const context = { sessionId: 'session', services: { schedules: service }, originView: { timeZone: 'Asia/Shanghai' }, signal: new AbortController().signal } as unknown as InternalToolCallContext<'schedules'>;
+  const call = async (name: string, args: any) => (SCHEDULE_TOOLS.find(t => t.name === name)! as any).execute(args, context);
+  const clock = JSON.parse((await call('get_schedule_context', {})).content);
+  assert.equal(clock.timeZone, 'Asia/Shanghai'); assert.equal(clock.defaultBudget.maxMillis, 30000);
+  const draft = { commandId: 'create', name: '早间提醒', action: { kind: 'reminder', text: '喝水' }, timeZone: 'Asia/Shanghai', rule: { kind: 'daily', time: '09:00' }, missedPolicy: 'skip' };
+  const saved = JSON.parse((await call('create_schedule', draft)).content).receipt;
+  await call('create_schedule', draft);
+  await call('list_schedules', {}); await call('get_schedule', { scheduleId: saved.scheduleId });
+  assert.equal(repo.page().total, 1); assert.equal(repo.history(saved.scheduleId).total, 0);
+  assert.equal(JSON.parse((await call('reconcile_schedule_command', { commandId: 'create' })).content).saved, true);
+  await assert.rejects(call('create_schedule', { ...draft, name: '不同输入' }), /原命令|命令/);
+  const manual = JSON.parse((await call('control_schedule', { commandId: 'manual', scheduleId: saved.scheduleId, revision: 1, operation: 'trigger' })).content);
+  assert.equal(manual.status, 'pending'); assert.equal(repo.get(saved.scheduleId)!.nextAt, saved.nextAt);
+  await call('control_schedule', { commandId: 'stop', scheduleId: saved.scheduleId, revision: 1, operation: 'stop' });
+  assert.equal(repo.get(saved.scheduleId)!.state, 'active');
+  await call('control_schedule', { commandId: 'pause', scheduleId: saved.scheduleId, revision: 1, operation: 'pause' });
+  assert.equal(repo.get(saved.scheduleId)!.state, 'paused');
+  await call('create_schedule', { ...draft, commandId: 'agent', action: { kind: 'agent', instruction: '读取目录', agentId: 'general', projectId: null, directory: null, budget: clock.defaultBudget } });
+  assert.equal(repo.page({kind:'agent'}).total, 1);
+  assert.equal(service.context().timeZone, null); db.close();
+});
+test('持久保存后回执读取丢失时只读对账，不伪报未执行或重建', async () => {
+  const db = new DatabaseSync(':memory:'); db.exec(SCHEDULE_MIGRATION);
+  const service = new ScheduleService(new SqliteScheduleRepository(db), () => new Date('2026-01-01Z'));
+  const context = { sessionId: 'session', services: { schedules: { create: service.create.bind(service), get: () => { throw Error('读取失败'); } } } };
+  const create = SCHEDULE_TOOLS.find(t => t.name === 'create_schedule')! as any;
+  await assert.rejects(create.execute({ commandId: 'unknown', name: '提醒', action: { kind: 'reminder', text: '喝水' }, timeZone: 'UTC', rule: { kind: 'daily', time: '09:00' }, missedPolicy: 'skip' }, context), /reconcile_schedule_command.*unknown/);
+  assert.equal(service.reconcile('session', 'unknown').saved, true); assert.equal(service.page().total, 1); db.close();
+});
