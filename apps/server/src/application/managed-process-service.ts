@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { BashProcessService, type BashRunControl } from './bash-process-service.js';
 import { execFile, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -176,7 +177,8 @@ export class ManagedProcessService {
   }
   private async launch(input: ManagedStart, boundary: ManagedBoundary, key: string): Promise<ManagedProcess> {
     if (this.closing) throw new TaskServiceError('TASK_CONFLICT', '本地服务正在退出。');
-    if (process.platform !== 'darwin') throw new TaskServiceError('INVALID_REQUEST', '当前平台未验证托管隔离。');
+    const denial = createPlatformCapabilities().denial('managedProcess');
+    if (denial) throw new TaskServiceError('INVALID_REQUEST', denial);
     const active = this.list().filter((item) => !['exited', 'failed'].includes(item.state));
     if (active.length >= 16 || active.filter((item) => item.taskId === boundary.taskId).length >= 4) throw new TaskServiceError('TASK_CONFLICT', '托管进程并发预算已用尽。');
     if (!input.commandId || !input.name || input.name.length > 200 || !input.script || input.script.length > 1024 || isAbsolute(input.script)

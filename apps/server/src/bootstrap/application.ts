@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { NoteHttpAccess } from '../adapters/http/note-access.js';
 import { SqliteNoteEncryption } from '../storage/sqlite-note-encryption.js';
 import { SqliteProtectedTranscripts } from '../storage/sqlite-protected-transcripts.js';
@@ -210,6 +211,7 @@ export interface MultivacApplicationOptions {
   toolAuthorizationTimeoutMs?: number;
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
+  const platformCapabilities = createPlatformCapabilities();
   const environmentWebProvider = createWebProvider(environment);
   const webTools = WEB_TOOLS;
   const instance = resolveRuntimeConfig(environment);
@@ -1099,7 +1101,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     transport: (service, context) => {
       if (service.transport.kind === 'legacy-sse') return false;
       // 各执行宿主使用同一传输准入；服务、账号、范围与逐次许可仍独立核对。
-      if (service.transport.kind === 'stdio') return process.platform !== 'win32'
+      if (service.transport.kind === 'stdio') return platformCapabilities.denial('mcpStdio') === null
         && (service.transport.cwd === null || service.transport.cwd === context.workingDirectory);
       const url = new URL(service.transport.url);
       return url.protocol === 'https:' || url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);

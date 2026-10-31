@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import { IMAGE_LIMITS } from '@multivac/contracts';
 import { constants } from 'node:fs';
@@ -60,7 +61,8 @@ export class SessionFilesService {
 
   /** 仅由本机用户 HTTP 入口调用，不向模型或内部工具暴露。 */
   async reveal(id: string, path: string, expectedRoot: string, kind: SessionFileEntry['kind']): Promise<{ message: string }> {
-    if ((this.system.platform ?? process.platform) !== 'darwin') throw new SessionFilesError(400, '系统文件定位仅支持本机 macOS Finder，当前平台不支持。');
+    const denial = createPlatformCapabilities({ platform: this.system.platform ?? process.platform, arch: process.arch }).denial('reveal');
+    if (denial) throw new SessionFilesError(400, denial);
     const target = await this.target(id, path, expectedRoot, kind);
     const before = await lstat(target.absolute);
     const checked = await this.target(id, path, expectedRoot, kind);

@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { taskBranchName, taskDirectoryName } from './task-directory-names.js';
@@ -51,7 +52,8 @@ export class TaskWorkingDirectories {
     } else await mkdir(target, { mode: 0o700 });
     signal.throwIfAborted();
     // worktree 组织修改位置；执行能力由与工作会话共用的后端核对，不把 cwd 当沙箱。
-    if (process.platform === 'win32') throw new Error('当前共用 bash 后端尚不支持 Windows。');
+    const denial = createPlatformCapabilities().denial('command');
+    if (denial) throw new Error(denial);
     return { directory: { kind, path: resolve(target) }, baseline };
   }
 

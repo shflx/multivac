@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../../runtime/platform-capabilities.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { RemoteAccess, accessError } from './remote-access.js';
@@ -10,7 +11,8 @@ export function isTerminalPath(path: string): boolean {
 /** 必须在读取终端、创建进程或附着前调用。HTTP 与 upgrade 采用相同身份及来源门禁。 */
 export function terminalEntryDenial(request: IncomingMessage, access: RemoteAccess,
   platform: Pick<NodeJS.Process, 'platform' | 'arch'> = process): string | null {
-  if (platform.platform !== 'darwin' || platform.arch !== 'arm64') return '项目终端仅支持 macOS arm64 本机桌面。';
+  const denial = createPlatformCapabilities(platform).denial('terminal');
+  if (denial) return denial;
   const identity = access.identify(request);
   if (identity?.kind !== 'local' || !identity.authenticated || isRemoteRequest(request) || !access.allowsLocalEntry(request, true)) {
     return '项目终端只允许有效的本机桌面来源。';

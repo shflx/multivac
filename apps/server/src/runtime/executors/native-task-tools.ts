@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../platform-capabilities.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -42,7 +43,8 @@ export class NativeTaskTools {
   }
 
   static async create(directory: string, protectedPaths: readonly string[] = [], lease?: NativeTaskLease): Promise<NativeTaskTools> {
-    if (process.platform !== 'darwin') throw new Error('当前平台尚无通过验证的原生任务工具隔离，未启动任务。');
+    const denial = createPlatformCapabilities().denial('taskTools');
+    if (denial) throw new Error(denial);
     const root = await realpath(directory);
     const node = await realpath(process.execPath);
     const protectedRoots: string[] = [];

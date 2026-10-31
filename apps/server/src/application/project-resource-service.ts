@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
 import { lstat, opendir, realpath } from 'node:fs/promises';
@@ -366,7 +367,8 @@ export class ProjectResourceService {
   }
 
   private localFile(projectId: string, resourceId: string): string {
-    if ((this.options.system?.platform ?? process.platform) !== 'darwin') throw invalid('用系统程序打开资料仅支持本机 macOS。');
+    const denial = createPlatformCapabilities({ platform: this.options.system?.platform ?? process.platform, arch: process.arch }).denial('open');
+    if (denial) throw invalid(denial);
     const record = this.record(projectId, resourceId);
     try {
       if (!lstatSync(this.filePath(record)).isFile()) throw new Error('not a file');

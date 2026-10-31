@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -31,7 +32,8 @@ export class ControlledGitChannel {
   }
 
   private async gitExecutable(): Promise<string> {
-    if (process.platform !== 'darwin') fail('当前平台尚未验证受控 Git 隔离，未执行。');
+    const denial = createPlatformCapabilities().denial('controlledGit');
+    if (denial) fail(denial);
     // 绕过 /usr/bin/git 的 xcode-select 启动器，直接使用已选开发工具中的 Git，不启动查询子进程。
     this.executable ??= realpath('/var/select/developer_dir').then(path => realpath(join(path, 'usr/bin/git')))
       .catch(() => { this.executable = undefined; return fail('无法定位已选开发工具中的 Git，请检查本地开发工具是否可用。'); });
