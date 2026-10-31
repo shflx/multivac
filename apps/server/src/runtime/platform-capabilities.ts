@@ -1,4 +1,4 @@
-export type PlatformCapability = 'terminal' | 'mcpStdio' | 'taskTools' | 'command' | 'managedProcess' | 'controlledGit' | 'skillRun' | 'skillCopy' | 'reveal' | 'open' | 'trash' | 'remote';
+export type PlatformCapability = 'startup' | 'terminal' | 'mcpStdio' | 'taskTools' | 'command' | 'managedProcess' | 'controlledGit' | 'skillRun' | 'skillCopy' | 'reveal' | 'open' | 'trash' | 'remote';
 export interface PlatformCapabilities {
   readonly platform: NodeJS.Platform;
   readonly arch: string;
@@ -9,6 +9,7 @@ export interface PlatformCapabilities {
 export function createPlatformCapabilities(host: { platform: NodeJS.Platform; arch: string } = process): PlatformCapabilities {
   const mac = host.platform === 'darwin';
   const reasons: Record<PlatformCapability, string | null> = {
+    startup: null,
     terminal: mac && host.arch === 'arm64' ? null : '项目终端仅支持 macOS arm64 本机桌面。',
     mcpStdio: host.platform === 'win32' ? '当前平台尚不支持 MCP stdio。' : null,
     taskTools: mac ? null : '当前平台尚无通过验证的原生任务工具隔离，未启动任务。',
@@ -22,5 +23,8 @@ export function createPlatformCapabilities(host: { platform: NodeJS.Platform; ar
     trash: host.platform === 'win32' ? 'Windows 的回收站暂不支持，到期的临时目录保留不动。' : null,
     remote: null,
   };
-  return Object.freeze({ ...host, denial: (capability: PlatformCapability) => reasons[capability] });
+  return Object.freeze({ platform: host.platform, arch: host.arch,
+    denial: (capability: PlatformCapability) => host.platform === 'win32'
+      ? `Windows 能力（${capability}）尚待 Windows 11 x64 实机验证，当前不可用。`
+      : reasons[capability] });
 }

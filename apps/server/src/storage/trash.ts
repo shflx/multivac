@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { closeSync, cpSync, mkdirSync, openSync, renameSync, rmdirSync, rmSync, unlinkSync, writeSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
 import type { Trash } from '../modules/sessions/trash.js';
@@ -152,7 +153,8 @@ export class UnavailableTrash implements Trash {
  */
 export function systemTrash(input: { platform: NodeJS.Platform; homeDir: string; xdgDataHome?: string | undefined }): Trash {
   if (input.platform === 'darwin') return new DirectoryTrash(join(input.homeDir, '.Trash'));
-  if (input.platform === 'win32') return new UnavailableTrash('Windows 的回收站暂不支持，到期的临时目录保留不动。');
+  const denial = createPlatformCapabilities({ platform: input.platform, arch: process.arch }).denial('trash');
+  if (denial) return new UnavailableTrash(denial);
   const dataHome = input.xdgDataHome && isAbsolute(input.xdgDataHome)
     ? input.xdgDataHome
     : join(input.homeDir, '.local', 'share');

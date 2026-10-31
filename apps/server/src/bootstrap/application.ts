@@ -209,9 +209,12 @@ export interface MultivacApplicationOptions {
   modelAccessTimeoutMs?: number;
   /** 授权等待时限（毫秒）；优先于环境变量 MULTIVAC_TOOL_AUTHORIZATION_TIMEOUT_MS，缺省 30 分钟。 */
   toolAuthorizationTimeoutMs?: number;
+  platform?: Pick<NodeJS.Process, 'platform' | 'arch'>;
 }
 export function createMultivacApplication(environment: NodeJS.ProcessEnv = process.env, options: MultivacApplicationOptions = {}) {
-  const platformCapabilities = createPlatformCapabilities();
+  const platformCapabilities = createPlatformCapabilities(options.platform);
+  const startupDenial = platformCapabilities.denial('startup');
+  if (startupDenial) throw new Error(startupDenial);
   const environmentWebProvider = createWebProvider(environment);
   const webTools = WEB_TOOLS;
   const instance = resolveRuntimeConfig(environment);
@@ -1240,7 +1243,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts, mcpManagement, mcpResources,
+    platformCapabilities, terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, mcp, mcpAccounts, mcpManagement, mcpResources,
     server,
     remoteAccess,
     paths,

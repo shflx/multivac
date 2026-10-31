@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import type { TaskRun, WorkingDirectory } from '@multivac/contracts';
 import type { BashExecutionPort } from '../modules/processes/bash-execution.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
@@ -17,6 +18,8 @@ export function sessionBashExecution(dependencies: Parameters<typeof projectBash
     return run ? run.executionMode ?? 'native-isolated' : null;
   } });
   return { execute: (sessionId, runtimePath, toolCallId, input, signal, onData, isolated) => {
+    const denial = createPlatformCapabilities().denial('command');
+    if (denial) throw new Error(denial);
     const executionId = dependencies.currentExecution(sessionId);
     if (!executionId) throw new Error('当前没有可登记的会话执行。');
     if (dependencies.sessions.get(sessionId)?.archivedAt) throw new Error('会话已归档，未启动命令。');

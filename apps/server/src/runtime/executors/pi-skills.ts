@@ -1,3 +1,4 @@
+import { createPlatformCapabilities } from '../platform-capabilities.js';
 import { SkillError, skillHash, skillPath } from '../../modules/skills/skill-package.js';
 import type { NativeTaskTools } from './native-task-tools.js';
 import { Type } from 'typebox';
@@ -76,6 +77,8 @@ export function createPiSkills(service: SkillSource, sessionId: string): PiSkill
         execute: async (toolCallId, input, signal) => {
           if (signal?.aborted) throw new SkillError('本轮已取消。');
           if (!Check(ResourceSchema, input)) throw new SkillError('资源参数无效。');
+          if (process.platform === 'win32' && input.action !== 'read')
+            throw new SkillError(createPlatformCapabilities().denial(input.action === 'run' ? 'skillRun' : 'skillCopy')!, 403);
           const required = input.action === 'run' ? 'bash' : input.action === 'copy' ? 'write' : 'read';
           if (!service.context(sessionId).tools.includes(required))
             throw new SkillError(`当前宿主没有 ${required} 能力。`, 403);
