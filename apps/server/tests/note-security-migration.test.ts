@@ -111,8 +111,8 @@ for (const encrypted of [false, true]) test(`旧版笔记密码${encrypted ? '�
       database.prepare('INSERT INTO app_note_password VALUES (1,1,?)').run(JSON.stringify({ format: 1, revision: 1, kdf: {}, master: {} }));
       database.prepare('INSERT INTO app_note_key VALUES (?,?)').run('one', JSON.stringify({ format: 1 }));
       if (encrypted) database.exec("INSERT INTO app_note_protection VALUES ('one','encrypted')");
-      const latest = (database.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version;
-      database.prepare('DELETE FROM schema_migrations WHERE version=?').run(latest);
+      // 密钥对从 v61 开始迁移；固定旧库 v60 基线，不随后续新增迁移改变夹具含义。
+      database.prepare('DELETE FROM schema_migrations WHERE version>=61').run();
     } finally { initial.close(); }
 
     const migrated = new SqliteAssistantStore(path);
