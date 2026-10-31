@@ -4,7 +4,8 @@ const view = (page: Page) => page.locator('.terminal-view');
 async function command(page: Page, text: string) {
   await view(page).locator('.xterm-helper-textarea').focus(); await page.keyboard.insertText(text); await page.keyboard.press('Enter');
 }
-async function output(page: Page) { return view(page).locator('.xterm-rows').innerText(); }
+/** 按终端行读取；innerText 会将行内定位的文本片段误当作额外换行。 */
+async function output(page: Page) { return (await view(page).locator('.xterm-rows > div').allTextContents()).join('\n'); }
 /** 标题栏“更多”菜单中的操作。 */
 async function menuAction(page: Page, name: string) {
   await view(page).getByRole('button', { name: /」的更多操作$/ }).click(); await view(page).getByRole('menuitem', { name, exact: true }).click();

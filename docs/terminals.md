@@ -70,16 +70,32 @@ HTTP 和 WebSocket 在查终端、创建进程或附着之前共同核对：macO
 | @xterm/addon-fit | 0.11.0 |
 | @xterm/addon-web-links | 0.12.0 |
 
-`npm ci` 的 postinstall 执行 `scripts/patch-terminals.mjs`。它修复 macOS arm64 `spawn-helper` 执行位，并对 serialize 的 CJS/ESM 构建应用确定性补丁：bold/dim 共享 SGR 22 后重设两个属性；进入备用屏前后清空颜色，避免首屏空白单元继承正常屏颜色。隐藏光标由 `terminal-screen.ts` 的序列化封装补齐。服务端 dev/build/check/test/start 的前置检查拒绝遗漏或不匹配的补丁。
+`npm ci` 的 postinstall 执行 `scripts/patch-terminals.mjs`。它修复 macOS arm64 `spawn-helper` 执行位，并对 serialize 和浏览器 xterm 的 CJS/ESM 构建应用确定性补丁：
+
+- serialize：bold/dim 共享 SGR 22 后重设两个属性；进入备用屏前后清空颜色，避免首屏空白单元继承正常屏颜色。隐藏光标由 `terminal-screen.ts` 的序列化封装补齐。
+- 浏览器 DOM 渲染：每段最多合并 8 个字符，按终端列坐标定位并分配整段宽度。字距和文本片段的取整误差不再跨段累积，避免行尾字符被内部行容器裁切；保留小段合并，控制全屏重绘的 DOM 节点数量。宽字符和组合字符沿用 xterm 的单元宽度及解析结果，光标、选区和链接仍使用原列坐标。
+
+服务端 dev/build/check/test/start 与前端 dev/build 的前置检查拒绝遗漏或不匹配的补丁。手动应用补丁后，如此前运行过 Vite，需用 `npm run dev -w @multivac/web -- --force` 重建依赖预打包缓存；生产构建直接读取补丁后的依赖。
 
 | 构建文件 | 上游 SHA-256 | 修正后 SHA-256 |
 | --- | --- | --- |
 | addon-serialize.js | `65d8dd7c2b3b37a77f583ea5e0d14a23bbcc846e4ae0d6bb534ae12a380aea0d` | `705eb858848b2be7e4a0dff778b9d9dde0194cc1bcd470e342e467a29fa69687` |
 | addon-serialize.mjs | `6c93dff90bef3b7aac8664fa4c1cb4026bf4b701f3014a1fb88edde943dab906` | `9d950ef44c40b920e5decbc8aa68add6bff50fa0689ae596642edc9d461a48b7` |
+| xterm.js | `14903579ff54664cd72f8e8699e6961a6272c21863ec1c3b118cdc8af5d4a972` | `23a293b9a7e3dcbc220128dd46925d6f3b9b3b17687644121c8b6e74a9552c0c` |
+| xterm.mjs | `b336ec65a086c056d4804b3d4c2347da5663d3f23c3f25be866467bd8857ad59` | `52fe21905d0d01cdd5152b1ab1f37ee4e41910e6988473ee1109728f5193cedd` |
 
 headless CJS 构建 SHA-256 为 `17a90b650cf6b77cce2b98c4063884d43545e4ce177a54b76ccfc906f1aacaed`。私有字段仅由 `terminal-screen.ts` 访问：`_core._inputHandler._parser.currentState`、`_utf8Decoder.interim` 和 `coreService.isCursorHidden`。启动时核对结构，安装/服务前置检查核对构建哈希。升级必须重审补丁及字段，并重新验证 UTF-8/CSI/OSC/DCS 分块、bold/dim、光标、备用屏颜色、快照/resize 排序、裁剪、背压和真实 CLI 接回；不能仅修改版本和哈希。
 
 ## 验证入口
+
+字符布局回归直接加载安装后的 CJS/ESM 浏览器构建，不需要启动 API 或 PTY：
+
+```sh
+node scripts/patch-terminals.mjs --check
+node_modules/.bin/playwright test -c playwright.terminal-rendering.config.ts
+```
+
+该回归覆盖普通与 Retina 像素比、窗口宽度变化、聚焦与失焦、普通及彩色文字、中文宽字符、组合字符、粗体、行尾光标和选区复制。升级浏览器 xterm 时，除更新补丁与哈希，还须重新验证这些行为。
 
 先构建 contracts 和 web，再运行终端专用 Playwright 配置。该配置使用静态页面和独立 API 端口，不占用 Vite 的 5173：
 

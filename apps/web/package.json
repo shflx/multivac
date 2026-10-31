@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "node ../../scripts/patch-terminals.mjs --check",
+    "prebuild": "node ../../scripts/patch-terminals.mjs --check",
     "dev": "vite",
     "build": "vite build",
     "check": "tsc -p tsconfig.json --noEmit",
