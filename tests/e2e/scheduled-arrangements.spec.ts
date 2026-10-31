@@ -108,3 +108,20 @@ test('通知跳转保留指定安排结果，不被更新的通知替换且不�
   expect(stateWrites.length).toBe(1);
   expect(errors).toEqual([]);
 });
+
+
+test('安排与时间上下文首次读取失败后，刷新恢复列表和新建入口', async ({ page }) => {
+  const reads = /\/api\/schedules(?:\/context)?\?/;
+  await page.route(reads, route => route.abort('failed'));
+  await openSchedules(page);
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('button', { name: '新建安排', exact: true })).toBeDisabled();
+  await expect(page.getByText('正在读取安排…', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('安排尚未读取，请点击“刷新安排”重试。', { exact: true })).toBeVisible();
+  await page.unroute(reads);
+  await page.getByRole('button', { name: '刷新安排', exact: true }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '新建安排', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '新建安排', exact: true }).click();
+  await expect(page.getByRole('form', { name: '新建安排' })).toBeVisible();
+});

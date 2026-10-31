@@ -28,7 +28,7 @@ export function SchedulesPage({active, onSession, onInbox}: {active: boolean; on
   const [page,setPage] = useState<ScheduleList | null>(null), [selected,setSelected] = useState<string | null>(null), [detail,setDetail] = useState<ScheduleDetail | null>(null), [historyOffset,setHistoryOffset] = useState(0);
   const [context,setContext] = useState<Awaited<ReturnType<typeof api.getScheduleContext>> | null>(null), [editor,setEditor] = useState<{schedule: Schedule | null; key: string} | null>(null);
   const [error,setError] = useState(''), [busy,setBusy] = useState(false), [pending,setPending] = useState(readPending), [unsavedCommand,setUnsavedCommand] = useState(false);
-  const listSeq = useRef(0), detailSeq = useRef(0), lock = useRef(false), confirm = useConfirm();
+  const listSeq = useRef(0), detailSeq = useRef(0), contextSeq = useRef(0), lock = useRef(false), confirm = useConfirm();
   const refreshList = useCallback(async () => {
     const seq = ++listSeq.current;
     const params = new URLSearchParams({offset:String(offset),limit:'30'}); if (state) params.set('state',state); if(kind) params.set('kind',kind); if(query.trim()) params.set('query',query.trim());
@@ -40,7 +40,12 @@ export function SchedulesPage({active, onSession, onInbox}: {active: boolean; on
   },[selected,historyOffset]);
   const refresh = useCallback(async () => { await Promise.all([refreshList(),refreshDetail()]); },[refreshList,refreshDetail]);
   useEffect(() => { if(!active) return; void refresh(); return () => {listSeq.current++;detailSeq.current++;}; },[active,refresh]);
-  useEffect(() => { if(!active) return; let live=true; void api.getScheduleContext(Intl.DateTimeFormat().resolvedOptions().timeZone).then(c => {if(live) setContext(c);}).catch(cause => {if(live) setError(message(cause));}); return () => {live=false;}; },[active]);
+  const refreshContext = useCallback(async () => {
+    const seq = ++contextSeq.current;
+    try { const result = await api.getScheduleContext(Intl.DateTimeFormat().resolvedOptions().timeZone); if (seq === contextSeq.current) setContext(result); }
+    catch (cause) { if (seq === contextSeq.current) setError(message(cause)); }
+  }, []);
+  useEffect(() => { if(!active) return; void refreshContext(); return () => {contextSeq.current++;}; },[active,refreshContext]);
   useWorkbenchEvents(event => { if(active && (event.type === 'schedules.changed' || event.type === 'workbench.connected')) void refresh(); });
   async function discard(): Promise<boolean> { return !editor || confirm({title:'放弃当前编辑？',description:'未保存的安排内容将丢失。',tone:'danger',confirmLabel:'放弃编辑'}); }
   async function select(id: string) { if(!await discard()) return; setEditor(null);setDetail(null);setSelected(id);setHistoryOffset(0); }
@@ -71,12 +76,12 @@ export function SchedulesPage({active, onSession, onInbox}: {active: boolean; on
   }
   const current = detail?.schedule;
   return <div className="schedules-page" data-management-page="schedules">
-    <div className="schedule-toolbar"><p>统一管理提醒与 Agent 定时执行</p><button className="secondary-button" onClick={() => {setError('');void refresh();}} aria-label="刷新安排"><RefreshCw size={16}/></button><button className="primary-button" disabled={!context || busy || !!pending} onClick={() => {void discard().then(ok => {if(ok) setEditor({schedule:null,key:newCommandId()});});}}><Plus size={16}/>新建安排</button></div>
+    <div className="schedule-toolbar"><p>统一管理提醒与 Agent 定时执行</p><button className="secondary-button" onClick={() => {setError('');void refresh();if(!context) void refreshContext();}} aria-label="刷新安排" title="刷新安排"><RefreshCw size={16}/></button><button className="primary-button" disabled={!context || busy || !!pending} onClick={() => {void discard().then(ok => {if(ok) setEditor({schedule:null,key:newCommandId()});});}}><Plus size={16}/>新建安排</button></div>
     {error && <p role="alert" className="form-error">{error}</p>}
     {pending && <div className="schedule-pending" role="status">上次操作尚待核对（{pending.body.commandId}）。<button className="secondary-button" disabled={busy} onClick={() => void reconcile()}>核对上次操作</button>{unsavedCommand && <button className="secondary-button" disabled={busy} onClick={() => void write(pending).catch(() => {})}>重试原命令</button>}</div>}
     <div className="schedule-filters"><div role="group" aria-label="安排状态">{Object.entries(states).map(([value,label]) => <button className="secondary-button" aria-pressed={state === value} key={value} onClick={() => {setState(value);setOffset(0);}}>{label}</button>)}<button className="secondary-button" aria-pressed={state === ''} onClick={() => {setState('');setOffset(0);}}>全部</button></div><label>类型<select value={kind} onChange={e => {setKind(e.target.value);setOffset(0);}}><option value="">全部类型</option><option value="reminder">提醒</option><option value="agent">Agent 执行</option></select></label><input type="search" aria-label="搜索安排" placeholder="搜索安排名称" maxLength={200} value={query} onChange={e => {setQuery(e.target.value);setOffset(0);}} /></div>
     <div className="schedule-columns"><section className="schedule-list" aria-label="安排列表">
-      {!page && <p role="status">正在读取安排…</p>}{page && !page.items.length && <p className="schedule-empty">当前筛选下没有安排</p>}
+      {!page && (error ? <p className="schedule-empty">安排尚未读取，请点击“刷新安排”重试。</p> : <p role="status">正在读取安排…</p>)}{page && !page.items.length && <p className="schedule-empty">当前筛选下没有安排</p>}
       {page?.items.map(item => {const Icon = item.action.kind === 'reminder' ? Bell : Bot;return <button key={item.scheduleId} className="schedule-list-item" aria-pressed={selected === item.scheduleId && !editor} onClick={() => void select(item.scheduleId)}><Icon size={18}/><span><strong>{item.name}</strong><small>{item.action.kind === 'agent' ? 'Agent 执行' : '提醒'} · {states[item.state]}</small><small>{ruleText(item)} · {item.timeZone}</small><small>下次 {date(item.nextAt,item.timeZone)}</small><small>最近：{item.latest ? statuses[item.latest.status] : '尚未触发'}</small></span></button>;})}
       {page && <div className="schedule-pagination"><small>共 {page.total} 项</small><button disabled={!offset} onClick={() => setOffset(Math.max(0,offset-30))}>上一页</button><button disabled={page.nextOffset === null} onClick={() => setOffset(page.nextOffset!)}>下一页</button></div>}
     </section><section className="schedule-detail" aria-label="安排详情">
