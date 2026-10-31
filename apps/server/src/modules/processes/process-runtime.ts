@@ -15,9 +15,12 @@ export interface TaskIsolation {
  * 进程监护：每个后台进程由独立的监护进程按进程组托管，经标准输入输出的私有协议汇报 pid 与真实退出。
  * 监护进程不继承服务环境变量与模型密钥。
  */
-export interface ProcessSupervisors {
+export interface ProcessSupervisor {
   /** 任务托管进程（受隔离配置约束的 node 脚本）。 */
   managed(): ChildProcessWithoutNullStreams;
   /** 工作会话后台 bash 进程组。 */
   bash(): ChildProcessWithoutNullStreams;
 }
+
+/** 兼容既有服务构造参数，统一装配入口使用单数接口。 */
+export type ProcessSupervisors = ProcessSupervisor;
