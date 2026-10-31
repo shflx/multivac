@@ -1,3 +1,4 @@
+import { windowsFileName } from '../modules/sessions/platform-paths.js';
 import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, rmdirSync, statSync, writeFileSync } from 'node:fs';
@@ -389,7 +390,8 @@ function safeFileName(raw: string): string {
   // eslint-disable-next-line no-control-regex
   const name = raw.replace(/[\u0000-\u001f\u007f/\\:]/gu, ' ').replace(/\s+/gu, ' ').trim().replace(/^\.+/u, '').trim();
   if (!name) throw invalid('文件名不能为空。');
-  return name.slice(0, PROJECT_RESOURCE_LIMITS.fileNameLength);
+  const clipped = name.slice(0, PROJECT_RESOURCE_LIMITS.fileNameLength);
+  return process.platform === 'win32' ? windowsFileName(clipped) || '资料' : clipped;
 }
 
 function exists(path: string): boolean {

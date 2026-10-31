@@ -1,3 +1,4 @@
+import { assertWindowsLocalPath, resolveLocalInputPath } from '../modules/sessions/platform-paths.js';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, rmdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -269,6 +270,15 @@ export class ProjectService {
   private absolutePath(rawPath: string): string {
     const trimmed = rawPath.trim();
     if (!trimmed) throw invalid('目录不能为空。');
+    if (process.platform === 'win32') {
+      try {
+        const path = resolveLocalInputPath(trimmed, this.homeDir, this.homeDir);
+        // 展开前也要求绝对路径，避免相对路径隐式落入主目录。
+        if (!/^(?:~(?:[\\/]|$)|file:\/\/|[a-z]:[\\/])/iu.test(trimmed)) throw new Error('Windows 目录必须使用本地盘符绝对路径。');
+        assertWindowsLocalPath(path, true);
+        return path;
+      } catch (error) { throw invalid((error as Error).message); }
+    }
     const expanded = trimmed === '~' ? this.homeDir
       : trimmed.startsWith('~/') ? join(this.homeDir, trimmed.slice(2))
         : trimmed;

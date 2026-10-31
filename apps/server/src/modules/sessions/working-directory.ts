@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isAbsolute, relative, sep } from 'node:path';
+import { pathIsWithin, windowsFileName } from './platform-paths.js';
 
 /** 目录名中名称部分（会话名、项目名）的最大字符数；加上日期与短 id 后仍远低于文件名 255 字节的上限。 */
 export const SESSION_DIRECTORY_TITLE_MAX_LENGTH = 40;
@@ -15,11 +15,11 @@ const SHORT_ID_LENGTH = 8;
  * 连续的 `-` 合并，首尾的 `-` 与 `.` 去掉，按字符截断到上限；清理后为空时使用 fallback。
  * Agent 会在 bash 中引用这个路径，因此不保留空白与 shell 元字符。
  */
-export function safeDirectoryName(name: string, fallback: string): string {
+export function safeDirectoryName(name: string, fallback: string, platform: NodeJS.Platform = process.platform): string {
   const tidy = (value: string) => value.replace(/-{2,}/gu, '-').replace(/^[-.]+|[-.]+$/gu, '');
   const cleaned = tidy(name.normalize('NFC').replace(/[^\p{L}\p{M}\p{N}._-]+/gu, '-'));
   const clipped = tidy(Array.from(cleaned).slice(0, SESSION_DIRECTORY_TITLE_MAX_LENGTH).join(''));
-  return clipped || fallback;
+  return platform === 'win32' ? windowsFileName(clipped || fallback) : clipped || fallback;
 }
 
 /** 会话名在临时目录名中的一段。 */
@@ -64,7 +64,6 @@ export function firstAvailableName(name: string, taken: (candidate: string) => b
 }
 
 /** child 是否等于 parent 或位于 parent 之下；两者都应为已规范化的绝对路径。 */
-export function isPathWithin(parent: string, child: string): boolean {
-  const path = relative(parent, child);
-  return path === '' || (!isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`));
+export function isPathWithin(parent: string, child: string, platform: NodeJS.Platform = process.platform): boolean {
+  return pathIsWithin(parent, child, platform);
 }

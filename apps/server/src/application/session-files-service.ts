@@ -1,3 +1,4 @@
+import { assertWindowsLocalPath } from '../modules/sessions/platform-paths.js';
 import { createPlatformCapabilities } from '../runtime/platform-capabilities.js';
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import { IMAGE_LIMITS } from '@multivac/contracts';
@@ -35,6 +36,10 @@ export class SessionFilesService {
     if (expectedRoot !== undefined && expectedRoot !== root) throw new SessionFilesError(409, '工作目录已变化，请重新打开文件。');
     if (path.length > SESSION_FILE_LIMITS.pathLength || isAbsolute(path) || path.includes('\0') || path.includes('\\') || path.split('/').includes('..')) {
       throw new SessionFilesError(400, '文件路径必须位于当前会话工作目录内。');
+    }
+    if (process.platform === 'win32') {
+      try { assertWindowsLocalPath(root, true); assertWindowsLocalPath(path); }
+      catch (error) { throw new SessionFilesError(400, (error as Error).message); }
     }
     const canonicalRoot = await realpath(root);
     const protectedRoot = await realpath(this.dataDir).catch(() => resolve(this.dataDir));

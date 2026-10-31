@@ -1,3 +1,4 @@
+import { assertWindowsLocalPath } from './modules/sessions/platform-paths.js';
 import { lstatSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -75,6 +76,10 @@ export function resolveRuntimeConfig(
   home = homedir(),
 ): MultivacRuntimeConfig {
   const mode = resolveMode(environment.MULTIVAC_MODE, requiredMode);
+  if (process.platform === 'win32') {
+    for (const path of [environment.MULTIVAC_DATA_DIR, environment.MULTIVAC_WORK_ROOT].filter(Boolean))
+      assertWindowsLocalPath(path!.trim(), true);
+  }
   const dataDir = resolve(environment.MULTIVAC_DATA_DIR?.trim() || join(home, mode === 'development' ? '.multivac-dev' : '.multivac'));
   const workValue = environment.MULTIVAC_WORK_ROOT?.trim();
   if (workValue && !isAbsolute(workValue)) throw new WorkRootConfigurationError('MULTIVAC_WORK_ROOT 必须是绝对路径。');

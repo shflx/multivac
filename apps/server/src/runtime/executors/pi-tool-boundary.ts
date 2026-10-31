@@ -3,7 +3,7 @@ import { access, lstat, mkdir, readFile, readlink, realpath, stat, writeFile } f
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolveLocalInputPath } from '../../modules/sessions/platform-paths.js';
 import {
   createSyntheticSourceInfo,
   type Extension,
@@ -88,11 +88,7 @@ export function resolveToolInputPath(input: string, cwd: string): string {
   let path = input.replace(UNICODE_SPACES, ' ');
   if (path.startsWith('@')) path = path.slice(1);
 
-  if (path === '~') path = homedir();
-  else if (path.startsWith('~/')) path = join(homedir(), path.slice(2));
-  else if (/^file:\/\//u.test(path)) path = fileURLToPath(path);
-
-  return resolve(cwd, path);
+  return resolveLocalInputPath(path, cwd, homedir());
 }
 
 /**
