@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { realpathSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -146,24 +146,29 @@ test('项目范围按真实路径判定：链接逃逸、..、同前缀兄弟目
     const tools = f.toolsFor('old');
     const secret = join(f.paths.other!, 'secret.txt');
     await writeFile(secret, 'secret');
-    await symlink(f.paths.other!, join(f.paths.extra!, 'escape'));
-    await symlink('missing-target', join(f.paths.extra!, 'dangling'));
-    await symlink('loop', join(f.paths.extra!, 'loop'));
+    const junction = process.platform === 'win32';
+    await symlink(f.paths.other!, join(f.paths.extra!, 'escape'), junction ? 'junction' : undefined);
+    await symlink(junction ? join(f.paths.extra!, 'missing-target') : 'missing-target', join(f.paths.extra!, 'dangling'), junction ? 'junction' : undefined);
+    await symlink(junction ? join(f.paths.extra!, 'loop') : 'loop', join(f.paths.extra!, 'loop'), junction ? 'junction' : undefined);
     for (const path of [join(f.paths.extra!, 'escape', 'secret.txt'), `${f.paths.extra}/../other/secret.txt`, join(f.paths['extra-sibling']!, 'probe.txt')]) {
       await assert.rejects(f.invoke(tools, 'write', path, { content: 'wrong' }), /未获授权|拒绝/);
     }
     assert.equal(await readFile(secret, 'utf8'), 'secret');
     await assert.rejects(f.invoke(tools, 'read', join(f.paths.extra!, 'loop')), /无法确认/);
-    await assert.rejects(f.invoke(tools, 'read', join(f.paths.extra!, 'dangling')), /ENOENT/);
+    await assert.rejects(f.invoke(tools, 'read', join(f.paths.extra!, 'dangling')), junction ? /ENOENT|Windows 路径/u : /ENOENT/u);
     await rm(f.paths.extra!, { recursive: true });
     await assert.rejects(f.invoke(tools, 'write', join(f.paths.extra!, 'gone.txt'), { content: 'wrong' }), /未获授权|拒绝/);
 
     const link = join(f.paths.other!, 'link');
-    await symlink(secret, link);
+    if (junction) await mkdir(join(f.paths.other!, 'changed'));
+    await symlink(junction ? f.paths.other! : secret, link, junction ? 'junction' : undefined);
     const changedTools = createBoundaryFileTools({ cwd: f.old.workingDirectory!.path, projectDirectories: () => f.scope('old', f.old.workingDirectory!), authorizeOutsideAccess: async () => {
-      await rm(link); await symlink(join(f.paths.other!, 'changed.txt'), link); return { allowed: true };
+      if (junction) await rename(link, join(f.paths.other!, 'old-link'));
+      else await rm(link);
+      await symlink(junction ? join(f.paths.other!, 'changed') : join(f.paths.other!, 'changed.txt'), link, junction ? 'junction' : undefined);
+      return { allowed: true };
     } });
-    await assert.rejects(f.invoke(changedTools, 'write', link, { content: 'wrong' }), /实际目标.*发生了变化/);
+    await assert.rejects(f.invoke(changedTools, 'write', junction ? join(link, 'secret.txt') : link, { content: 'wrong' }), /实际目标.*发生了变化/);
     assert.equal(await readFile(secret, 'utf8'), 'secret');
   } finally { await f.cleanup(); }
 });

@@ -87,7 +87,7 @@ async function sendInPanel(scope: Locator, text: string): Promise<void> {
   await expect(scope.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
 }
 
-let mountedRoot: string;
+let mountedRoot: string | undefined;
 
 test.beforeEach(async ({ page, request }) => {
   await resetE2eState(request);
@@ -97,7 +97,8 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test.afterEach(() => {
-  rmSync(mountedRoot, { recursive: true, force: true });
+  if (mountedRoot) rmSync(mountedRoot, { recursive: true, force: true });
+  mountedRoot = undefined;
 });
 
 test('默认工作区的会话：标题栏只显示目录名，长目录名中间截断；说明写明完整路径与规则，键盘可达、可收起，不挡住其他操作', async ({ page, request }) => {

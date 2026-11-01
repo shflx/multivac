@@ -13,6 +13,7 @@ import {
   readlinkSync,
   renameSync,
   rmSync,
+  statSync,
   symlinkSync,
   unlinkSync,
 } from 'node:fs';
@@ -79,11 +80,29 @@ function directorySnapshot(root: string, identity: boolean): string {
   visit(root, '');
   return JSON.stringify(entries);
 }
-const directoryMoveIo = { mkdirSync, cpSync, rmSync };
+const directoryMoveIo = { mkdirSync, copyFileSync, symlinkSync, rmSync };
+function copyWindowsDirectoryContents(source: string, target: string, io: typeof directoryMoveIo): void {
+  for (const name of readdirSync(source)) {
+    const from = join(source, name), to = join(target, name), stat = lstatSync(from);
+    if (stat.isDirectory()) {
+      io.mkdirSync(to);
+      copyWindowsDirectoryContents(from, to, io);
+    } else if (stat.isSymbolicLink()) {
+      let type: 'file' | 'dir' = 'file';
+      try { if (statSync(from).isDirectory()) type = 'dir'; } catch { /* 悬空链接保留原始目标。 */ }
+      io.symlinkSync(readlinkSync(from), to, type);
+    } else if (stat.isFile()) {
+      io.copyFileSync(from, to, constants.COPYFILE_EXCL);
+    } else {
+      throw new Error('目录包含非普通文件，保留原目录。');
+    }
+  }
+}
 function moveWindowsDirectory(source: string, target: string, io: typeof directoryMoveIo): void {
   const before = directorySnapshot(source, true), content = directorySnapshot(source, false);
   io.mkdirSync(target); // 已存在（包括空目录）必须失败，不覆盖目标。
-  io.cpSync(source, target, { recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true });
+  // 当前 Windows/Node 24 的 cpSync 遇到中文目录时会直接退出进程。
+  copyWindowsDirectoryContents(source, target, io);
   if (directorySnapshot(target, false) !== content || directorySnapshot(source, true) !== before)
     throw new Error('目录复制后源或目标已变化，保留源与副本等待核对。');
   io.rmSync(source, { recursive: true });

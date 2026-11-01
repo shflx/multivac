@@ -242,7 +242,7 @@ test('原临时目录正被其他项目挂载：归入卡与结果提示（工�
   await expect(card).not.toContainText('废纸篓');
   await card.getByRole('button', { name: '归入项目' }).click();
   await expect(card).toHaveCount(0);
-  await expect(notice(page)).toHaveText(new RegExp(`已把「被挂载的会话」归入「归入目标」，之后在项目目录中继续。原临时目录 ${tempDir} 正被项目或其他会话使用，保留原处，不会被清理。`));
+  await expect(notice(page)).toContainText(`已把「被挂载的会话」归入「归入目标」，之后在项目目录中继续。原临时目录 ${tempDir} 正被项目或其他会话使用，保留原处，不会被清理。`);
   await expect(notice(page)).not.toContainText('废纸篓');
   expect(readFileSync(join(tempDir, 'notes.md'), 'utf8')).toBe('笔记');
 

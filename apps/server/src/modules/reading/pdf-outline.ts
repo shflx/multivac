@@ -1,6 +1,7 @@
 import { open } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { Book, BookIndex, BookTocEntry } from '@multivac/contracts';
 import { ReadingError } from './book-import.js';
@@ -9,8 +10,9 @@ export type PdfOutline = { title: string; depth: number; pageIndex: number | nul
 
 export function pdfResources() {
   const resources = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+  const directoryUrl = (name: string) => pathToFileURL(join(resources, name) + sep).href;
   // 字符映射和字体只读取依赖资源，不请求书中的外链。
-  return { cMapUrl: join(resources, 'cmaps/'), cMapPacked: true, standardFontDataUrl: join(resources, 'standard_fonts/'), wasmUrl: join(resources, 'wasm/') };
+  return { cMapUrl: directoryUrl('cmaps'), cMapPacked: true, standardFontDataUrl: directoryUrl('standard_fonts'), wasmUrl: directoryUrl('wasm') };
 }
 
 /** 文件导入和旧书目录补建共用按需读取，避免为目录加载整本 PDF。 */

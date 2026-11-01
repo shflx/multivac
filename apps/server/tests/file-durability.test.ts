@@ -4,13 +4,14 @@ import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FilePublicationError, publishReplacement, syncDirectory, syncDirectorySync } from '../src/storage/file-durability.js';
+import { withWindowsFileLock } from './fixtures/windows-file-lock.js';
 
 test('Windows 不尝试打开目录，也不声称目录已刷新', async () => {
   assert.equal(await syncDirectory('/missing-directory', 'win32'), 'file-only');
   assert.equal(syncDirectorySync('/missing-directory', 'win32'), 'file-only');
   await assert.rejects(syncDirectory('/missing-directory', 'darwin'));
 });
-for (const failure of ['rename', 'confirm', 'none'] as const) test(`Windows 替换 ${failure}，保留唯一旧副本和真实提交状态`, async () => {
+for (const failure of ['rename', 'confirm', 'cleanup', 'none'] as const) test(`Windows 替换 ${failure}，保留唯一旧副本和真实提交状态`, async () => {
   const root = await fs.mkdtemp(join(tmpdir(), 'multivac-durability-'));
   try {
     const target = join(root, 'state'), temporary = join(root, 'new');
@@ -21,7 +22,10 @@ for (const failure of ['rename', 'confirm', 'none'] as const) test(`Windows 替�
     }, open: (async (...args: Parameters<typeof fs.open>) => {
       if (failure === 'confirm') throw new Error('confirmation failed');
       return fs.open(...args);
-    }) as typeof fs.open };
+    }) as typeof fs.open, unlink: async (path: string) => {
+      if (failure === 'cleanup') throw new Error('cleanup failed');
+      await fs.unlink(path);
+    } };
     if (failure === 'none') {
       await publishReplacement(temporary, target, 'win32', io);
       assert.deepEqual(await fs.readdir(root), ['state']);
@@ -37,5 +41,24 @@ for (const failure of ['rename', 'confirm', 'none'] as const) test(`Windows 替�
       assert.equal(await fs.readFile(join(root, backup), 'utf8'), 'old');
       assert.equal(await fs.readFile(target, 'utf8'), failure === 'rename' ? 'old' : 'new');
     }
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('Windows 实机占用目标文件时替换不提交，解除占用后可核对并重试', { skip: process.platform !== 'win32' }, async () => {
+  const root = await fs.mkdtemp(join(tmpdir(), 'multivac-durability-locked-'));
+  try {
+    const target = join(root, 'state'), temporary = join(root, 'new');
+    await fs.writeFile(target, 'old'); await fs.writeFile(temporary, 'new');
+    await withWindowsFileLock(target, async () => {
+      await assert.rejects(publishReplacement(temporary, target), (error: unknown) => {
+        assert.ok(error instanceof FilePublicationError);
+        assert.equal(error.commitState, 'not-committed');
+        return true;
+      });
+    });
+    assert.equal(await fs.readFile(target, 'utf8'), 'old');
+    assert.equal(await fs.readFile(temporary, 'utf8'), 'new');
+    await publishReplacement(temporary, target);
+    assert.equal(await fs.readFile(target, 'utf8'), 'new');
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 });

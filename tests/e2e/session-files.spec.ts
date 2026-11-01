@@ -20,7 +20,7 @@ test('真实工作目录展开、文件名搜索、选择与缺失目录状态',
   await browser.getByRole('button', { name: '真实阅读材料.md', exact: true }).click();
   await expect(browser.getByRole('article')).toContainText('真实文件');
   await browser.getByLabel('目录文件名搜索').fill('阅读材料');
-  await expect(browser.locator('.browser-tree button')).toHaveCount(1);
+  await expect(browser.locator('.browser-tree li')).toHaveCount(1);
   await browser.getByLabel('目录文件名搜索').fill('没有此文件');
   await expect(browser).toContainText('没有匹配的文件');
   await browser.getByLabel('目录文件名搜索').fill('');
