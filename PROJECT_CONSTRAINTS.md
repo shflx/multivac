@@ -19,7 +19,7 @@
 
 ## 平台验证边界
 
-- Windows 原生适配开发不等于实机验证；PlatformCapabilities 在对应能力经 Windows 11 x64 实机验证并同步修订文档与约束前统一拒绝，不得通过配置绕过。受控 Git、Skill run/copy 和旧隔离执行器继续保持 macOS 限制，Windows 不提供系统定位、默认程序打开和回收站，临时目录保留。
+- Windows x64 的启动、对话和文件工具已完成本机实机验证；跨账号 ACL 读取按用户要求未测，不视为通过。PlatformCapabilities 继续拒绝未完成 Windows 实机验收的命令、任务、远程、MCP 和终端等能力，不得通过配置绕过。受控 Git、Skill run/copy 和旧隔离执行器继续保持 macOS 限制，Windows 不提供系统定位、默认程序打开和回收站，临时目录保留。
 
 ## 任务、进程与恢复
 

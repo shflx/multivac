@@ -36,7 +36,7 @@ test('Windows MCP 环境按大小写保护监护器，不继承模型密钥且�
   for (const key of ['pAtH', 'ComSpec', 'NODE_OPTIONS', 'OPENSSL_CONF'])
     assert.throws(() => mcpProcessEnvironment({ [key]: 'private' }, source, 'win32'), error => !String(error).includes('private'));
   assert.deepEqual(mcpProcessEnvironment({ PATH: 'override', MCP_KEY: 'private' }, { PATH: '/bin' }, 'darwin'), { MCP_KEY: 'private', PATH: '/bin' });
-  assert.equal(programLaunch('uvx.exe', ['server'], 'win32').file, 'uvx.exe');
+  assert.match(programLaunch('uvx.exe', ['server'], 'win32').file, /uvx\.exe$/u);
 });
 
 test('Windows MCP 取消发生在身份握手前时不放行，查询失败不提供停止证明', async () => {

@@ -44,7 +44,12 @@ export function canonicalRuntimePath(path: string): string {
   let ancestor = resolve(path);
   const suffix: string[] = [];
   for (;;) {
-    try { return resolve(realpathSync.native(ancestor), ...suffix); }
+    try {
+      const existing = realpathSync.native(ancestor);
+      if (suffix.length > 0 && !lstatSync(existing).isDirectory())
+        throw new WorkRootConfigurationError(`目录的已有祖先不是目录：${existing}`);
+      return resolve(existing, ...suffix);
+    }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       // 悬空链接不能按“尚未创建的普通目录”处理，否则创建目标后会改变目录归属。

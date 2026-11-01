@@ -19,7 +19,7 @@ export async function securePiAuthFile(path: string): Promise<void> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
   }
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const handle = await open(path, constants.O_RDWR | constants.O_NOFOLLOW);
   try {
     const descriptor = await handle.stat();
     if (!descriptor.isFile() || descriptor.nlink !== 1 ||

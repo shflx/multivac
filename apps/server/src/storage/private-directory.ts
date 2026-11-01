@@ -10,7 +10,7 @@ $root=Get-Item -LiteralPath ${quote(directory)} -Force
 if(-not $root.PSIsContainer -or ($root.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Invalid private directory'}
 $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
 $allowed=@($sid.Value,'S-1-5-18','S-1-5-32-544') | Select-Object -Unique
-$acl=Get-Acl -LiteralPath $root.FullName
+$acl=$root.GetAccessControl([Security.AccessControl.AccessControlSections]::Access)
 $acl.SetAccessRuleProtection($true,$false)
 foreach($rule in @($acl.Access)){$acl.RemoveAccessRuleSpecific($rule)}
 foreach($id in $allowed){
@@ -18,8 +18,8 @@ foreach($id in $allowed){
  $rule=New-Object Security.AccessControl.FileSystemAccessRule($identity,'FullControl','ContainerInherit,ObjectInherit','None','Allow')
  $acl.AddAccessRule($rule)
 }
-Set-Acl -LiteralPath $root.FullName -AclObject $acl
-$check=Get-Acl -LiteralPath $root.FullName
+$root.SetAccessControl($acl)
+$check=$root.GetAccessControl([Security.AccessControl.AccessControlSections]::Access)
 if(-not $check.AreAccessRulesProtected){throw 'Directory inheritance not protected'}
 foreach($rule in $check.Access){
  $id=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
@@ -30,11 +30,11 @@ ${fileName ? `$path=Join-Path $root.FullName ${quote(fileName)}
 if(Test-Path -LiteralPath $path){
  $file=Get-Item -LiteralPath $path -Force
  if($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Invalid credential file'}
- $acl=Get-Acl -LiteralPath $path
+ $acl=$file.GetAccessControl([Security.AccessControl.AccessControlSections]::Access)
  $acl.SetAccessRuleProtection($false,$false)
  foreach($rule in @($acl.Access | Where-Object {-not $_.IsInherited})){$acl.RemoveAccessRuleSpecific($rule)}
- Set-Acl -LiteralPath $path -AclObject $acl
- $check=Get-Acl -LiteralPath $path
+ $file.SetAccessControl($acl)
+ $check=$file.GetAccessControl([Security.AccessControl.AccessControlSections]::Access)
  if($check.AreAccessRulesProtected){throw 'File does not inherit ACL'}
  foreach($rule in $check.Access){
   $id=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value

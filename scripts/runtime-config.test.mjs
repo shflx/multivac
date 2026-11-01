@@ -54,7 +54,7 @@ try {
   });
   await test('真实路径和未创建路径的已有祖先也参与冲突校验', () => {
     mkdirSync(join(home, '.multivac'));
-    symlinkSync(join(home, '.multivac'), join(directory, 'production-alias'));
+    symlinkSync(join(home, '.multivac'), join(directory, 'production-alias'), process.platform === 'win32' ? 'junction' : 'dir');
     assert.throws(() => resolve({ MULTIVAC_MODE: 'development', MULTIVAC_DATA_DIR: join(directory, 'production-alias', 'new-data') }), /开发目录/u);
     writeFileSync(join(directory, 'file'), 'not a directory');
     assert.throws(() => resolve({ MULTIVAC_DATA_DIR: join(directory, 'file', 'data') }));

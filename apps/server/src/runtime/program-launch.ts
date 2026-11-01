@@ -7,7 +7,7 @@ export function programLaunch(file: string, args: readonly string[], platform: N
   environment: NodeJS.ProcessEnv = process.env): { file: string; args: string[]; windowsVerbatimArguments?: boolean } {
   if (platform !== 'win32') return { file, args: [...args] };
   if (/^(npm|npx)$/iu.test(win32.basename(file))) file += '.cmd';
-  else file = resolveWindowsProgram(file, environment);
+  file = resolveWindowsProgram(file, environment);
   if (!/\.(cmd|bat)$/iu.test(file)) return { file, args: [...args] };
   // cmd 的百分号展开不能用 argv 引号关闭。拒绝无法无歧义表达的参数，不能悄悄执行不同内容。
   const quote = (value: string) => {
@@ -43,10 +43,11 @@ export function childEnvironment(source: NodeJS.ProcessEnv = process.env, platfo
 
 /** Windows 原生命令优先于批处理；CLI 预设和自定义程序共用 PATH 查找，不触发 PowerShell 脚本。 */
 export function resolveWindowsProgram(file: string, environment: NodeJS.ProcessEnv, exists = existsSync): string {
-  if (win32.extname(file)) return file;
+  const extension = win32.extname(file);
+  if (extension && (win32.isAbsolute(file) || file.includes('\\') || file.includes('/'))) return file;
   const search = Object.entries(environment).find(([key]) => key.toUpperCase() === 'PATH')?.[1] ?? '';
   const roots = file.includes('\\') || file.includes('/') ? [''] : search.split(';').filter(Boolean).map(path => path.replace(/^"|"$/gu, ''));
-  for (const root of roots) for (const suffix of ['.exe', '.com', '.cmd', '.bat']) {
+  for (const root of roots) for (const suffix of extension ? [''] : ['.exe', '.com', '.cmd', '.bat']) {
     const candidate = root ? win32.join(root, file + suffix) : file + suffix;
     if (exists(candidate)) return candidate;
   }
