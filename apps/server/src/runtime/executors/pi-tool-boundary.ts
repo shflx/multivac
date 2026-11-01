@@ -1,5 +1,5 @@
 import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
-import { access, lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, readFile, readdir, readlink, realpath, stat, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
@@ -353,6 +353,10 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
   const definitions = [createReadToolDefinition(options.cwd), createEditToolDefinition(options.cwd), createWriteToolDefinition(options.cwd)] as unknown as ToolDefinition[];
   return definitions.map(definition => ({
     ...definition,
+    ...(definition.name === 'read' ? {
+      description: `${definition.description} A directory path lists its immediate entries; use offset and limit to page through them.`,
+      promptSnippet: 'Read file contents or list directory entries',
+    } : {}),
     async execute(toolCallId, params, signal, onUpdate, context) {
       options.assertExecution?.();
       const event = { type: 'tool_call', toolName: definition.name, toolCallId, input: { ...params as Record<string, unknown> } } as ToolCallEvent;
@@ -377,6 +381,24 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
         options.assertExecution?.();
         started = true;
       };
+      const targetStat = definition.name === 'read' ? await stat(target).catch((error: unknown) => {
+        if (isMissingPath(error)) return null;
+        throw error;
+      }) : null;
+      if (targetStat?.isDirectory()) {
+        await beforeIo(target);
+        const { offset = 1, limit = 200 } = params as { offset?: number; limit?: number };
+        if (!Number.isSafeInteger(offset) || offset < 1 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+          throw new Error('目录列表的 offset 必须为正整数，limit 必须为 1 到 500 的整数。');
+        const entries = await readdir(target, { withFileTypes: true });
+        if (signal?.aborted) throw new Error(CANCELLED_REASON);
+        entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+        if (entries.length > 0 && offset > entries.length) throw new Error(`目录只有 ${entries.length} 项，offset=${offset} 超出范围。`);
+        const page = entries.slice(offset - 1, offset - 1 + limit);
+        const lines = page.map(entry => `${entry.isDirectory() ? '目录' : entry.isSymbolicLink() ? '链接' : '文件'}\t${JSON.stringify(entry.name)}`);
+        const next = offset - 1 + page.length < entries.length ? `\n还有更多条目，请用 offset=${offset + page.length} 继续读取。` : '';
+        return { content: [{ type: 'text' as const, text: `目录 ${target}（${entries.length} 项）\n${lines.join('\n') || '空目录'}${next}` }], details: undefined };
+      }
       // 每个调用独立持有状态；复用 Pi 的队列、替换算法、图片与截断处理。
       const operations = {
         readFile: async (path: string) => { await beforeIo(path); return readFile(path); },

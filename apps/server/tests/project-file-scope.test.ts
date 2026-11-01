@@ -112,6 +112,34 @@ test('真实 Pi 文件定义 + SQLite + 授权服务：已有/新建会话、挂
   } finally { await f.cleanup(); }
 });
 
+test('read 列出目录并分页，目录链接仍按真实目标核对授权', async () => {
+  const f = await fixture();
+  try {
+    const tools = f.toolsFor('old');
+    const directory = join(f.old.workingDirectory!.path, 'listing');
+    await mkdir(directory);
+    await writeFile(join(directory, 'a.txt'), 'first');
+    await writeFile(join(directory, 'b.txt'), 'second');
+    await mkdir(join(directory, 'child'));
+    const first = JSON.stringify(await f.invoke(tools, 'read', directory, { limit: 2 }));
+    assert.match(first, /a\.txt/u);
+    assert.match(first, /b\.txt/u);
+    assert.doesNotMatch(first, /child/u);
+    assert.match(first, /offset=3/u);
+    const next = JSON.stringify(await f.invoke(tools, 'read', directory, { offset: 3, limit: 2 }));
+    assert.match(next, /child/u);
+    assert.doesNotMatch(next, /first|second/u);
+
+    await writeFile(join(f.paths.extra!, 'external.txt'), 'outside');
+    const link = join(f.old.workingDirectory!.path, 'external-link');
+    await symlink(f.paths.extra!, link, process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(f.invoke(tools, 'read', link), /未获授权|拒绝/u);
+    await assert.rejects(f.invoke(tools, 'read', join(f.paths.extra!, 'missing.txt')), /未获授权|拒绝/u);
+    f.mount();
+    assert.match(JSON.stringify(await f.invoke(tools, 'read', link)), /external\.txt/u);
+  } finally { await f.cleanup(); }
+});
+
 test('卸载只移除挂载来源：既有 cwd 和真实记住的独立授权仍有效，撤销独立授权后重新要求确认', async () => {
   const f = await fixture();
   try {
