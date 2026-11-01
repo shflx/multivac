@@ -33,6 +33,22 @@ for (const [file, original] of files) {
 }
 const headless = readFileSync(`${root}node_modules/@xterm/headless/lib-headless/xterm-headless.js`);
 if (hash(headless) !== '17a90b650cf6b77cce2b98c4063884d43545e4ce177a54b76ccfc906f1aacaed') throw new Error('headless 私有解析兼容版本不匹配');
+const consoleAgentPath = `${root}node_modules/node-pty/lib/conpty_console_list_agent.js`;
+const consoleAgent = readFileSync(consoleAgentPath, 'utf8');
+const consoleMarker = '/* multivac-conpty-console-list-v1 */';
+const originalConsoleCall = 'var consoleProcessList = getConsoleProcessList(shellPid);';
+const patchedConsoleCall = `var consoleProcessList;
+try { consoleProcessList = getConsoleProcessList(shellPid); }
+catch (error) {
+    if (!/AttachConsole failed/.test(String(error))) throw error;
+    consoleProcessList = [];
+}`;
+const originalConsoleAgent = consoleAgent.replace(consoleMarker, '').replace(patchedConsoleCall, originalConsoleCall);
+if (hash(originalConsoleAgent) !== '0d010879bb6680a0253d44363183d53e631f42972594eb6dcb1fb842c8c85e52')
+  throw new Error('node-pty 控制台列表上游哈希不匹配');
+const patchedConsoleAgent = consoleMarker + originalConsoleAgent.replace(originalConsoleCall, patchedConsoleCall);
+if (check && consoleAgent !== patchedConsoleAgent) throw new Error('node-pty 控制台列表补丁未应用');
+if (!check && consoleAgent !== patchedConsoleAgent) writeFileSync(consoleAgentPath, patchedConsoleAgent);
 if (process.platform === 'darwin' && process.arch === 'arm64') {
   const helper = `${root}node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper`;
   if (!check) chmodSync(helper, statSync(helper).mode | 0o111);

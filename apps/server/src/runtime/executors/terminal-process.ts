@@ -41,6 +41,7 @@ export class TerminalProcess {
   private windows: { watcher: ChildProcess; started: boolean; stopping: boolean; proven: boolean; failed: boolean; pending: Buffer[]; bytes: number; closed: Promise<boolean>; rootClosed: Promise<void> } | undefined;
   private rootExited = false;
   private windowsStopTimeout = 15000;
+  private ptyReleased = false;
   /** forkpty 为子进程建立新会话，初始会话首领 PID 即 SID。macOS ps sess 是内核引用，不能当成 SID。 */
   readonly sessionId: number;
   private stopping: Promise<boolean> | undefined;
@@ -148,8 +149,14 @@ export class TerminalProcess {
       this.stopping = (async () => {
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-          return await Promise.race([state.closed.then(proof => proof ? state.rootClosed.then(() => this.rootExited) : false),
+          const proven = await Promise.race([state.closed.then(proof => proof ? state.rootClosed.then(() => this.rootExited) : false),
             new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), this.windowsStopTimeout); })]);
+          if (!proven) return false;
+          if (!this.ptyReleased) {
+            try { this.pty.kill(); this.ptyReleased = true; }
+            catch { return false; }
+          }
+          return true;
         } finally { clearTimeout(timer); this.stopping = undefined; }
       })();
       return this.stopping;

@@ -5,6 +5,7 @@ import type { CommandShell } from './command-shell.js';
 export function powershellCommandScript(command: string): string {
   const encoded = Buffer.from(command, 'utf8').toString('base64');
   return String.raw`$ErrorActionPreference='Stop'
+$ProgressPreference='SilentlyContinue'
 [Console]::InputEncoding=New-Object Text.UTF8Encoding($false)
 [Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)
 $OutputEncoding=New-Object Text.UTF8Encoding($false)

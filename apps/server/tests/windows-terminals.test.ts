@@ -3,10 +3,13 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { TerminalProcess, windowsTerminalLaunch, terminalCommand } from '../src/runtime/executors/terminal-process.js';
 import { WINDOWS_TERMINAL_ROOT, WINDOWS_TERMINAL_WATCHER } from '../src/runtime/executors/windows-terminal-supervisor.js';
 import { resolveWindowsProgram } from '../src/runtime/program-launch.js';
-import { codexAppServerLaunch } from '../src/runtime/executors/codex-app-server.js';
+import { CodexAppServer, codexAppServerLaunch } from '../src/runtime/executors/codex-app-server.js';
 
 test('Windows 终端默认 PowerShell，CLI 复用原生/批处理 argv，app-server 限回环', () => {
   const environment = { SystemRoot: 'C:\\Windows', Path: 'C:\\CLI Tools' };
@@ -25,7 +28,8 @@ test('Windows 终端默认 PowerShell，CLI 复用原生/批处理 argv，app-se
 test('ConPTY 等身份与目标观察后放行输入，根退出仍需监护器停止凭据', async () => {
   const writes: (string | Buffer)[] = []; let exit = (_: { exitCode: number }) => {};
   const watcher = Object.assign(new EventEmitter(), { connected: true, send: (_: unknown) => {} });
-  const fakePty = { pid: 100, write(data: string | Buffer) { writes.push(data); }, resize() {}, pause() {}, resume() {},
+  let released = 0;
+  const fakePty = { pid: 100, write(data: string | Buffer) { writes.push(data); }, resize() {}, pause() {}, resume() {}, kill() { released++; },
     onData: () => ({ dispose() {} }), onExit: (callback: typeof exit) => { exit = callback; return { dispose() {} }; } };
   let conpty = false;
   const terminal = new TerminalProcess('C:\\中文 项目', { kind: 'blank' }, { cols: 80, rows: 24 }, 'win32', {
@@ -43,6 +47,7 @@ test('ConPTY 等身份与目标观察后放行输入，根退出仍需监护器�
     exit({ exitCode: 0 }); assert.equal(await terminal.stop(), false);
     watcher.emit('message', { stopped: true }); watcher.emit('close', 0, null);
     assert.equal(await terminal.stop(), true);
+    assert.equal(released, 1);
     terminal.pty.write('late'); assert.equal(writes.length, 2);
   } finally { terminal.dispose(); }
 });
@@ -86,4 +91,31 @@ terminal.onExit(({exitCode})=>process.exit(exitCode));`;
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /conpty-ok/u);
+});
+
+test('Windows 实机终端可输入中文并取得进程树停止证明', { skip: process.platform !== 'win32', timeout: 40_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'multivac-terminal-real-'));
+  const terminal = new TerminalProcess(root, { kind: 'blank' }, { cols: 80, rows: 24 });
+  const output: Buffer[] = [];
+  let stopped = false;
+  try {
+    terminal.onOutput = data => { output.push(data); };
+    terminal.pty.write("Write-Output '中文探针'\r");
+    for (let attempt = 0; attempt < 150 && !Buffer.concat(output).toString('utf8').includes('中文探针'); attempt++)
+      await new Promise(resolve => setTimeout(resolve, 100));
+    assert.match(Buffer.concat(output).toString('utf8'), /中文探针/u);
+    stopped = await terminal.stop();
+    assert.equal(stopped, true);
+  } finally {
+    if (!stopped) { try { terminal.pty.kill(); } catch { /* 测试收尾。 */ } }
+    terminal.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Windows 实机 Codex app-server 可在回环地址初始化并确认停止', { skip: process.platform !== 'win32', timeout: 40_000 }, async () => {
+  const server = new CodexAppServer('win32');
+  try {
+    assert.match(await server.endpoint(), /^ws:\/\/127\.0\.0\.1:\d+$/u);
+  } finally { await server.close(); }
 });

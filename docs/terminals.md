@@ -71,6 +71,7 @@ HTTP 和 WebSocket 在查终端、创建进程或附着之前共同核对：macO
 | @xterm/addon-web-links | 0.12.0 |
 
 `npm ci` 的 postinstall 执行 `scripts/patch-terminals.mjs`。它修复 macOS arm64 `spawn-helper` 执行位，并对 serialize 的 CJS/ESM 构建应用确定性补丁：bold/dim 共享 SGR 22 后重设两个属性；进入备用屏前后清空颜色，避免首屏空白单元继承正常屏颜色。隐藏光标由 `terminal-screen.ts` 的序列化封装补齐。服务端 dev/build/check/test/start 的前置检查拒绝遗漏或不匹配的补丁。
+Windows 的同一脚本还对锁定版本 node-pty 的控制台列表辅助脚本做哈希校验补丁：ConPTY 目标退出后释放句柄时，`AttachConsole failed` 视为空进程列表；其他错误继续抛出。
 
 | 构建文件 | 上游 SHA-256 | 修正后 SHA-256 |
 | --- | --- | --- |

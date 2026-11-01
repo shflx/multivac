@@ -36,6 +36,7 @@ jobs:
           tests/platform-capabilities.test.ts
           tests/program-launch.test.ts
           tests/command-shell.test.ts
+          tests/session-bash-execution.test.ts
           tests/private-directory.test.ts
           tests/pi-coordinator-adapter.test.ts
           tests/project-file-scope.test.ts

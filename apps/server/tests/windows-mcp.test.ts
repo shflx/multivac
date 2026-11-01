@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { WINDOWS_STDIO_ROOT } from '../src/runtime/executors/windows-stdio-supervisor.js';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { WINDOWS_STDIO_ROOT, WINDOWS_STDIO_SUPERVISOR } from '../src/runtime/executors/windows-stdio-supervisor.js';
 import { mcpProcessEnvironment } from '../src/runtime/executors/mcp-wire-factory.js';
 import { programLaunch } from '../src/runtime/program-launch.js';
 
@@ -51,4 +56,42 @@ test('Windows MCP 取消发生在身份握手前时不放行，查询失败不�
   assert.equal(handshakes, 0);
   child.emit('close'); failed = true; poll(); assert.equal(exited, false);
   failed = false; rows = []; poll(); assert.equal(exited, true);
+});
+
+test('Windows 实机 MCP stdio 经 Node 和 .cmd 传输中文协议并确认退出', { skip: process.platform !== 'win32', timeout: 40_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-mcp-real-'));
+  try {
+    const fixture = join(root, 'mcp-夹具.cjs');
+    await writeFile(fixture, `let pending='';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data',chunk=>{pending+=chunk;let index;
+ while((index=pending.indexOf('\\n'))>=0){const line=pending.slice(0,index);pending=pending.slice(index+1);
+  if(!line.trim())continue;const request=JSON.parse(line);
+  process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:request.id,result:{echo:request.params?.text}})+'\\n');
+ }});
+process.stdin.on('end',()=>process.exit(0));`);
+    const batch = join(root, 'mcp-launcher.cmd');
+    await writeFile(batch, `@echo off\r\n"${process.execPath}" "%~dp0mcp-夹具.cjs"\r\n`);
+    for (const [command, args] of [[process.execPath, [fixture]], [batch, []]] as const) {
+      const launch = programLaunch(command, args, 'win32');
+      const child = spawn(process.execPath, ['-e', WINDOWS_STDIO_SUPERVISOR, JSON.stringify({ ...launch, cwd: root })],
+        { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+      let output = '', error = '';
+      child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+      child.stdout.on('data', chunk => { output += chunk; });
+      child.stderr.on('data', chunk => { error += chunk; });
+      const closed = once(child, 'close');
+      try {
+        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'echo', params: { text: '中文协议' } }) + '\n');
+        for (let attempt = 0; attempt < 100 && !output.includes('中文协议'); attempt++)
+          await new Promise(resolve => setTimeout(resolve, 100));
+        assert.deepEqual(JSON.parse(output.trim()), { jsonrpc: '2.0', id: 1, result: { echo: '中文协议' } });
+        child.stdin.end();
+        const [code, signal] = await closed;
+        assert.equal(code, 0, error); assert.equal(signal, null);
+      } finally {
+        if (child.exitCode === null) child.stdin.end();
+      }
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

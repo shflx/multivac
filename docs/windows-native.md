@@ -4,7 +4,9 @@
 
 本分支主要在 macOS 开发。2026-11-01 在 Windows 11 x64、Node 24.13.1、PowerShell 5.1、C: 与 E: NTFS 卷上完成依赖安装、类型检查、生产构建、contracts 68 项、Web 292 项及 Windows 定向回归。真实 Windows 覆盖 npm 启动路径、私有目录与凭据文件 ACL、文件占用、同卷及跨卷中文目录移动、PowerShell 输出和退出码、CIM 进程身份与停止、ConPTY 启动；Pi 最小 smoke 使用 deepseek/deepseek-flash 与 Anthropic Messages endpoint 成功完成真实模型回复。跨账号 ACL 读取按本次用户要求跳过，未计为通过。
 
-新增 `.github/workflows/windows-native.yml`，以 Windows PowerShell 5.1 运行 Windows 检查，并保留 macOS 针对性回归；远程 CI 尚未执行。Windows x64 的启动、对话和文件工具已在本机开放；命令、任务、MCP、终端与远程等能力继续由 PlatformCapabilities 拒绝。M1 的跨账号 ACL 读取依用户要求跳过，不计为通过；完整应用恢复和路径故障场景仍有未验收项。
+新增 `.github/workflows/windows-native.yml`，以 Windows PowerShell 5.1 运行 Windows 检查，并保留 macOS 针对性回归；远程 CI 尚未执行。Windows x64 的启动、对话、文件工具和共用命令已在本机开放；任务、MCP、终端与远程等能力继续由 PlatformCapabilities 拒绝。M1 的跨账号 ACL 读取依用户要求跳过，不计为通过；完整应用恢复和路径故障场景仍有未验收项。
+
+本轮补测在 Windows 11 x64 上完成共用命令、后台 HTTP 服务、取消、超时、输出额度、根退出后的子进程追踪、ConPTY 中文输入及停止、Node 与 `.cmd` MCP stdio 中文协议与停止。更新后的 Windows 定向集 92 项通过、1 项因本次运行环境缺少跨卷条件而跳过。`npm run check`、目录读取授权和会话命令准入回归通过。独立数据目录下的 Windows 浏览器 E2E 已让工作会话调用真实 PowerShell 工具并核对输出。任务、手机远程或第三方 CLI 工作流仍未验收。
 
 隔离开发数据下，11 个 Windows Chromium 浏览器 E2E 用例通过，覆盖会话目录、文件浏览与操作、归入项目及重启恢复、笔记加密、流式对话与刷新恢复；这些 E2E 使用假模型。独立应用实例还用真实 deepseek/deepseek-flash 完成全局对话，重启后在未注入密钥的情况下读回历史；工作会话中的真实模型 `write` 与 `read` 工具均成功，磁盘文件内容与回读一致。M2/M3 完整工作流尚未验收。
 
@@ -53,6 +55,7 @@ CommandShell 先迁移现有 bash 私有握手包装，再独立增加 Windows P
 PowerShell 在执行前解析语法。终止错误停止后续语句，非终止 Error 流和原生非零退出记录为失败，后续成功语句不能清除先前失败；只用最终 $? 不足以判断。顶层多语句逐条保留退出码。为避免误报，当前明确拒绝动态命令、外部 .ps1，以及循环/分支/嵌套表达式里的原生调用或同一管道的多次原生调用；应拆成单独的顶层语句。这是已知功能限制，不能当作任意 PowerShell 脚本兼容。
 
 PowerShell 控制台与原生输入/输出协商设为 UTF-8（代码页 65001），Node 按 UTF-8 保留输出。忽略代码页设置而强行输出 OEM/ANSI 编码的旧程序仍需调用方显式转换，不保证自动识别任意中文代码页。Windows 实机已核对中文输出与原生命令非零退出不会被后续成功语句覆盖。
+本轮实机进一步核对前后台命令、中文目录、非零退出、密钥环境隔离、取消、超时、输出额度及后台 HTTP 服务停止后端口释放。PowerShell 进度流已关闭，避免进度记录混入命令日志；Windows 正常 CIM 收尾允许完整等待，避免过早标记为恢复中。本机没有可用 Python，`python -m http.server` 仍无法启动；该场景应改用已安装的 Node 或先安装 Python。应用层 Windows x64 `command` 门禁已在完成实机验证并取得用户授权后开放。
 
 ## 进程监护与停止证明
 
@@ -63,6 +66,7 @@ Windows 通过 Win32_Process 记录根和已观察后代，每次终止前核对
 Windows 无 POSIX SIGTERM 语义，CIM Terminate 不保证优雅退出。采样间已脱离且未观察到的后代不保证回收；初次身份无法确认时不放行命令也不宣称停止。当前不自动发现 Windows 后台子进程监听端口，port 保持 null。取消、超时和输出额度复用原服务协议，未知结果保留恢复。ProcessSupervisor 装配点可在后续实机证明确有需要时替换为 Job Object；本轮不增加原生辅助程序。
 
 托管进程首轮是否提供仍待决定，Windows managed() 拒绝，managed-process-supervisor 的隔离实现保持原样。Windows 实机已核对 CIM 对临时 Node 进程的身份观察、终止和消失确认；detached 子孙进程在根退出后继续存活时，已观察身份仍可追踪并清理。后代在采样间继续派生、异常查询及完整服务生命周期仍只经替身验证，尚不足以决定是否引入 Job Object。
+本轮还从共用命令服务验证根退出后仍运行的后台子进程、HTTP 端口释放和停止回执。采样前脱组的进程及监护器异常退出仍没有实机覆盖，Job Object 结论不变。
 
 ## 远程访问（后续实机验证用）
 
@@ -80,6 +84,7 @@ npm.cmd start
 建议绑定 Tailscale 地址，不默认绑定全部网卡。服务打印实际监听地址（IPv6 使用方括号）；不自动更改 Windows 防火墙或网络。token 自动生成前依赖私有 ACL，失败不生成/轮换，损坏不静默重建。手动 token 保持优先且不打印。
 
 远程仍只提供已有全局对话与 Inbox，手机登录不授予终端、工作会话、目录或其他本机能力。保留完整 Host/Origin、实际回环对端、来源绑定和登录撤销；不信任转发头。IPv4、IPv6 和映射 IPv6 仅规范化原有回环身份，Tailscale IPv4/IPv6 不判为本机。Windows 远程能力仍在生成 token 前被门禁拒绝；手机 Tailscale 登录和连接撤销尚待实机验证。
+本机 sing-box 使用 Tailscale endpoint，但该 Tailnet 地址未注册为 Windows 网卡地址；直接绑定返回 `EADDRNOTAVAIL`，本机访问该地址的临时 HTTP 探针超时。手机探针结果未确认，未验证 sing-box 是否配置了对本机服务的入站转发。远程能力保持关闭；完成入站路由、手机登录和撤销验收后再评估开放。
 
 ## 新任务和 Git 工作目录
 
@@ -87,7 +92,8 @@ TaskWorkingDirectories 在读取项目来源或创建目录、分支前核对 ta
 
 Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 继续限 macOS，不能借任务开放。
 
-Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。gitPublish 能力同样关闭，当前不会在 Windows 运行 Git。NUL/hooks、Git Credential Manager 和真实 worktree 行为仍待实机验证。
+Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。gitPublish 能力同样关闭，当前不会在 Windows 运行 Git。禁用 hooks 的执行效果与 Git Credential Manager 仍待实机验证。
+本轮在临时 Git 仓库实测固定基线建立 worktree、保留脏来源，以及在独立工作树提交后源目录不变。依赖安装、任务调度与预算、发布批准和 Git Credential Manager 仍待实机验收；`taskExecution` 和 `gitPublish` 门禁保持关闭。
 
 ## MCP stdio
 
@@ -95,7 +101,8 @@ Windows stdio 启动复用 program-launch：Node、uvx 等原生 argv 直接运�
 
 连接前沿用账号、目录、项目、分类和逐次许可核对，取消及未知调用不重发。Windows 关闭连接通过结束输入请求监护清理，不强杀监护器后冒充服务已退出。CIM 查询失败、异常退出等无法证明停止时保留原租约和恢复事实。私有凭据只注入配置声明的环境，不进入公开日志；Windows 按大小写保护执行环境，拒绝覆盖 PATH、ComSpec、NODE_/OPENSSL_ 等监护运行变量。未自动继承服务端模型密钥。
 
-MCP stdio 能力仍关闭。替身核对握手、字节传输、取消前不启动与查询失败不提供证明；macOS 真实 stdio/HTTP、任务/工作会话许可和版本回归通过。Windows npx/uvx 与真实服务协议、后代退出均待实机验证，采样遗漏边界同 ProcessSupervisor。
+MCP stdio 能力仍关闭。替身核对握手、字节传输、取消前不启动与查询失败不提供证明；macOS 真实 stdio/HTTP、任务/工作会话许可和版本回归通过。Windows npx/uvx、实际 MCP 服务协议及后代退出均待实机验证，采样遗漏边界同 ProcessSupervisor。
+本轮 Node 本地夹具经原生 argv 与 `.cmd` 启动器完成中文 JSON 请求响应和进程树退出确认。应用账号许可链路仍待实机验证，MCP stdio 门禁保持关闭。
 
 ## 项目终端与 CLI
 
@@ -105,4 +112,5 @@ ConPTY 的 Node 根先等 CIM 身份握手，再以继承控制台方式启动�
 
 自管 Codex app-server 仅监听动态 127.0.0.1 WebSocket 地址，与终端共用 Windows CLI 启动；复用 CIM 根握手监督，宿主输入管道关闭即请求停止。连接异常、初始化/就绪超时及正常退出均请求清理；原实例未确认停止时拒绝启动新实例，停止超时明确失败。macOS 看门狗保持原行为。终端身份、Host/Origin、远程拒绝、刷新/重开和会话 ID 跟踪规则保持原样。
 
-4 项平台替身核对默认程序、参数、输入握手、PID 复用、查询失败和停止凭据；现有真实 macOS PTY、画面与 CLI 会话跟踪定向回归通过。Windows 实机已核对 ConPTY 启动 PowerShell 并读取输出。本机可执行版本为 Claude Code 2.1.29、Codex CLI 0.163.0、uvx 0.6.14；Codex CLI 登录状态检查未通过，Claude 登录状态检查未在限定时间内返回。组合键/中文输入、CLI 交互、真实 Codex app-server 协议和服务退出仍待实机测试。terminal 能力关闭，PROJECT_CONSTRAINTS.md 的 macOS arm64 开放边界保持不变。
+4 项平台替身核对默认程序、参数、输入握手、PID 复用、查询失败和停止凭据；现有真实 macOS PTY、画面与 CLI 会话跟踪定向回归通过。Windows 实机已核对 ConPTY 启动 PowerShell 并读取输出。本机可执行版本为 Claude Code 2.1.29、Codex CLI 0.163.0、uvx 0.6.14。组合键、CLI 交互、app-server 建立会话和完整服务退出仍待实机测试。terminal 能力关闭，PROJECT_CONSTRAINTS.md 的 macOS arm64 开放边界保持不变。
+本轮真实 ConPTY 空白 PowerShell 终端完成中文输入及进程树停止证明。停止确认后释放 node-pty 句柄；锁定版本的控制台列表辅助脚本只对已退出目标的 `AttachConsole failed` 返回空列表，避免释放时异常。Codex app-server 经本机回环 WebSocket 初始化并确认进程停止。Codex CLI 当前未登录，Claude CLI 的账号返回订阅无效；CLI 交互、app-server 建立会话及完整应用退出仍未验收，终端门禁保持关闭。

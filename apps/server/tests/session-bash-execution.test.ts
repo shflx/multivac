@@ -98,7 +98,7 @@ test('真实工具定义/准入/SQLite + 监护替身：前后台贯通真实 cw
   const f = await fixture();
   try {
     f.mount();
-    const alias = join(f.primary, 'alias'); await symlink(join(f.extra, 'child'), alias);
+    const alias = join(f.primary, 'alias'); await symlink(join(f.extra, 'child'), alias, process.platform === 'win32' ? 'junction' : 'dir');
     const result = await f.invoke('foreground', alias);
     assert.match(JSON.stringify(result), /simulated cwd/);
     const record = f.store.managedProcesses.byCommand(f.store.managedProcesses.all()[0]!.commandId)!;
@@ -106,7 +106,7 @@ test('真实工具定义/准入/SQLite + 监护替身：前后台贯通真实 cw
     assert.equal(record.public.sessionId, 'session'); assert.equal(record.public.executionId, 'turn'); assert.equal(record.public.toolCallId, 'foreground');
     await f.invoke('foreground', alias);
     assert.equal(f.supervisors.launches.length, 1);
-    unlinkSync(alias); symlinkSync(f.extra, alias);
+    unlinkSync(alias); symlinkSync(f.extra, alias, process.platform === 'win32' ? 'junction' : 'dir');
     // 原始参数不变而真实目录改变，也必须按目录指纹报冲突。
     await assert.rejects(f.invoke('foreground', alias), /参数/);
     await assert.rejects(f.port.execute('session', f.primary, 'foreground', { command: 'probe', mode: 'foreground', cwd: f.primary }, undefined, () => {}), /参数/);
@@ -153,10 +153,10 @@ test('准备后的合法链接替换仍拒绝；卸载原 cwd 来源后默认执
   const f = await fixture();
   try {
     f.mount();
-    const link = join(f.primary, 'link'); await symlink(join(f.extra, 'child'), link);
+    const link = join(f.primary, 'link'); await symlink(join(f.extra, 'child'), link, process.platform === 'win32' ? 'junction' : 'dir');
     const pending = f.port.execute('session', f.primary, 'link', { command: 'probe', cwd: link }, undefined, () => {});
     // 同步替换保证发生在启动器异步准备完成前。
-    unlinkSync(link); symlinkSync(f.extra, link);
+    unlinkSync(link); symlinkSync(f.extra, link, process.platform === 'win32' ? 'junction' : 'dir');
     const result = await pending;
     assert.equal(result.process.state, 'failed'); assert.match(result.process.reason, /实际目标已发生变化/);
     assert.equal(f.supervisors.launches.length, 0);

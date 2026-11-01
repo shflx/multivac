@@ -231,7 +231,8 @@ export class BashProcessService {
     if (!live) { await this.reconcile(id); return this.repository.get(id)!.public; }
     this.save(id, { state: 'stopping', reason: '正在结束本次托管进程组。' }); live.stop();
     let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([live.closed, new Promise(resolve => { timer = setTimeout(resolve, this.graceMillis + 3000); })]);
+    const stopWait = process.platform === 'win32' ? Math.max(this.graceMillis + 3000, 10_000) : this.graceMillis + 3000;
+    await Promise.race([live.closed, new Promise(resolve => { timer = setTimeout(resolve, stopWait); })]);
     clearTimeout(timer);
     if (this.live.has(id)) this.save(id, { state: 'recovery', reason: '托管范围的清理结果尚未确认。' });
     return this.repository.get(id)!.public;
