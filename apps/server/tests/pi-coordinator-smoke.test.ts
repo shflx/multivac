@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import type { CoordinatorThinkingLevel } from '@multivac/contracts';
+import type { CoordinatorThinkingLevel, ModelProfileInput } from '@multivac/contracts';
 import { COORDINATOR_THINKING_LEVELS } from '@multivac/contracts';
 import { optionalEnvironmentValue } from '../src/environment.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
@@ -15,8 +15,12 @@ test('Multivac 真实 Pi 运行时最小 smoke', { skip: !smokeEnabled }, async 
   const modelId = optionalEnvironmentValue(process.env.MULTIVAC_MODEL);
   const configuredThinking = optionalEnvironmentValue(process.env.MULTIVAC_THINKING) ?? 'off';
   const modelsPath = optionalEnvironmentValue(process.env.MULTIVAC_MODELS_FILE);
+  const endpoint = optionalEnvironmentValue(process.env.MULTIVAC_MODEL_ENDPOINT);
+  const protocol = optionalEnvironmentValue(process.env.MULTIVAC_MODEL_PROTOCOL);
   assert.ok(provider, 'MULTIVAC_PI_SMOKE=1 时必须设置 MULTIVAC_PROVIDER');
   assert.ok(modelId, 'MULTIVAC_PI_SMOKE=1 时必须设置 MULTIVAC_MODEL');
+  assert.equal(Boolean(endpoint), Boolean(protocol), '自定义模型必须同时设置 endpoint 和 protocol');
+  if (protocol) assert.ok(['openai-completions', 'openai-responses', 'anthropic-messages', 'google-generative-ai'].includes(protocol));
   assert.equal(
     COORDINATOR_THINKING_LEVELS.includes(configuredThinking as CoordinatorThinkingLevel),
     true,
@@ -44,6 +48,8 @@ test('Multivac 真实 Pi 运行时最小 smoke', { skip: !smokeEnabled }, async 
           provider,
           modelId,
           thinkingLevel: configuredThinking as CoordinatorThinkingLevel,
+          ...(endpoint && protocol ? { source: 'controlled' as const, profileId: 'smoke-model', endpoint,
+            resolvedEndpoint: endpoint, protocol: protocol as ModelProfileInput['protocol'] } : {}),
         },
         retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 },
         compaction: { enabled: false, reserveTokens: 1_000, keepRecentTokens: 1_000 },
@@ -58,7 +64,7 @@ test('Multivac 真实 Pi 运行时最小 smoke', { skip: !smokeEnabled }, async 
     const run = await adapter.prompt('smoke', 'Reply with OK only.');
     assert.equal(run.ok, true, run.ok ? undefined : run.error.message);
     if (!run.ok) return;
-    assert.equal(run.value.status, 'completed');
+    assert.equal(run.value.status, 'completed', run.value.error ? `${run.value.error.code}: ${run.value.error.message}` : undefined);
     assert.equal(events.includes('coordinator.run.started'), true);
     assert.equal(events.includes('coordinator.run.completed'), true);
   } finally {

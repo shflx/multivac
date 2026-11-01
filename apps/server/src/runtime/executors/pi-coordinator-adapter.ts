@@ -4,7 +4,7 @@ import { readPiContext } from './pi-context-snapshot.js';
 import type { CoordinatorContextManagementPort } from '../../modules/sessions/coordinator-adapter.js';
 import { createPiSkills, type PiSkills } from './pi-skills.js';
 import type { SkillSource } from '../../modules/skills/skill-source.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, statSync, realpathSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { COORDINATOR_THINKING_LEVELS, assistantErrorMessage } from '@multivac/contracts';
@@ -173,6 +173,14 @@ function validateConfig(config: CoordinatorRuntimeConfig): string | undefined {
 /** Pi 对象只保留在执行器内部，上层只能观察 Multivac 契约和稳定错误。 */
 /** 会话身份属于其他 harness：Pi 不打开、不读取。 */
 const FOREIGN_HARNESS = { code: 'SESSION_BINDING_MISMATCH', message: '会话属于其他执行器，不能由 Pi 打开。' } as const;
+
+/** 模型目录可能只更新 ACL 等元数据；按内容核对，避免把 Windows ctime 变化误判为模型变化。 */
+export function modelCatalogVersion(path: string): string {
+  const real = realpathSync(path);
+  const value = statSync(real);
+  if (!value.isFile()) throw new Error('Pi 模型目录不是普通文件。');
+  return JSON.stringify([real, createHash('sha256').update(readFileSync(real)).digest('hex')]);
+}
 
 export class PiCoordinatorAdapter implements CoordinatorAdapter {
   readonly harness = PI_HARNESS;
@@ -498,9 +506,13 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         try { return this.persistedSelectionVersion(path); }
         catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'; throw error; }
       };
+      const optionalCatalog = (path: string) => {
+        try { return modelCatalogVersion(path); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'; throw error; }
+      };
       const model = active.session.model;
       return JSON.stringify([this.persistedSelectionVersion(active.session.sessionFile!),
-        this.modelsPath ? optionalFile(this.modelsPath) : 'disabled', optionalFile(this.agentDir + '/models-store.json'),
+        this.modelsPath ? optionalFile(this.modelsPath) : 'disabled', optionalCatalog(this.agentDir + '/models-store.json'),
         model ? { provider: model.provider, id: model.id, api: model.api, baseUrl: model.baseUrl,
           reasoning: model.reasoning, thinkingLevelMap: model.thinkingLevelMap, input: model.input,
           contextWindow: model.contextWindow, maxTokens: model.maxTokens } : null]);

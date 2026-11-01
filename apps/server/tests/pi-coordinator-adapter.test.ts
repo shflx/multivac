@@ -1,13 +1,31 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type {
   CoordinatorDiagnostic,
   CoordinatorRuntimeConfig,
   CoordinatorThinkingLevel,
 } from '@multivac/contracts';
 import type { AgentSessionEvent, AgentSessionEventListener } from '@earendil-works/pi-coding-agent';
-import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
+import { modelCatalogVersion, PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import { config, flushPromiseRejections, model, resources, StubFactory, StubSession } from './fixtures/pi-session-stub.js';
+
+test('Pi 模型目录仅元数据变化不失效，内容变化即使保留 mtime 仍失效', () => {
+  const root = mkdtempSync(join(tmpdir(), 'multivac-model-version-'));
+  const path = join(root, 'models-store.json');
+  try {
+    writeFileSync(path, '{"model":"one"}');
+    const first = modelCatalogVersion(path);
+    const timestamp = new Date('2026-01-01T00:00:00Z');
+    utimesSync(path, timestamp, timestamp);
+    assert.equal(modelCatalogVersion(path), first);
+    writeFileSync(path, '{"model":"two"}');
+    utimesSync(path, timestamp, timestamp);
+    assert.notEqual(modelCatalogVersion(path), first);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 test('Pi 图片参数保持内容顺序，运行中追加透传，不支持能力明确拒绝', async () => {
   const session = new StubSession();
