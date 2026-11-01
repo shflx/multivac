@@ -3,12 +3,22 @@ import test from 'node:test';
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import type { Task } from '@multivac/contracts';
 import { createPlatformCapabilities } from '../src/runtime/platform-capabilities.js';
 import { TaskWorkingDirectories } from '../src/application/task-working-directories.js';
 import { gitEnvironment, gitNullDevice } from '../src/application/git-platform.js';
 import { describeNodeDependencies } from '../src/application/task-node-dependencies.js';
 import { renderTaskExecutionPrompt } from '../src/application/task-execution-prompt.js';
+import { taskProcessAlive } from '../src/application/task-scheduler.js';
+
+test('Windows 已退出 PID 不会长期占用任务调度权', { skip: process.platform !== 'win32' }, async () => {
+  const child = spawn(process.execPath, ['-e', 'process.exit(0)'], { stdio: 'ignore' });
+  await once(child, 'exit');
+  assert.equal(taskProcessAlive(process.pid), true);
+  assert.equal(taskProcessAlive(child.pid!), false);
+});
 
 test('Windows 新任务在创建目录、分支或读取项目来源前拒绝', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-win-task-'));

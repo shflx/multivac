@@ -1,15 +1,29 @@
 import { satisfiesTaskDependency } from '@multivac/contracts';
 import { randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { freemem } from 'node:os';
+import { win32 } from 'node:path';
 import type { Task } from '@multivac/contracts';
 import type { TaskRunRepository, TaskRuntimeRepository } from '../modules/tasks/task.js';
 import { TaskService } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { TaskExecutionService } from './task-execution-service.js';
+import { childEnvironment } from '../runtime/program-launch.js';
 
-function alive(pid: number): boolean {
+export function taskProcessAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
-  catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ESRCH') return false;
+    if (process.platform !== 'win32' || code !== 'EPERM' || !Number.isSafeInteger(pid) || pid <= 0) return true;
+    try {
+      // Windows 对已结束的 PID 也可能返回 EPERM；CIM 查询失败时仍按存活处理。
+      const powershell = win32.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      const script = `$ErrorActionPreference='Stop';$p=Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}';if($p){[Console]::Out.Write('1')}else{[Console]::Out.Write('0')}`;
+      return execFileSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script],
+        { encoding: 'utf8', timeout: 5000, windowsHide: true, env: childEnvironment(process.env, 'win32') }).trim() !== '0';
+    } catch { return true; }
+  }
 }
 const PRIORITY = { high: 0, medium: 1, low: 2 };
 
@@ -31,7 +45,7 @@ export class TaskScheduler {
     this.started = true;
     this.tasks.facts((facts) => {
       const previous = facts.runtime.owner();
-      if (previous && previous.ownerId !== this.execution.ownerId && alive(previous.pid)) throw new TaskServiceError('TASK_CONFLICT', '已有服务实例拥有任务调度权。');
+      if (previous && previous.ownerId !== this.execution.ownerId && taskProcessAlive(previous.pid)) throw new TaskServiceError('TASK_CONFLICT', '已有服务实例拥有任务调度权。');
       facts.runtime.claim(this.execution.ownerId, process.pid);
     });
     this.execution.attachScheduler(() => this.wake(), () => this.assertOwner());
@@ -49,7 +63,7 @@ export class TaskScheduler {
   reconcileProcessExits(): void {
     if (this.disposed) return;
     for (const run of this.runs.active()) {
-      if (run.ownerId === this.execution.ownerId || run.status !== 'recovery' || run.ownerPid === undefined || alive(run.ownerPid)
+      if (run.ownerId === this.execution.ownerId || run.status !== 'recovery' || run.ownerPid === undefined || taskProcessAlive(run.ownerPid)
         || run.nativeLeaseFenced !== true || run.nativePendingIds?.length || !this.execution.requiredProcessesStopped(run.runId)) continue;
       this.tasks.transition(run.taskId, { commandId: `process-proof:${run.runId}`, key: run.runId, kind: 'recovery-proof', summary: '托管退出凭据已补齐，等待用户恢复决定。' }, (task, facts) => {
         run.stopConfirmed = true; facts.runs.save(run);
@@ -64,7 +78,7 @@ export class TaskScheduler {
         if (old.executionMode === 'workspace' && old.schedulerManaged && old.hasStarted === false && !old.stopIntent && task.status === 'queued') {
           old.ownerId = this.execution.ownerId; old.ownerPid = process.pid; facts.runs.save(old); return task;
         }
-        const parentStopped = old.ownerPid !== undefined && !alive(old.ownerPid);
+        const parentStopped = old.ownerPid !== undefined && !taskProcessAlive(old.ownerPid);
         old.stopConfirmed = this.execution.requiredProcessesStopped(old.runId) && parentStopped && old.nativeLeaseFenced === true && (old.nativePendingIds ?? []).length === 0;
         old.status = 'recovery'; old.reason = old.stopConfirmed ? '旧服务已停止，检查点保留，等待用户恢复决定。' : '旧执行停止或副作用结果未确认，保留原租约。';
         facts.runs.save(old);

@@ -5,7 +5,7 @@ function processTree(root) {
   const ps=(script)=>{
     const systemRoot=process.env.SystemRoot || process.env.SYSTEMROOT || 'C:\\Windows';
     return execFileSync(systemRoot+'\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-      ['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from("$ErrorActionPreference='Stop';[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false);"+script,'utf16le').toString('base64')],
+      ['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from("$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false);"+script,'utf16le').toString('base64')],
       {encoding:'utf8',timeout:5000,maxBuffer:8*1024*1024,windowsHide:true,env:process.env}).trim();
   };
   function snapshot() {

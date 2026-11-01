@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
+import { execFileSync, spawn } from 'node:child_process';
+import { setTimeout as delay } from 'node:timers/promises';
 import { WINDOWS_PROCESS_TREE_TRACKER, WINDOWS_COMMAND_SUPERVISOR } from '../src/runtime/executors/windows-process-supervisor.js';
 
 const identity = '2026-10-31T00:00:00.0000000Z';
@@ -53,4 +55,60 @@ test('Windows 命令监护握手后才放行；根退出但查询失败时不生
   assert.equal(files.has('receipt'), false); assert.equal(exited, false);
   failed = false; rows = []; poll();
   assert.equal(exited, true); assert.equal(JSON.parse(files.get('receipt')!).treeStopped, true);
+});
+
+test('Windows 实机 CIM 观察身份并终止本次进程', { skip: process.platform !== 'win32' }, async () => {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    await once(child, 'spawn');
+    const tree = new Function('execFileSync', 'process', `${WINDOWS_PROCESS_TREE_TRACKER};return processTree(${child.pid});`)(execFileSync, process);
+    assert.ok(tree.observe().some((entry: { pid: number }) => entry.pid === child.pid));
+    tree.signal();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([once(child, 'exit'), new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error('CIM 停止超时')), 15000); })]);
+    } finally { clearTimeout(timeout); }
+    assert.deepEqual(tree.observe(), []);
+  } finally { if (child.exitCode === null) child.kill(); }
+});
+
+test('Windows 实机根退出后仍追踪并停止已观察的子孙进程', { skip: process.platform !== 'win32' }, async () => {
+  const grandchildCode = 'setInterval(() => {}, 1000)';
+  const childCode = `const {spawn}=require('node:child_process');
+const grandchild=spawn(process.execPath,['-e',${JSON.stringify(grandchildCode)}],{detached:true,stdio:'ignore'});
+grandchild.unref();
+console.log(JSON.stringify({child:process.pid,grandchild:grandchild.pid}));
+setInterval(() => {}, 1000);`;
+  const rootCode = `const {spawn}=require('node:child_process');
+const child=spawn(process.execPath,['-e',${JSON.stringify(childCode)}],{detached:true,stdio:['ignore','inherit','inherit']});
+child.unref();
+process.stdin.once('data',()=>process.exit(0));`;
+  const root = spawn(process.execPath, ['-e', rootCode], { stdio: ['pipe', 'pipe', 'ignore'] });
+  let descendants: number[] = [];
+  try {
+    const [chunk] = await once(root.stdout!, 'data', { signal: AbortSignal.timeout(15000) });
+    const ids = JSON.parse(String(chunk).trim()) as { child: number; grandchild: number };
+    descendants = [ids.child, ids.grandchild];
+    const tree = new Function('execFileSync', 'process', `${WINDOWS_PROCESS_TREE_TRACKER};return processTree(${root.pid});`)(execFileSync, process);
+    let members: { pid: number }[] = [];
+    for (let attempt = 0; attempt < 8; attempt++) {
+      members = tree.observe();
+      if ([root.pid, ...descendants].every(pid => members.some(member => member.pid === pid))) break;
+      await delay(250);
+    }
+    assert.ok([root.pid, ...descendants].every(pid => members.some(member => member.pid === pid)));
+    root.stdin!.end('\n');
+    await once(root, 'exit', { signal: AbortSignal.timeout(15000) });
+    const afterRootExit = tree.observe() as { pid: number }[];
+    assert.ok(descendants.every(pid => afterRootExit.some(member => member.pid === pid)),
+      JSON.stringify({ descendants, afterRootExit, known: tree.identities(), alive: descendants.map(pid => {
+        try { process.kill(pid, 0); return true; } catch { return false; }
+      }) }));
+    tree.signal();
+    for (let attempt = 0; attempt < 8 && tree.observe().length > 0; attempt++) await delay(250);
+    assert.deepEqual(tree.observe(), []);
+  } finally {
+    if (root.exitCode === null) root.kill();
+    for (const pid of descendants) { try { process.kill(pid); } catch { /* 已结束。 */ } }
+  }
 });
