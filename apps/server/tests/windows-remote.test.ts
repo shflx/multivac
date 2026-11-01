@@ -9,14 +9,14 @@ test('IPv4、IPv6 和映射回环仅规范化原有同一对端，不接受转�
   for (const address of ['100.64.0.1', '192.168.1.1', '::ffff:100.64.0.1', 'fd7a:115c:a1e0::1', 'localhost', '127.0.0.2', '::1%lo']) assert.equal(isLocalLoopbackPeer(address), false, address);
   assert.equal(listenerHttpUrl('::1', 4317), 'http://[::1]:4317');
 });
-test('Windows 远程默认关闭，显式开启在生成 token 前被门禁拒绝；凭据失败不轮换', () => {
+test('Windows 远程默认关闭，显式开启需有效 token；凭据失败不轮换', () => {
   let generated = 0;
   const token = () => { generated++; return 'a'.repeat(64); };
   assert.equal(remoteConfigFromEnvironment({}, token, 'win32').enabled, false);
-  assert.throws(() => remoteConfigFromEnvironment({ MULTIVAC_REMOTE_ENABLED: '1' }, token, 'win32'), /实机验证/);
-  assert.equal(generated, 0);
-  assert.throws(() => remoteConfigFromEnvironment({ MULTIVAC_REMOTE_ENABLED: '1' }, () => { throw new Error('ACL failed'); }, 'darwin'), /ACL failed/);
-  assert.throws(() => remoteConfigFromEnvironment({ MULTIVAC_REMOTE_ENABLED: '1', MULTIVAC_REMOTE_ORIGIN: 'http://[::ffff:7f00:1]:4317' }, token, 'darwin'), /远程 origin/);
+  const enabled = remoteConfigFromEnvironment({ MULTIVAC_REMOTE_ENABLED: '1', MULTIVAC_REMOTE_HOST: '0.0.0.0' }, token, 'win32');
+  assert.equal(enabled.enabled, true); assert.equal(enabled.host, '0.0.0.0'); assert.equal(generated, 1);
+  assert.throws(() => remoteConfigFromEnvironment({ MULTIVAC_REMOTE_ENABLED: '1' }, () => { throw new Error('ACL failed'); }, 'win32'), /ACL failed/);
+  assert.throws(() => remoteConfigFromEnvironment({ MULTIVAC_REMOTE_ENABLED: '1', MULTIVAC_REMOTE_ORIGIN: 'http://[::ffff:7f00:1]:4317' }, token, 'win32'), /远程 origin/);
   assert.equal(remoteRouteAllowed('GET', '/api/terminals'), false);
   assert.equal(remoteRouteAllowed('GET', '/api/inbox'), true);
 });

@@ -37,6 +37,10 @@ jobs:
           tests/program-launch.test.ts
           tests/command-shell.test.ts
           tests/session-bash-execution.test.ts
+          tests/remote-access-http.test.ts
+          tests/remote-access-token.test.ts
+          tests/remote-instance-cookie.test.ts
+          tests/remote-confirmations.test.ts
           tests/private-directory.test.ts
           tests/pi-coordinator-adapter.test.ts
           tests/project-file-scope.test.ts

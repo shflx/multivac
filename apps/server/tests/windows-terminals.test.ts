@@ -119,3 +119,22 @@ test('Windows 实机 Codex app-server 可在回环地址初始化并确认停止
     assert.match(await server.endpoint(), /^ws:\/\/127\.0\.0\.1:\d+$/u);
   } finally { await server.close(); }
 });
+
+test('Windows 实机 ConPTY 可启动 Codex CLI 并确认停止', { skip: process.platform !== 'win32', timeout: 40_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'multivac-codex-terminal-'));
+  const terminal = new TerminalProcess(root, { kind: 'codex', argv: ['--version'] }, { cols: 80, rows: 24 });
+  const output: Buffer[] = [];
+  let stopped = false;
+  try {
+    terminal.onOutput = data => { output.push(data); };
+    for (let attempt = 0; attempt < 150 && !Buffer.concat(output).toString('utf8').includes('codex-cli'); attempt++)
+      await new Promise(resolve => setTimeout(resolve, 100));
+    assert.match(Buffer.concat(output).toString('utf8'), /codex-cli/u);
+    stopped = await terminal.stop();
+    assert.equal(stopped, true);
+  } finally {
+    if (!stopped) { try { terminal.pty.kill(); } catch { /* 测试收尾。 */ } }
+    terminal.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

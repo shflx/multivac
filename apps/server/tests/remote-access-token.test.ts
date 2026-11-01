@@ -21,10 +21,10 @@ test('默认 token 随机生成、按数据目录复用，已有凭据收紧为�
     assert.match(first, /^[a-f0-9]{64}$/u);
     assert.equal(first === loadOrCreateRemoteToken(root), true);
     assert.equal(readFileSync(remoteTokenPath(root), 'utf8') === `${first}\n`, true);
-    assert.equal(statSync(remoteTokenPath(root)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(statSync(remoteTokenPath(root)).mode & 0o777, 0o600);
     chmodSync(remoteTokenPath(root), 0o644);
     assert.equal(first === loadOrCreateRemoteToken(root), true);
-    assert.equal(statSync(remoteTokenPath(root)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(statSync(remoteTokenPath(root)).mode & 0o777, 0o600);
     assert.equal(readdirSync(root).some(name => name.endsWith('.tmp')), false);
     assert.notEqual(first, loadOrCreateRemoteToken(join(root, 'other-instance')));
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -50,7 +50,7 @@ test('远程访问关闭不生成 token，显式 token 优先，无效显式 tok
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('保存文件损坏、过大或为符号链接时明确失败，不覆盖或轮换已有 token', () => {
+test('保存文件损坏或过大时明确失败，不覆盖或轮换已有 token', () => {
   const root = temporaryRoot();
   const path = remoteTokenPath(root);
   try {
@@ -59,7 +59,13 @@ test('保存文件损坏、过大或为符号链接时明确失败，不覆盖�
       assert.throws(() => loadOrCreateRemoteToken(root), /token 文件无效/u);
       assert.equal(readFileSync(path, 'utf8'), invalid);
     }
-    rmSync(path);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('保存文件为符号链接时拒绝，不覆盖链接目标', { skip: process.platform === 'win32' }, () => {
+  const root = temporaryRoot();
+  const path = remoteTokenPath(root);
+  try {
     const target = join(root, 'outside-token');
     writeFileSync(target, 'a'.repeat(64));
     symlinkSync(target, path);
@@ -85,7 +91,7 @@ async function startService(root: string, overrides: NodeJS.ProcessEnv = {}) {
   child.stdout.on('data', chunk => { output += String(chunk); });
   // 启动测试只核对是否展示凭据，不把随机 token 或完整输出写到测试日志。
   child.stderr.resume();
-  const exited = new Promise<number | null>(resolve => child.once('exit', resolve));
+  const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
   try {
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('服务未在时限内启动。')), 15_000);
@@ -105,7 +111,9 @@ async function startService(root: string, overrides: NodeJS.ProcessEnv = {}) {
       const timer = setTimeout(() => child.kill('SIGKILL'), 10_000);
       try {
         child.kill('SIGTERM');
-        assert.equal(await exited, 0);
+        const result = await exited;
+        if (process.platform === 'win32') assert.deepEqual(result, { code: null, signal: 'SIGTERM' });
+        else assert.deepEqual(result, { code: 0, signal: null });
         return output;
       } finally { clearTimeout(timer); }
     },
