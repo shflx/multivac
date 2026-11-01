@@ -2,7 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 import { Check, ChevronDown, type LucideIcon } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
-export type TaskFilterOption = { id: string; label: string; description?: string; disabled?: boolean; icon?: LucideIcon; divider?: boolean; tone?: string };
+/** count 为该选项下的条目数，显示在选项右侧，不进入触发器。 */
+export type TaskFilterOption = { id: string; label: string; description?: string; disabled?: boolean; icon?: LucideIcon; divider?: boolean; tone?: string; count?: number | undefined };
 
 /** 项目与状态共用原型筛选菜单，支持方向键、首尾跳转与输入定位。 */
 export function TaskFilter({ label, name, icon: Icon, value, options, onChange, appearance = 'filter', disabled = false, floating = appearance === 'field', portal = false }: {
@@ -113,7 +114,7 @@ export function TaskFilter({ label, name, icon: Icon, value, options, onChange, 
     <div className="task-filter-menu-heading" role="presentation">选择{label}</div>
     {options.map((option, index) => {
       const OptionIcon = option.icon || Icon;
-      return <button type="button" key={option.id} ref={(element) => { optionRefs.current[index] = element; }} role="option" aria-selected={option.id === value} disabled={option.disabled} tabIndex={index === activeIndex ? 0 : -1} className={`task-filter-option ${option.id === value ? 'selected' : ''} ${option.divider ? 'divider' : ''}`} onFocus={() => setActiveIndex(index)} onClick={() => choose(option.id)}><OptionIcon className={option.tone || ''} aria-hidden="true" /><span className={option.description ? 'task-filter-option-copy' : undefined}>{option.label}{option.description && <small>{option.description}</small>}</span>{option.id === value && <Check className="task-filter-check" aria-hidden="true" />}</button>;
+      return <button type="button" key={option.id} ref={(element) => { optionRefs.current[index] = element; }} role="option" aria-selected={option.id === value} disabled={option.disabled} tabIndex={index === activeIndex ? 0 : -1} className={`task-filter-option ${option.id === value ? 'selected' : ''} ${option.divider ? 'divider' : ''}`} onFocus={() => setActiveIndex(index)} onClick={() => choose(option.id)}><OptionIcon className={option.tone || ''} aria-hidden="true" /><span className={option.description ? 'task-filter-option-copy' : undefined}>{option.label}{option.description && <small>{option.description}</small>}</span>{option.count !== undefined && <span className="task-filter-count">{option.count}</span>}{option.id === value && <Check className="task-filter-check" aria-hidden="true" />}</button>;
     })}
   </div> : null;
 

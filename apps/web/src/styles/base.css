@@ -189,6 +189,8 @@
 .task-filter-option > svg.warn { color: var(--warn); }
 .task-filter-option > svg.success { color: var(--success); }
 .task-filter-option > .task-filter-check { color: var(--accent); }
+.task-filter-option > .task-filter-count { flex: 0 0 auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--surface-strong); color: var(--muted); font-size: var(--t-xs); font-weight: 400; font-variant-numeric: tabular-nums; line-height: 18px; text-align: center; }
+.task-filter-option.selected > .task-filter-count { background: var(--surface); color: var(--accent); }
 @media (prefers-reduced-motion: reduce) {
   .task-filter-trigger, .task-filter-trigger .task-filter-chevron { transition: none; }
 }
