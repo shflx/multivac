@@ -4,9 +4,9 @@
 
 本分支主要在 macOS 开发。2026-11-01 在 Windows 11 x64、Node 24.13.1、PowerShell 5.1、C: 与 E: NTFS 卷上完成依赖安装、类型检查、生产构建、contracts 68 项、Web 292 项及 Windows 定向回归。真实 Windows 覆盖 npm 启动路径、私有目录与凭据文件 ACL、文件占用、同卷及跨卷中文目录移动、PowerShell 输出和退出码、CIM 进程身份与停止、ConPTY 启动；Pi 最小 smoke 使用 deepseek/deepseek-flash 与 Anthropic Messages endpoint 成功完成真实模型回复。跨账号 ACL 读取按本次用户要求跳过，未计为通过。
 
-新增 `.github/workflows/windows-native.yml`，以 Windows PowerShell 5.1 运行 Windows 检查，并保留 macOS 针对性回归；远程 CI 尚未执行。Windows x64 的启动、对话、文件工具、共用命令与显式启用的远程入口已在本机开放；任务、MCP 与终端等能力继续由 PlatformCapabilities 拒绝。M1 的跨账号 ACL 读取依用户要求跳过，不计为通过；完整应用恢复和路径故障场景仍有未验收项。
+新增 `.github/workflows/windows-native.yml`，以 Windows PowerShell 5.1 运行 Windows 检查，并保留 macOS 针对性回归；远程 CI 尚未执行。Windows x64 的启动、对话、文件工具、共用命令、任务独立目录执行与显式启用的远程入口已在本机开放；MCP、终端和 Git 发布等能力继续由 PlatformCapabilities 拒绝。M1 的跨账号 ACL 读取依用户要求跳过，不计为通过；完整应用恢复和路径故障场景仍有未验收项。
 
-本轮补测在 Windows 11 x64 上完成共用命令、后台 HTTP 服务、取消、超时、输出额度、根退出后的子进程追踪、ConPTY 中文输入及停止、Node 与 `.cmd` MCP stdio 中文协议与停止。更新后的 Windows CI 同范围定向集 104 项通过、3 项按环境或平台条件跳过。`npm run check`、目录读取授权和会话命令准入回归通过。独立数据目录下的 Windows 浏览器 E2E 已让工作会话调用真实 PowerShell 工具并核对输出。任务与第三方 CLI 的完整工作流仍未验收。
+本轮补测在 Windows 11 x64 上完成共用命令、后台 HTTP 服务、取消、超时、输出额度、根退出后的子进程追踪、ConPTY 中文输入及停止、Node 与 `.cmd` MCP stdio 中文协议与停止。更新后的 Windows CI 同范围定向集 105 项通过、3 项按环境或平台条件跳过。`npm run check`、目录读取授权和会话命令准入回归通过。独立数据目录下的 Windows 浏览器 E2E 已让工作会话调用真实 PowerShell 工具并核对输出。第三方 CLI 的完整工作流仍未验收。
 
 隔离开发数据下，11 个 Windows Chromium 浏览器 E2E 用例通过，覆盖会话目录、文件浏览与操作、归入项目及重启恢复、笔记加密、流式对话与刷新恢复；这些 E2E 使用假模型。独立应用实例还用真实 deepseek/deepseek-flash 完成全局对话，重启后在未注入密钥的情况下读回历史；工作会话中的真实模型 `write` 与 `read` 工具均成功，磁盘文件内容与回读一致。M2/M3 完整工作流尚未验收。
 
@@ -87,10 +87,10 @@ npm.cmd start
 
 TaskWorkingDirectories 在读取项目来源或创建目录、分支前核对 taskExecution/command 能力。Windows 分支为 Git for Windows 使用 git.exe、本地路径、独立空 hooks 目录和 NUL 全局配置；保持固定 HEAD 的独立 worktree，不改写 dirty 来源工作树。共用命令与监护分别接 CommandShell 和 ProcessSupervisor，旧隔离 Run 不自动迁移。
 
-Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 继续限 macOS，不能借任务开放。
+Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 继续限 macOS；Windows 任务在独立 worktree 中经共用命令执行本地 git.exe，不能借任务开放专用 Git。
 
-Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。gitPublish 能力同样关闭，当前不会在 Windows 运行 Git。禁用 hooks 的执行效果与 Git Credential Manager 仍待实机验证。
-本轮在临时 Git 仓库实测固定基线建立 worktree、保留脏来源，以及在独立工作树提交后源目录不变。依赖安装、任务调度与预算、发布批准和 Git Credential Manager 仍待实机验收；`taskExecution` 和 `gitPublish` 门禁保持关闭。
+Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。gitPublish 能力仍关闭，Git Credential Manager 与远端发布未在 Windows 实测。
+本轮在临时 Git 仓库由真实 Pi 会话配合本机脚本化模型完成准备失败后的继续执行、独立 worktree、`npm.cmd ci` 与测试、文件写入、本地提交、成果登记及停止结算；源仓库的固定 HEAD 和脏文件均保持原样。任务调度、暂停、取消和预算已有跨平台替身回归，Windows 真实模型任务、运行中停止后的恢复、发布批准与 Git Credential Manager 尚待实机验收。`taskExecution` 门禁开放，`gitPublish` 保持关闭。
 
 ## MCP stdio
 

@@ -19,7 +19,7 @@
 
 ## 平台验证边界
 
-- Windows x64 的启动、对话、文件工具和共用命令已完成本机实机验证；远程入口仅在显式启用并经 token 登录后开放全局对话与 Inbox，不能扩大到本机终端、工作会话或文件。跨账号 ACL 读取按用户要求未测，不视为通过。PlatformCapabilities 继续拒绝未完成 Windows 实机验收的任务、MCP 和终端等能力，不得通过配置绕过。受控 Git、Skill run/copy 和旧隔离执行器继续保持 macOS 限制，Windows 不提供系统定位、默认程序打开和回收站，临时目录保留。
+- Windows x64 的启动、对话、文件工具、共用命令及任务独立目录执行已完成本机实机验证；远程入口仅在显式启用并经 token 登录后开放全局对话与 Inbox，不能扩大到本机终端、工作会话或文件。跨账号 ACL 读取按用户要求未测，不视为通过。PlatformCapabilities 继续拒绝未完成 Windows 实机验收的 MCP、终端和 Git 发布等能力，不得通过配置绕过。专用受控 Git、Skill run/copy 和旧隔离执行器继续保持 macOS 限制；Windows 任务本地 Git 操作走已开放的共用命令，不能视为专用 Git 已开放。Windows 不提供系统定位、默认程序打开和回收站，临时目录保留。
 
 ## 任务、进程与恢复
 

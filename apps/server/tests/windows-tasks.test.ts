@@ -20,13 +20,15 @@ test('Windows 已退出 PID 不会长期占用任务调度权', { skip: process.
   assert.equal(taskProcessAlive(child.pid!), false);
 });
 
-test('Windows 新任务在创建目录、分支或读取项目来源前拒绝', async () => {
+test('Windows 新任务准备独立目录，不借用用户工作目录', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-win-task-'));
   try {
     let queried = false;
     const directories = new TaskWorkingDirectories(root, () => { queried = true; throw new Error(); }, [], createPlatformCapabilities({ platform: 'win32', arch: 'x64' }));
-    await assert.rejects(directories.prepare({ taskId: 'task', title: 'task', projectId: 'p' } as Task, 'run', new AbortController().signal), /实机验证/);
-    assert.equal(queried, false); assert.deepEqual(await readdir(root), []);
+    const prepared = await directories.prepare({ taskId: 'task', title: 'task' } as Task, 'run', new AbortController().signal);
+    assert.equal(queried, false);
+    assert.equal(prepared.directory.kind, 'task-isolated');
+    assert.deepEqual(await readdir(prepared.directory.path), []);
     await writeFile(join(root, 'package-lock.json'), '{}');
     assert.match((await describeNodeDependencies(root, 'win32'))!, /不使用 APFS 克隆/);
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -46,6 +48,7 @@ test('Windows 初始和继续提示词声明实际解释器，保留目录、批
   for (const resumed of [false, true]) {
     const prompt = renderTaskExecutionPrompt(task, { childCount: 0, resumed, platform: 'win32' });
     assert.match(prompt, /Windows PowerShell 5.1/); assert.match(prompt, /npm.cmd/);
+    assert.match(prompt, /git.exe/); assert.doesNotMatch(prompt, /commit_task_code|inspect_task_git/);
     assert.match(prompt, /结果未知先核对|未知结果先只读对账|未知工具结果先只读对账/);
     assert.match(prompt, /外发仍须真实用户许可/);
   }
