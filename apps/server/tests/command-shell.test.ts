@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCommandShell, BASH_ANCHOR_COMMAND } from '../src/runtime/executors/command-shell.js';
-import { childEnvironment, programLaunch } from '../src/runtime/program-launch.js';
+import { childEnvironment, programLaunch, runProgramSync } from '../src/runtime/program-launch.js';
+import { powershellCommandScript } from '../src/runtime/executors/powershell-command.js';
 
 test('bash 原包装不变；Windows 使用 PowerShell 5.1 编码命令且不加载 profile', () => {
   assert.deepEqual(createCommandShell('darwin').launch('echo 中文'), { file: '/bin/bash', args: ['--noprofile', '--norc', '-c', BASH_ANCHOR_COMMAND, 'multivac-bash', 'echo 中文'] });
@@ -23,7 +24,7 @@ test('原生 argv、批处理、命令文本分开，环境白名单不会继承
   const source = { Path: 'C:\\bin', SystemRoot: 'C:\\Windows', OPENAI_API_KEY: 'secret', MULTIVAC_TOKEN: 'secret', TEMP: 'C:\\tmp' };
   assert.deepEqual(childEnvironment(source, 'win32'), { Path: 'C:\\bin', SystemRoot: 'C:\\Windows', TEMP: 'C:\\tmp' });
   assert.equal(programLaunch('npm', ['run', 'check'], 'win32').file.endsWith('cmd.exe'), true);
-  assert.equal(programLaunch('node.exe', ['-e', 'process.exit(7)'], 'win32').file, 'node.exe');
+  assert.match(programLaunch('node.exe', ['-e', 'process.exit(7)'], 'win32').file, /node\.exe$/u);
 });
 
 test('Windows 前台工具直接使用共用端口，保留中文输出与非零结果', async () => {
@@ -42,4 +43,13 @@ test('Windows 前台工具直接使用共用端口，保留中文输出与非零
   code = 0;
   const result = await tool.execute('call', { command: 'test' }, undefined, undefined, context);
   assert.deepEqual(result.content, [{ type: 'text', text: '中文输出' }]);
+});
+
+test('Windows 实机 PowerShell 保留中文输出和先前原生失败', { skip: process.platform !== 'win32' }, () => {
+  const script = powershellCommandScript("Write-Output '中文输出'; cmd.exe /c exit 7; Write-Output 'later'");
+  const result = runProgramSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 7, result.stderr);
+  assert.match(result.stdout, /中文输出/u);
+  assert.match(result.stdout, /later/u);
 });

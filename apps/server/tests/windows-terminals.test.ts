@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
+import { spawnSync } from 'node:child_process';
 import { TerminalProcess, windowsTerminalLaunch, terminalCommand } from '../src/runtime/executors/terminal-process.js';
 import { WINDOWS_TERMINAL_ROOT, WINDOWS_TERMINAL_WATCHER } from '../src/runtime/executors/windows-terminal-supervisor.js';
 import { resolveWindowsProgram } from '../src/runtime/program-launch.js';
@@ -73,4 +74,16 @@ test('终端监护器在宿主断开后清理，查询失败和 PID 复用不提
   failed = false; rows = [{ ...root, identity: '2026-10-31T00:00:02.0000000Z' }, child]; poll(); assert.equal(ended, false);
   assert.ok(commands.some(command => command.includes('Invoke-CimMethod') && command.includes('ProcessId=101') && !command.includes('ProcessId=100')));
   rows = [{ ...root, identity: '2026-10-31T00:00:02.0000000Z' }]; poll(); assert.equal(ended, true); assert.ok(messages.some(message => message.stopped));
+});
+
+test('Windows 实机 ConPTY 启动 PowerShell 并读取输出', { skip: process.platform !== 'win32' }, () => {
+  const probe = `const pty=require('node-pty');
+const terminal=pty.spawn('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command',"[Console]::Out.Write('conpty-ok')"],
+  {name:'xterm-color',cols:80,rows:24,cwd:process.cwd(),env:process.env,useConpty:true});
+terminal.onData(data=>process.stdout.write(data));
+terminal.onExit(({exitCode})=>process.exit(exitCode));`;
+  const result = spawnSync(process.execPath, ['-e', probe], { cwd: process.cwd(), encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /conpty-ok/u);
 });

@@ -1,0 +1,67 @@
+name: Windows native verification
+
+on:
+  push:
+    branches: [windows-native-commit-messages]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Verify Windows PowerShell 5.1
+        run: |
+          if ($PSVersionTable.PSVersion.Major -ne 5 -or $PSVersionTable.PSVersion.Minor -ne 1) {
+            throw "Windows PowerShell 5.1 is required; found $($PSVersionTable.PSVersion)"
+          }
+      - run: npm.cmd ci
+      - run: npm.cmd run check
+      - run: npm.cmd run build
+      - run: npx.cmd tsx --test scripts/runtime-config.test.mjs scripts/dev-readiness.test.mjs
+      - run: npm.cmd run test -w @multivac/contracts
+      - run: npm.cmd run test -w @multivac/web
+      - name: Windows server verification
+        working-directory: apps/server
+        run: >-
+          npx.cmd tsx --test --test-concurrency=2
+          tests/windows-*.test.ts
+          tests/platform-capabilities.test.ts
+          tests/program-launch.test.ts
+          tests/command-shell.test.ts
+          tests/private-directory.test.ts
+          tests/pi-coordinator-adapter.test.ts
+          tests/project-file-scope.test.ts
+          tests/file-durability.test.ts
+          tests/task-scheduler.test.ts
+
+  macos-regression:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npx tsx --test scripts/runtime-config.test.mjs scripts/dev-readiness.test.mjs
+      - name: Platform and file regression
+        working-directory: apps/server
+        run: >-
+          npx tsx --test --test-concurrency=2
+          tests/platform-capabilities.test.ts
+          tests/program-launch.test.ts
+          tests/command-shell.test.ts
+          tests/private-directory.test.ts
+          tests/pi-coordinator-adapter.test.ts
+          tests/project-file-scope.test.ts
+          tests/file-durability.test.ts
+          tests/task-scheduler.test.ts
