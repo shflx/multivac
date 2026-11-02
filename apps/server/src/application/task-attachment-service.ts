@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, open, unlink } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, basename, resolve } from 'node:path';
 import { TASK_ATTACHMENT_LIMITS as LIMITS, type TaskAttachment, type TaskInputSnapshot } from '@multivac/contracts';
 import type { TaskAttachmentRepository } from '../modules/tasks/task-attachment.js';
 import type { TaskService } from './task-service.js';
@@ -16,7 +16,7 @@ export type AttachmentOwner = { taskId: string } | { draftId: string };
 export class TaskAttachmentService {
   private tail: Promise<unknown> = Promise.resolve();
   private pending = new Map<string, number>();
-  constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService, private readonly runs: import('../modules/tasks/task.js').TaskRunRepository) {}
+  constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService, private readonly runs: import('../modules/tasks/task.js').TaskRunRepository, private readonly changed?: (taskId: string) => void) {}
 
   private key(owner: AttachmentOwner): string { return 'taskId' in owner ? `task:${owner.taskId}` : `draft:${owner.draftId}`; }
   private check(owner: AttachmentOwner, editing = false): void {
@@ -63,7 +63,8 @@ export class TaskAttachmentService {
       return existing;
     }
     if (items.length >= LIMITS.count || items.reduce((sum, item) => sum + item.bytes, data.length) > LIMITS.totalBytes) invalid('每组最多 20 个附件，总大小不超过 50 MiB。');
-    if (this.repository.totalBytes() + data.length > LIMITS.storageBytes || 'taskId' in owner && this.repository.totalBytes(owner.taskId) + data.length > LIMITS.retainedBytes) invalid('附件历史存储预算已用完。');
+    const retainedBytes = 'taskId' in owner ? this.repository.totalBytes(owner.taskId) : this.repository.draft(owner.draftId).reduce((sum, item) => sum + item.bytes, 0);
+    if (this.repository.totalBytes() + data.length > LIMITS.storageBytes || retainedBytes + data.length > LIMITS.retainedBytes) invalid('附件历史存储预算已用完。');
     let capability: TaskAttachment['capability'] = 'download';
     let mimeType = 'application/octet-stream';
     // 只凭真实内容识别图片；不把客户端 MIME 或文件名用作存储路径。
@@ -87,6 +88,7 @@ export class TaskAttachmentService {
     const item: TaskAttachment = { id, taskId: 'taskId' in owner ? owner.taskId : null, name, mimeType, capability, bytes: data.length, sha256: digest(data), createdAt: new Date().toISOString(), removedAt: null };
     try { this.check(owner, true); this.repository.insert(item, 'draftId' in owner ? owner.draftId : null, storageKey); }
     catch (error) { await unlink(path); throw error; }
+    if ('taskId' in owner) this.changed?.(owner.taskId);
     return item;
   }
   /** 在创建任务的同一 SQLite 事务内调用；失败不消费暂存身份。 */
@@ -100,12 +102,22 @@ export class TaskAttachmentService {
     this.check(owner, true);
     this.owned(owner, id);
     this.repository.remove(id, new Date().toISOString());
+    if ('taskId' in owner) this.changed?.(owner.taskId);
   }
   async read(owner: AttachmentOwner, id: string): Promise<{ attachment: TaskAttachment; data: Buffer }> {
     const attachment = this.owned(owner, id);
     const data = await this.readFixed(attachment);
     this.owned(owner, id);
     return { attachment, data };
+  }
+  assertOutputReference(value: string): void {
+    const text = value.trim();
+    let decoded = text;
+    try { decoded = decodeURIComponent(text); } catch { /* 非 URL 文本按字面核对。 */ }
+    const leaf = basename(decoded);
+    if (this.repository.get(decoded) || this.repository.isStorageKey(leaf) ||
+        /^(?:task-attachment|attachment):/i.test(decoded) || /^(?:https?:\/\/[^/]+)?\/api\/(?:tasks|task-attachment-drafts)\/[^/]+\/(?:input-snapshots\/[^/]+\/)?attachments(?:\/[^\s]*)?$/.test(decoded) ||
+        resolve(decoded) === this.directory || resolve(decoded).startsWith(`${this.directory}/`)) invalid('输入附件原件、身份或下载链接不能直接作为成果；请另行生成报告或修改版。');
   }
   async readHistory(taskId: string, runId: string, id: string): Promise<{ attachment: TaskAttachment; data: Buffer }> {
     this.tasks.get(taskId);
@@ -121,8 +133,9 @@ export class TaskAttachmentService {
     if (attachments.length > 200 || attachments.reduce((sum, item) => sum + item.bytes, 0) > 200 * 1024 * 1024) invalid('本次固定输入超过 200 个或 200 MiB，请缩小任务树输入。');
     return { snapshotId: randomUUID(), fixedAt: new Date().toISOString(), attachments };
   }
-  async verify(snapshot: TaskInputSnapshot): Promise<void> {
-    for (const item of snapshot.attachments) await this.readFixed(item);
+  async verify(snapshot: TaskInputSnapshot, signal?: AbortSignal): Promise<void> {
+    for (const item of snapshot.attachments) { signal?.throwIfAborted(); await this.readFixed(item); }
+    signal?.throwIfAborted();
   }
   async readFixed(item: TaskAttachment): Promise<Buffer> {
     if (!/^[a-f0-9-]{36}$/.test(item.id)) invalid('附件身份无效。');
@@ -131,12 +144,19 @@ export class TaskAttachmentService {
     const stored = this.repository.get(item.id);
     if (!stored || stored.taskId !== item.taskId || stored.sha256 !== item.sha256 || stored.bytes !== item.bytes || stored.capability !== item.capability) invalid('固定附件归属或版本与存储记录不符。');
     let file;
-    try { file = await open(join(this.directory, storageKey), constants.O_RDONLY | constants.O_NOFOLLOW); }
+    try { file = await open(join(this.directory, storageKey), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
     catch { throw new TaskServiceError('NOT_FOUND', '固定附件原件缺失或不可读取。'); }
     try {
       const stat = await file.stat();
       if (!stat.isFile() || stat.size !== item.bytes || stat.size > LIMITS.bytes) invalid('固定附件大小不符或已损坏。');
-      const data = await file.readFile();
+      const buffer = Buffer.alloc(item.bytes + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const read = await file.read(buffer, length, buffer.length - length, null);
+        if (!read.bytesRead) break;
+        length += read.bytesRead;
+      }
+      const data = buffer.subarray(0, length);
       if (data.length !== item.bytes || digest(data) !== item.sha256) invalid('固定附件摘要不符或已损坏。');
       return data;
     } finally { await file.close(); }

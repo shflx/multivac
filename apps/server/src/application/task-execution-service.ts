@@ -373,7 +373,7 @@ export class TaskExecutionService {
     try {
       let run = this.options.runs.get(runId)!;
       const task = this.options.tasks.get(run.taskId);
-      if (run.inputSnapshot) await this.options.inputs?.verify(run.inputSnapshot);
+      if (run.inputSnapshot) await this.options.inputs?.verify(run.inputSnapshot, signal);
       signal.throwIfAborted();
       if (!run.directory) {
         const prepared = await this.options.prepare(task, runId, signal);

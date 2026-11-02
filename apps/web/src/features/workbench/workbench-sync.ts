@@ -39,6 +39,7 @@ export function applyWorkbenchEvent(event: WorkbenchEvent, stores: WorkbenchStor
   switch (event.type) {
     case 'process.changed':
     case 'task.changed':
+    case 'task-attachments.changed':
     case 'task-group.changed':
     case 'agent.changed':
     case 'schedules.changed':

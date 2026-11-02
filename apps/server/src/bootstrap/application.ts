@@ -989,7 +989,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (task.status === 'cancelled') gitPublish.invalidateTask(task.taskId);
     taskScheduler.wake();
   }, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
-  const taskAttachments = new TaskAttachmentService(store.taskAttachments, join(paths.dataDir, 'task-inputs'), tasks, store.taskRuns);
+  const taskAttachments = new TaskAttachmentService(store.taskAttachments, join(paths.dataDir, 'task-inputs'), tasks, store.taskRuns, taskId => workbenchEvents.publish({ type: 'task-attachments.changed', taskId, origin: UNKNOWN_CHANGE_ORIGIN }));
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
@@ -1103,7 +1103,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   const humanRequests: HumanRequestService = new HumanRequestService({ tasks, runs: store.taskRuns, requests: store.humanRequests, execution: taskExecution, events: workbenchEvents, assistantEvents: eventStream, authorization: toolAuthorization,
     reviewArtifact: (request, input) => artifacts.prepareReview(request, input) });
-  const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'));
+  const artifacts: ArtifactService = new ArtifactService(tasks, store.taskRuns, store.artifacts, humanRequests, join(paths.dataDir, 'artifacts'), taskAttachments);
   const unsubscribeInbox = eventStream.subscribe((event) => {
     if (event.type === 'assistant.authorization.requested' || event.type === 'assistant.authorization.resolved') workbenchEvents.publish({ type: 'inbox.changed', id: `authorization:${event.data.request.requestId}`, origin: { windowId: null, commandId: null } });
   });

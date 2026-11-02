@@ -1,6 +1,7 @@
+import { constants, lstatSync } from 'node:fs';
 import { satisfiesTaskDependency } from '@multivac/contracts';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, lstat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, lstat, open } from 'node:fs/promises';
 import { join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { Check } from 'typebox/value';
 import { SubmitArtifactSchema, type SubmitArtifact, type ArtifactVersion, type HumanRequest, type DecideHumanRequest, type Task, type TaskRun } from '@multivac/contracts';
@@ -19,7 +20,7 @@ export class ArtifactService {
   private disposed = false;
   private readonly processing = new Set<string>();
   private readonly settling = new Map<string, Promise<void>>();
-  constructor(private readonly tasks: TaskService, private readonly runs: TaskRunRepository, private readonly versions: ArtifactRepository, private readonly requests: HumanRequestService, private readonly root: string) {}
+  constructor(private readonly tasks: TaskService, private readonly runs: TaskRunRepository, private readonly versions: ArtifactRepository, private readonly requests: HumanRequestService, private readonly root: string, private readonly inputs?: Pick<import('./task-attachment-service.js').TaskAttachmentService, 'assertOutputReference'>) {}
 
   /** 任务事实提交后：子任务被退回时父任务回到修改，任务进入等待或审核时复核成果。 */
   afterTaskCommit(task: Task): void {
@@ -148,6 +149,7 @@ export class ArtifactService {
       current = current.taskId === run.taskId ? undefined : this.tasks.get(current.parentTaskId!);
     }
     if ((title === undefined) !== (path === undefined) || path !== undefined && (!title?.trim() || !path.trim() || isAbsolute(path) || path.includes('\0') || path.split(/[\\/]/).includes('..'))) throw new TaskServiceError('INVALID_REQUEST', '子任务成果必须提供标题与任务目录内相对路径。');
+    if (path) this.candidatePath(run.directory?.path, path);
     if (path && !run.treeTasks.filter(child => child.parentTaskId === taskId).every(child => completed(child.taskId))) throw new TaskServiceError('INVALID_REQUEST', '先登记下级任务成果，再提交整合成果。');
     this.tasks.transition(taskId, { commandId, key: fingerprint({ taskId, summary, title, path }), kind: 'tree-progress', summary }, (value, facts) => {
       if (path && title) facts.runs.save({ ...facts.runs.get(run.runId)!, childResults: [...(run.childResults ?? []).filter(item => item.taskId !== taskId), { taskId, commandId: `child-result:${digest(Buffer.from(commandId))}`, title, path }] });
@@ -176,6 +178,8 @@ export class ArtifactService {
   }
   async submit(taskId: string, input: SubmitArtifact): Promise<ArtifactVersion> {
     if (!Check(SubmitArtifactSchema, input) || (input.path === undefined) === (input.text === undefined)) throw new TaskServiceError('INVALID_REQUEST', '成果必须指定一个文件或独立文本。');
+    if (input.path) this.inputs?.assertOutputReference(input.path);
+    if (input.text) this.inputs?.assertOutputReference(input.text);
     const versionId = createHash('sha256').update(`${taskId}:${input.commandId}`).digest('hex');
     const existing = this.versions.get(versionId);
     if (existing) {
@@ -222,9 +226,23 @@ export class ArtifactService {
     const task = this.tasks.get(run.taskId);
     if (task.currentRunId !== run.runId || task.status !== 'running' || !title.trim() || !path.trim() || isAbsolute(path) || path.split(/[\\/]/).includes('..')) throw new TaskServiceError('INVALID_REQUEST', '成果提交意图越出当前任务边界。');
     if (run.treeTasks?.some(child => !satisfiesTaskDependency(this.tasks.get(child.taskId).status) && !run.childResults?.some(result => result.taskId === child.taskId))) throw new TaskServiceError('INVALID_REQUEST', '仍有子任务尚未交付或登记成果候选。');
+    this.candidatePath(run.directory?.path, path);
     this.tasks.facts((facts) => facts.runs.save({ ...run, artifactCandidate: { commandId, title: title.trim(), path } }));
   }
+  private candidatePath(root: string | undefined, path: string): void {
+    this.inputs?.assertOutputReference(path);
+    if (!root || !path || isAbsolute(path) || path.includes('\0') || path.split(/[\\/]/).includes('..') || /^[a-z][a-z0-9+.-]*:/i.test(path)) throw new TaskServiceError('INVALID_REQUEST', '成果文件必须为任务目录内的相对路径。');
+    let current = root;
+    for (const part of relative(root, resolve(root, path)).split(sep)) {
+      current = join(current, part);
+      try {
+        const stat = lstatSync(current);
+        if (stat.isSymbolicLink() || stat.isFile() && stat.nlink > 1) throw new TaskServiceError('INVALID_REQUEST', '成果候选不能直接引用符号链接或硬链接原件。');
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+  }
   private async sourceFile(root: string, path: string): Promise<Buffer> {
+    this.candidatePath(root, path);
     if (isAbsolute(path) || path.includes('\0')) throw new TaskServiceError('INVALID_REQUEST', '成果文件必须在任务目录内。');
     const target = resolve(root, path);
     const inside = relative(root, target);
@@ -234,11 +252,21 @@ export class ArtifactService {
       current = join(current, part);
       if ((await lstat(current)).isSymbolicLink()) throw new TaskServiceError('INVALID_REQUEST', '成果不能引用符号链接。');
     }
-    const stat = await lstat(target);
-    if (!stat.isFile() || stat.size > MAX_BYTES) throw new TaskServiceError('INVALID_REQUEST', '成果不是普通文本或超过阅读上限。');
-    const bytes = await readFile(target);
-    if (bytes.length > MAX_BYTES) throw new TaskServiceError('INVALID_REQUEST', '成果超过阅读上限。');
-    return bytes;
+    const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.nlink > 1 || stat.size > MAX_BYTES) throw new TaskServiceError('INVALID_REQUEST', '成果不是独立普通文本或超过阅读上限。');
+      const buffer = Buffer.alloc(MAX_BYTES + 1);
+      let length = 0;
+      while (length < buffer.length) {
+        const read = await file.read(buffer, length, buffer.length - length, null);
+        if (!read.bytesRead) break;
+        length += read.bytesRead;
+      }
+      if (length > MAX_BYTES) throw new TaskServiceError('INVALID_REQUEST', '成果超过阅读上限。');
+      this.candidatePath(root, path);
+      return buffer.subarray(0, length);
+    } finally { await file.close(); }
   }
   private async finalize(taskId: string, versionId: string): Promise<void> {
     const task = this.tasks.get(taskId);

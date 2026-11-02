@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, mkdir, readFile, rm, writeFile, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile, symlink, link } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { taskBranchName, taskDirectoryName } from '../src/application/task-directory-names.js';
 import { TaskGitService } from '../src/application/task-git-service.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
@@ -169,6 +169,7 @@ test('任务会话实际注入受控 Git：真实提交记入共享额度，重�
   try {
     await app.ready;
     const task = app.tasks.create({ commandId: 'create', projectId: 'project', title: '提交代码', goal: '修改并提交 code.txt' }).task;
+    const attachment = await app.taskAttachments.upload({ taskId: task.taskId }, randomUUID(), 'reference.txt', Buffer.from('只读输入，不进入 Git'));
     adapter.armPromptCompletionBarrier();
     await app.taskExecution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' });
     await adapter.waitForPromptCompletionBarrierEntry();
@@ -177,6 +178,13 @@ test('任务会话实际注入受控 Git：真实提交记入共享额度，重�
     assert.ok(created?.method === 'createSession');
     const tools = created.input.internalTools!;
     const invoke = (toolName: string, toolCallId: string, args: unknown) => tools.invoke({ assistantSessionId: run.sessionId, toolName, toolCallId, args }, signal());
+    const readInput = await invoke('read_task_attachment', 'read-input', { attachmentId: attachment.id });
+    assert.ok(readInput.ok); assert.match(readInput.content, /只读输入/);
+    assert.equal(await f.git(run.directory!.path, ['status', '--porcelain']), '');
+    await link(join(environment.MULTIVAC_DATA_DIR!, 'task-inputs', app.taskAttachments.repository.storageKey(attachment.id)!), join(run.directory!.path, 'linked-input.txt'));
+    const linked = await invoke('commit_task_code', 'reject-linked-input', { paths: ['linked-input.txt'], message: 'feat: 输入原件' });
+    assert.ok(!linked.ok); assert.match(linked.reason, /硬链接/);
+    await rm(join(run.directory!.path, 'linked-input.txt'));
     await writeFile(join(run.directory!.path, 'code.txt'), 'integration change\n');
     assert.equal((await invoke('inspect_task_git', 'inspect', {})).ok, true);
     const branches = await invoke('read_git', 'read-branches', { operation: 'branches' });
@@ -187,6 +195,7 @@ test('任务会话实际注入受控 Git：真实提交记入共享额度，重�
     assert.equal(committed.ok, true, JSON.stringify(committed));
     assert.deepEqual(await invoke('commit_task_code', 'commit', args), committed);
     assert.equal(await f.git(run.directory!.path, ['rev-list', '--count', 'HEAD']), '2');
+    assert.equal(await f.git(run.directory!.path, ['show', '--pretty=format:', '--name-only', 'HEAD']), 'code.txt');
     assert.equal(await f.git(f.source, ['rev-parse', 'HEAD']), f.baseline);
     const accounted = app.tasks.detail(task.taskId).runs![0]!;
     assert.ok(accounted.outputBytes! > 0);

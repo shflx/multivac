@@ -261,3 +261,86 @@ test('普通工作会话按可见任务读取当前附件，不注入全局或�
     if (global?.method === 'createSession') assert.ok(!global.input.internalTools?.specs.some(tool => tool.name === 'read_task_attachment'));
   } finally { app.server.closeAllConnections(); await new Promise<void>(resolve => app.server.close(() => resolve())); await f.close(); }
 });
+
+test('父子成果候选拒绝输入身份、链接、原件路径与链接文件；独立报告可交付且移除不影响成果', async () => {
+  const f = await fixture(); const { app, adapter } = f;
+  const { readdir, link, symlink, writeFile } = await import('node:fs/promises');
+  try {
+    const task = app.tasks.create({ commandId: 'boundaries', title: '成果边界', goal: '独立交付' }).task;
+    const child = app.tasks.create({ commandId: 'output-child', title: '子项报告', goal: '独立输出', parentTaskId: task.taskId, acceptance: false, acceptanceCriteria: '非空文本' }).task;
+    const input = await app.taskAttachments.upload({ taskId: task.taskId }, randomUUID(), 'input.md', Buffer.from('附件原文'));
+    const source = join(f.root, 'data/task-inputs', app.taskAttachments.repository.storageKey(input.id)!);
+    adapter.armPromptCompletionBarrier();
+    await app.taskExecution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const run = app.tasks.detail(task.taskId).runs![0]!; const directory = run.directory!.path;
+    assert.deepEqual(await readdir(directory), []);
+    const references = [input.id, `attachment:${input.id}`, `/api/tasks/${task.taskId}/attachments/${input.id}/content`, `https://localhost/api/tasks/${task.taskId}/input-snapshots/${run.runId}/attachments/${input.id}/content`, source];
+    for (const path of references) assert.throws(() => app.artifacts.reportChild(run.sessionId, randomUUID(), child.taskId, '原件不能交付', '原件', path), /原件|相对路径/);
+    await symlink(source, join(directory, 'original-link.md'));
+    await link(source, join(directory, 'original-hardlink.md'));
+    for (const path of ['original-link.md', 'original-hardlink.md']) assert.throws(() => app.artifacts.reportChild(run.sessionId, randomUUID(), child.taskId, '链接不能交付', '原件', path), /链接/);
+    assert.equal(app.artifacts.list(child.taskId).length, 0);
+    assert.equal(app.humanRequests.list(child.taskId).length, 0);
+    await writeFile(join(directory, 'child-report.md'), '独立子项报告，引用附件输入身份。');
+    app.artifacts.reportChild(run.sessionId, 'child-output', child.taskId, '完成独立报告', '子项报告', 'child-report.md');
+    for (const path of references) assert.throws(() => app.artifacts.registerSession(run.sessionId, randomUUID(), '原件', path), /原件|相对路径|边界/);
+    // 新文件可包含合理引用，也可保存修改版；不按内容相似度追踪。
+    await writeFile(join(directory, 'report.md'), `独立报告\n参考下载：/api/tasks/${task.taskId}/attachments/${input.id}/content\n修改后的材料。`);
+    app.artifacts.registerSession(run.sessionId, 'root-output', '独立报告', 'report.md');
+    adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle();
+    assert.equal(app.tasks.get(child.taskId).status, 'done'); assert.equal(app.tasks.get(task.taskId).status, 'review');
+    const version = app.artifacts.list(task.taskId)[0]!;
+    assert.equal((await app.taskAttachments.readHistory(task.taskId, run.runId, input.id)).data.toString(), '附件原文');
+    const review = app.humanRequests.list(task.taskId).find(request => request.kind === 'review')!;
+    await app.humanRequests.decide(review.requestId, { commandId: 'return-output', revision: review.revision, decision: 'changes', answer: '补充核对' });
+    await app.taskExecution.idle();
+    await app.taskExecution.control(task.taskId, { commandId: 'pause-after-feedback', revision: app.tasks.get(task.taskId).revision, action: 'pause' });
+    app.taskAttachments.remove({ taskId: task.taskId }, input.id);
+    assert.match((await app.artifacts.read(version.versionId)).content, /独立报告/);
+    await assert.rejects(app.artifacts.submit(task.taskId, { commandId: 'direct-text-id', revision: app.tasks.get(task.taskId).revision, title: '原件身份', text: input.id, runId: run.runId }), /原件/);
+  } finally { await f.close(); }
+});
+
+for (const target of ['parent', 'child'] as const) test(`最终固定再次拒绝历史或篡改的原件候选：${target}`, async () => {
+  const f = await fixture(); const { app, adapter } = f;
+  try {
+    const task = app.tasks.create({ commandId: 'final-check', title: '最终边界', goal: '最终固定' }).task;
+    const child = target === 'child' ? app.tasks.create({ commandId: 'final-child', title: '子项', goal: '固定', parentTaskId: task.taskId }).task : null;
+    const input = await app.taskAttachments.upload({ taskId: task.taskId }, randomUUID(), 'original.txt', Buffer.from('原件'));
+    adapter.armPromptCompletionBarrier();
+    await app.taskExecution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const run = app.tasks.detail(task.taskId).runs![0]!;
+    app.tasks.facts(facts => facts.runs.save({ ...facts.runs.get(run.runId)!, ...(child ? { childResults: [{ taskId: child.taskId, commandId: 'old-candidate', title: '旧候选', path: input.id }] } : { artifactCandidate: { commandId: 'old-candidate', title: '旧候选', path: input.id } }) }));
+    adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle();
+    assert.equal(app.tasks.get(task.taskId).status, 'failed');
+    assert.match(app.tasks.get(task.taskId).reason, /原件/);
+    assert.equal(app.artifacts.list(task.taskId).length, 0);
+    if (child) assert.equal(app.artifacts.list(child.taskId).length, 0);
+    assert.equal(app.humanRequests.list(task.taskId).filter(item => item.kind === 'review').length, 0);
+  } finally { await f.close(); }
+});
+
+test('HTTP 附件接口核对归属、来源、真实类型与下载头，默认远程白名单拒绝输入', async () => {
+  const f = await fixture(); const { app } = f;
+  try {
+    await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
+    const api = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+    const task = app.tasks.create({ commandId: 'http', title: 'HTTP 上传', goal: '核对接口' }).task;
+    const other = app.tasks.create({ commandId: 'http-other', title: '其他任务', goal: '归属' }).task;
+    const id = randomUUID(), path = `/api/tasks/${task.taskId}/attachments/${id}`;
+    const uploaded = await fetch(`${api}${path}?name=${encodeURIComponent('../../input.png')}`, { method: 'PUT', headers: { 'content-type': 'image/png' }, body: 'actual utf8 text' });
+    assert.ok(uploaded.ok); assert.equal((await uploaded.json()).capability, 'text');
+    const download = await fetch(`${api}${path}/content`);
+    assert.ok(download.ok); assert.match(download.headers.get('content-type')!, /text\/plain/);
+    assert.match(download.headers.get('content-disposition')!, /^attachment;/);
+    assert.equal(download.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(await download.text(), 'actual utf8 text');
+    assert.equal((await fetch(`${api}/api/tasks/${other.taskId}/attachments/${id}/content`)).status, 404);
+    assert.equal((await fetch(`${api}${path}/content`, { headers: { origin: 'https://evil.example' } })).status, 403);
+    const { remoteRouteAllowed } = await import('../src/adapters/http/remote-policy.js');
+    for (const method of ['GET', 'PUT', 'DELETE']) assert.equal(remoteRouteAllowed(method, `${path}/content`), false);
+    assert.equal(remoteRouteAllowed('GET', `/api/tasks/${task.taskId}/input-snapshots/run/attachments/${id}/content`), false);
+  } finally { app.server.closeAllConnections(); await new Promise<void>(resolve => app.server.close(() => resolve())); await f.close(); }
+});

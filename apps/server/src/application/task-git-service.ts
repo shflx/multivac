@@ -77,7 +77,7 @@ export class TaskGitService {
         current = join(current, part);
         try {
           const stat = await lstat(current);
-          if (stat.isSymbolicLink()) fail('Git 提交通道不接受符号链接路径。');
+          if (stat.isSymbolicLink() || stat.isFile() && stat.nlink > 1) fail('Git 提交通道不接受符号链接或硬链接原件。');
           if (current === target && stat.isDirectory()) fail('请逐项列出需要提交的文件，不提交整个目录。');
         } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
       }

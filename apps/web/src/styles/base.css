@@ -354,6 +354,13 @@
 .task-create-dialog h2 { margin: 0 0 7px; font-size: var(--t-xl); line-height: 1.4; }
 .task-create-dialog header p { margin: 0; color: var(--muted); font-size: var(--t-sm); line-height: 1.6; }
 .task-create-fields { display: flex; flex-direction: column; gap: 18px; padding: 22px 24px; }
+.task-input-attachments { min-width: 0; }
+.task-input-attachments h3 { margin: 0 0 8px; }
+.task-attachment-row { padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.task-attachment-row .inline-link { margin-inline: 6px; }
+.task-attachment-preview { max-height: 360px; overflow: auto; margin-top: 8px; padding: 10px; background: var(--surface-subtle); border-radius: var(--r-sm); }
+.task-attachment-preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-attachment-preview img { display: block; max-width: 100%; height: auto; }
 .task-create-field { display: flex; flex-direction: column; gap: 8px; font-size: var(--t-sm); }
 .task-create-field > span { font-weight: 550; }
 .task-create-field small { margin-left: 6px; color: var(--muted); font-size: var(--t-xs); font-weight: 400; }

@@ -9,6 +9,7 @@ CREATE TABLE task_attachment_draft (id TEXT PRIMARY KEY, task_id TEXT NOT NULL) 
 `;
 export class SqliteTaskAttachmentRepository implements TaskAttachmentRepository {
   constructor(private readonly db: DatabaseSync) {}
+  isStorageKey(key: string) { return !!this.db.prepare('SELECT 1 FROM task_attachment WHERE storage_key=?').get(key); }
   storageKey(id: string) { return (this.db.prepare('SELECT storage_key FROM task_attachment WHERE id=?').get(id) as { storage_key: string } | undefined)?.storage_key; }
   get(id: string): TaskAttachment | undefined {
     const row = this.db.prepare('SELECT metadata FROM task_attachment WHERE id=?').get(id) as { metadata: string } | undefined;

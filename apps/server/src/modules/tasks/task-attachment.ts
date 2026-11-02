@@ -1,5 +1,6 @@
 import type { TaskAttachment } from '@multivac/contracts';
 export interface TaskAttachmentRepository {
+  isStorageKey(key: string): boolean;
   storageKey(id: string): string | undefined;
   get(id: string): TaskAttachment | undefined;
   list(taskId: string): TaskAttachment[];

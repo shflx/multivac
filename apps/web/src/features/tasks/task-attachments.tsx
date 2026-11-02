@@ -1,3 +1,5 @@
+import { TaskAttachmentPreview } from './task-attachment-preview.js';
+import { useOptionalWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import { useEffect, useRef, useState } from 'react';
 import type { TaskAttachment } from '@multivac/contracts';
 
@@ -18,6 +20,7 @@ export function TaskAttachments({ taskId, draftId, editable = false, disabled = 
   const [items, setItems] = useState<TaskAttachment[]>([]);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [error, setError] = useState('');
+  const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
   const generation = useRef(0);
@@ -30,6 +33,7 @@ export function TaskAttachments({ taskId, draftId, editable = false, disabled = 
     } catch (failure) { if (alive.current && current === generation.current) setError((failure as Error).message); }
     finally { if (alive.current && current === generation.current) setLoading(false); }
   }
+  useOptionalWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'task-attachments.changed' && event.taskId === taskId) void refresh(); });
   useEffect(() => { alive.current = true; void refresh(); return () => { alive.current = false; ++generation.current; }; }, [base]);
   useEffect(() => { onBlocked?.(uploads.length > 0 || !!removing); }, [uploads, removing, onBlocked]);
   async function upload(entry: Upload) {
@@ -51,7 +55,7 @@ export function TaskAttachments({ taskId, draftId, editable = false, disabled = 
     <h3>输入附件</h3><p className="task-muted">参考材料独立保存。启动后固定本次版本；继续使用原版本，安全重做采用新版本。单文件 10 MiB，最多 20 个、合计 50 MiB。</p>
     {loading && <p role="status">正在读取附件…</p>}
     {!loading && !items.length && !uploads.length && !error && <p className="task-muted">暂无附件</p>}
-    {items.map(item => <div key={item.id} className="task-attachment-row"><span>{item.name} · {item.bytes.toLocaleString()} 字节 · {capability[item.capability]}</span> <a className="inline-link" href={`${base}/${item.id}/content`} download={item.name}>下载</a> {editable && <button type="button" className="inline-link" disabled={disabled || !!removing} onClick={() => void remove(item.id)}>移除</button>}</div>)}
+    {items.map(item => <div key={item.id} className="task-attachment-row"><span>{item.name} · {item.bytes.toLocaleString()} 字节 · {capability[item.capability]}</span> {item.capability !== 'download' && <button type="button" className="inline-link" onClick={() => setPreview(preview === item.id ? null : item.id)}>{preview === item.id ? '收起预览' : '预览'}</button>}<a className="inline-link" href={`${base}/${item.id}/content`} download={item.name}>下载</a> {editable && <button type="button" className="inline-link" disabled={disabled || !!removing} onClick={() => void remove(item.id)}>移除</button>}{preview === item.id && <TaskAttachmentPreview key={item.id} attachment={item} url={`${base}/${item.id}/content`} />}</div>)}
     {uploads.map(entry => <div key={entry.id}><span>{entry.file.name} · {entry.busy ? '上传中…' : entry.error}</span>{!entry.busy && <><button type="button" className="inline-link" disabled={disabled} onClick={() => void upload(entry)}>重试上传</button><button type="button" className="inline-link" disabled={disabled} onClick={() => setUploads(values => values.filter(value => value.id !== entry.id))}>取消此上传</button></>}</div>)}
     {editable && <label className="task-create-field"><span>添加附件</span><input aria-label="添加任务附件" type="file" multiple disabled={disabled || !!removing} onChange={event => {
       const entries = Array.from(event.target.files ?? []).map(file => ({ id: crypto.randomUUID(), file, busy: true, error: '' }));

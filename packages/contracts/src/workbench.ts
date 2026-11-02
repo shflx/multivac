@@ -199,6 +199,7 @@ export const WorkbenchEventSchema = Type.Union([
   Type.Object({ type: Type.Literal('inbox.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, id: Type.String() }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('request.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, request: HumanRequestSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('process.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema }, { additionalProperties: false }),
+  Type.Object({ type: Type.Literal('task-attachments.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, taskId: Type.String() }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('task.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, task: TaskSchema }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('task-group.changed'), seq: Seq, origin: WorkbenchChangeOriginSchema, group: TaskGroupSchema }, { additionalProperties: false }),
   // 智能体新建、修改或删除：载荷是变化后的记录（删除时为删除前的快照）；模型状态由窗口重读列表取得。
