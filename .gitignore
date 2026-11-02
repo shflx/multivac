@@ -9,6 +9,7 @@ models.json
 
 # Local research and notes
 /.my-docs/
+/.github/
 
 # Test artifacts and caches
 coverage/
