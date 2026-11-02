@@ -89,8 +89,8 @@ TaskWorkingDirectories 在读取项目来源或创建目录、分支前核对 ta
 
 Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 已在 Windows 独立 worktree 实机验证只读查询、状态、提交和租约结算；命令仍可直接操作仓库元数据，任务提示优先使用专用工具。
 
-Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。Windows 本机 HTTPS 夹具已验证受信证书、凭据提供、申请、拒绝、批准、固定版本推送、重复决定、分支冲突和未知结果核对，`gitPublish` 已开放。当前仓库的 `origin` 是 GitHub SSH 远端，本机已安装 Git Credential Manager 并配置 `credential.helper=manager`；SSH 推送不会验证 GCM。HTTPS 写入权限与真实远端发布仍未实测，不能将本机夹具结果表述为已完成真实远端验收。
-本轮在临时 Git 仓库由真实 Pi 会话配合本机脚本化模型完成准备失败后的继续执行、独立 worktree、`npm.cmd ci` 与测试、文件写入、本地提交、成果登记及停止结算；源仓库的固定 HEAD 和脏文件均保持原样。任务调度、暂停、取消和预算已有跨平台替身回归。Windows 真实模型任务、运行中停止后的恢复、浏览器中的完整发布批准流程，以及 Git Credential Manager 与真实远端发布尚待实机验收；本机 HTTPS 夹具的服务级发布批准已通过。`taskExecution` 与 `gitPublish` 门禁均已开放。
+Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。当前仓库的 `origin` 是 GitHub SSH 远端，GCM 的 `manager` helper 位于 Git 系统配置中；发布进程禁用系统配置后显式指定 GCM，并清空仓库可能配置的其他 helper。本机 HTTPS 夹具已验证受信证书、凭据提供、申请、拒绝、批准、固定版本推送、重复决定、分支冲突和未知结果核对。真实 GitHub HTTPS/GCM 验收又在临时克隆的任务 worktree 中完成受控提交、拒绝不发布、批准后固定提交推送、重放及中断恢复的只读核对；浏览器 Inbox 也完成了实际点击批准、远端 SHA 核对。两条验收分支均按固定 SHA 删除，远端复核无遗留；`gitPublish` 已开放。
+本轮在临时 Git 仓库由真实 Pi 会话配合本机脚本化模型完成准备失败后的继续执行、独立 worktree、`npm.cmd ci` 与测试、文件写入、本地提交、成果登记及停止结算；源仓库的固定 HEAD 和脏文件均保持原样。任务调度、暂停、取消和预算已有跨平台替身回归。Windows 真实模型任务及运行中停止后的恢复仍未实机验收，不能从 Git 发布结果推断这些场景已通过。`taskExecution` 与 `gitPublish` 门禁均已开放。
 
 ## MCP stdio
 

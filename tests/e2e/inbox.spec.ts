@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
 import { existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 test('Inbox 抽屉共享持久草稿、查看计数、原位回执与窄屏焦点', async ({ page, request }, testInfo) => {
@@ -108,6 +109,60 @@ test('Inbox 外发展示固定提交，拒绝后保留本地成果且不发布',
   await drawer.getByRole('button', { name: '拒绝发布', exact: true }).click();
   await expect(drawer).toContainText('用户拒绝，未执行发布');
   expect(readFileSync(join(cwd, 'publish.txt'), 'utf8')).toBe('固定发布成果');
+});
+
+test('Inbox Windows GCM 真实远端批准后核对并清理测试分支', async ({ page, request }) => {
+  const remote = process.env.MULTIVAC_GIT_ACCEPTANCE_REMOTE;
+  test.skip(process.platform !== 'win32' || !remote, '仅在显式启用真实远端验收时执行');
+  test.setTimeout(120_000);
+  const url = new URL(remote!);
+  expect(url.origin).toBe('https://github.com');
+  expect(url.pathname).toBe('/shflx/multivac.git');
+  expect(url.username).toBe(''); expect(url.password).toBe('');
+  expect(url.search).toBe(''); expect(url.hash).toBe('');
+
+  await resetE2eState(request);
+  const sessionId = `inbox-gcm-${randomUUID().slice(0, 8)}`;
+  const branch = `codex/windows-inbox-gcm-${randomUUID().slice(0, 12)}`;
+  const ref = `refs/heads/${branch}`;
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: 'GCM 发布验收' } })).ok()).toBeTruthy();
+  const { sessions } = await (await request.get(`${fakeApiRoot}/api/sessions?workspace=all&archived=include`)).json();
+  const cwd = sessions.find((session: { sessionId: string }) => session.sessionId === sessionId).workingDirectory.path;
+  const environment = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' };
+  const git = (...args: string[]) => execFileSync('git.exe', ['-c', 'credential.helper=', '-c', 'credential.helper=manager', ...args],
+    { cwd, env: environment, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30_000 }).trim();
+  let commit = '';
+  try {
+    git('init', '-q');
+    writeFileSync(join(cwd, 'publish.txt'), 'Inbox HTTPS/GCM 发布验收');
+    git('add', 'publish.txt');
+    git('-c', 'user.name=Multivac', '-c', 'user.email=multivac@localhost', 'commit', '-qm', 'test: 验证 Inbox 发布');
+    git('remote', 'add', 'gcm-acceptance', remote!);
+    commit = git('rev-parse', 'HEAD');
+    const turn = await request.post(`${fakeApiRoot}/api/sessions/${sessionId}/turns`, { data: {
+      commandId: `publish-${sessionId}`, assistantSessionId: sessionId, contextRefs: [],
+      text: `内部工具：propose_git_publish ${JSON.stringify({ remote: 'gcm-acceptance', branch })}`,
+    } });
+    expect(turn.ok()).toBeTruthy();
+    expect(git('ls-remote', '--refs', remote!, ref)).toBe('');
+    await page.goto(fakeApiRoot);
+    await page.getByRole('button', { name: 'Inbox，1 项待处理', exact: true }).click();
+    const drawer = page.getByRole('dialog', { name: 'Inbox', exact: true });
+    await drawer.locator('.inbox-item').click();
+    await expect(drawer).toContainText(commit);
+    await expect(drawer).toContainText(ref);
+    await drawer.getByRole('button', { name: '允许本次发布', exact: true }).click();
+    await expect(drawer).toContainText('已只读核对远端分支指向固定提交', { timeout: 60_000 });
+    expect(git('ls-remote', '--refs', remote!, ref)).toMatch(new RegExp(`^${commit}\\s`));
+  } finally {
+    if (commit) {
+      const current = git('ls-remote', '--refs', remote!, ref).split(/\s/u)[0];
+      if (current === commit) {
+        git('push', '--porcelain', `--force-with-lease=${ref}:${commit}`, remote!, `:${ref}`);
+        expect(git('ls-remote', '--refs', remote!, ref)).toBe('');
+      } else if (current) throw new Error(`测试分支指向了其他提交，未自动删除：${ref}`);
+    }
+  }
 });
 
 test('普通会话授权在多窗口 Inbox 同步，来源跳转不另建请求', async ({ page, context, request }) => {

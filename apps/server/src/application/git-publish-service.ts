@@ -17,7 +17,8 @@ export interface GitPublishSource { directory: string; taskId: string | null; ca
 export class GitPublishService {
   constructor(private readonly repository: ExternalOperationRepository, private readonly events: WorkbenchEvents,
     private readonly source: (sessionId: string) => GitPublishSource, private readonly allowLocalForTest = false,
-    private readonly platform: NodeJS.Platform = process.platform, private readonly environment: NodeJS.ProcessEnv = process.env) {
+    private readonly platform: NodeJS.Platform = process.platform, private readonly environment: NodeJS.ProcessEnv = process.env,
+    private readonly credentialHelper = 'manager') {
     for (const operation of repository.operations()) if (operation.status === 'executing') this.save({ ...operation, status: 'unknown', result: '进程中断，发布结果未知；只能只读核对远端。' });
   }
   private assertPlatform(): void {
@@ -26,7 +27,8 @@ export class GitPublishService {
   }
   private async git(cwd: string, args: string[]): Promise<string> {
     this.assertPlatform();
-    const { stdout } = await exec(this.platform === 'win32' ? 'git.exe' : 'git', ['-c', `core.hooksPath=${gitNullDevice(this.platform)}`, '-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${this.allowLocalForTest ? 'always' : 'never'}`, ...args], {
+    const credentialArgs = this.platform === 'win32' ? ['-c', 'credential.helper=', '-c', `credential.helper=${this.credentialHelper}`] : [];
+    const { stdout } = await exec(this.platform === 'win32' ? 'git.exe' : 'git', ['-c', `core.hooksPath=${gitNullDevice(this.platform)}`, '-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${this.allowLocalForTest ? 'always' : 'never'}`, ...credentialArgs, ...args], {
       cwd, timeout: 30000, maxBuffer: 128 * 1024,
       env: gitEnvironment(this.platform, this.environment, 'publish'),
     });

@@ -87,7 +87,7 @@ test('Windows 本机 HTTPS 发布经过申请、拒绝、批准、固定版本�
     const work = join(root, 'work'), home = join(root, 'git-home'), credentials = join(home, 'credentials');
     await mkdir(home);
     await writeFile(credentials, `https://fixture:local-test-only@127.0.0.1:${new URL(fixture.url).port}\n`);
-    await writeFile(join(home, '.gitconfig'), `[http]\n\tsslCAInfo = ${fixture.certificate.replaceAll('\\', '/')}\n[credential]\n\thelper = store --file=${credentials.replaceAll('\\', '/')}\n`);
+    await writeFile(join(home, '.gitconfig'), `[http]\n\tsslBackend = openssl\n\tsslCAInfo = ${fixture.certificate.replaceAll('\\', '/')}\n`);
     fixture.git(root, 'init', '-q', work);
     await writeFile(join(work, 'result.txt'), '固定交付');
     fixture.git(work, 'add', '.');
@@ -96,7 +96,11 @@ test('Windows 本机 HTTPS 发布经过申请、拒绝、批准、固定版本�
     const source = () => ({ directory: work, taskId: null, canPublish: true });
     const environment = { ...process.env, HOME: home, USERPROFILE: home };
     const events = new WorkbenchEvents();
-    const service = new GitPublishService(repository, events, source, false, 'win32', environment);
+    const helper = `store --file=${credentials.replaceAll('\\', '/')}`;
+    await runGit('git.exe', ['-c', 'credential.helper=', '-c', `credential.helper=${helper}`, 'ls-remote', fixture.url], {
+      cwd: work, env: { ...environment, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' }, timeout: 15_000,
+    });
+    const service = new GitPublishService(repository, events, source, false, 'win32', environment, helper);
     const denied = await service.propose('s', 'denied', { remote: 'origin', branch: 'denied' });
     assert.equal(denied.status, 'pending');
     assert.equal((await service.decide(denied.id, { commandId: 'deny', revision: denied.revision, decision: 'deny' })).status, 'denied');
@@ -113,7 +117,7 @@ test('Windows 本机 HTTPS 发布经过申请、拒绝、批准、固定版本�
     fixture.git(work, '-c', 'user.name=验收', '-c', 'user.email=test@example.invalid', 'commit', '-qm', '新版本');
     assert.equal((await service.decide(stale.id, { ...decision, revision: stale.revision })).status, 'invalidated');
     repository.saveOperation({ ...published, status: 'executing' });
-    const restarted = new GitPublishService(repository, events, source, false, 'win32', environment);
+    const restarted = new GitPublishService(repository, events, source, false, 'win32', environment, helper);
     assert.equal(restarted.get(published.id).status, 'unknown');
     assert.equal((await restarted.reconcile(published.id)).status, 'succeeded');
   } finally { db.close(); await fixture.close(); await rm(root, { recursive: true, force: true }); }
