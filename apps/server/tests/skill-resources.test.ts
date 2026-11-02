@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fixture } from './fixtures/skill-fixture.js';
-import { createPiSkills } from '../src/runtime/executors/pi-skills.js';
+import { createPiSkills, executeSkillEffect } from '../src/runtime/executors/pi-skills.js';
 import { NativeTaskTools } from '../src/runtime/executors/native-task-tools.js';
-test('真实隔离执行附属脚本、复制模板、禁止越界与重放', { skip: process.platform !== 'darwin' }, async () => {
+test('真实 Skill 执行附属脚本、复制模板、越界差异与重放', { skip: process.platform !== 'darwin' && process.platform !== 'win32', timeout: 90_000 }, async () => {
   const f = fixture();
   let native: NativeTaskTools | undefined;
   try {
@@ -52,11 +52,43 @@ test('真实隔离执行附属脚本、复制模板、禁止越界与重放', { 
     writeFileSync(join(cwd, 'report.txt'), '不重复执行');
     await invoke('run', 'scripts/report.cjs', 'run');
     assert.equal(readFileSync(join(cwd, 'report.txt'), 'utf8'), '不重复执行');
-    await assert.rejects(invoke('escape', 'scripts/escape.cjs', 'run'), /隔离执行已退出/);
+    if (process.platform === 'win32') await invoke('escape', 'scripts/escape.cjs', 'run');
+    else await assert.rejects(invoke('escape', 'scripts/escape.cjs', 'run'), /隔离执行已退出/);
     await assert.rejects(invoke('traversal', '../SKILL.md', 'read'));
     await assert.rejects(invoke('overwrite', 'assets/template.txt', 'copy', 'template.txt'));
   } finally {
     native?.dispose();
     f.close();
   }
+});
+
+test('Windows Skill 副作用：固定版本复制、脚本运行、重放与覆盖拒绝', { skip: process.platform !== 'win32', timeout: 90_000 }, async () => {
+  const f = fixture();
+  let native: NativeTaskTools | undefined;
+  try {
+    mkdirSync(join(f.source, 'scripts'));
+    mkdirSync(join(f.source, 'assets'));
+    const cwd = join(f.root, 'work');
+    mkdirSync(cwd);
+    writeFileSync(join(f.source, 'scripts', 'report.cjs'), "require('node:fs').writeFileSync('report.txt','脚本产物');process.stdout.write('完成')");
+    writeFileSync(join(f.source, 'assets', 'template.txt'), '固定模板');
+    const preview = f.service.preview({ source: f.source, displayName: '', projectId: null });
+    const record = f.service.confirm('windows-import', preview.previewId);
+    f.host.context = () => ({ sessionId: 's', projectId: null, host: 'work', tools: ['read', 'write', 'bash'] });
+    native = await NativeTaskTools.create(cwd, [join(f.root, 'packages')]);
+    const executor = native.execute.bind(native);
+    const invoke = async (toolCallId: string, action: 'copy' | 'run', path: string, target?: string) => {
+      const input = { skillId: record.skillId, version: record.version, action, path, ...(target ? { target } : {}) };
+      const bytes = f.service.resource('s', input, path, toolCallId);
+      return executeSkillEffect(f.service, 's', toolCallId, input, bytes, executor);
+    };
+    assert.equal(await invoke('copy', 'copy', 'assets/template.txt', 'template.txt'), '模板已复制');
+    assert.equal(readFileSync(join(cwd, 'template.txt'), 'utf8'), '固定模板');
+    assert.equal(await invoke('run', 'run', 'scripts/report.cjs'), '完成');
+    assert.equal(readFileSync(join(cwd, 'report.txt'), 'utf8'), '脚本产物');
+    writeFileSync(join(cwd, 'report.txt'), '不重复执行');
+    assert.equal(await invoke('run', 'run', 'scripts/report.cjs'), '完成');
+    assert.equal(readFileSync(join(cwd, 'report.txt'), 'utf8'), '不重复执行');
+    await assert.rejects(invoke('overwrite', 'copy', 'assets/template.txt', 'template.txt'));
+  } finally { native?.dispose(); f.close(); }
 });

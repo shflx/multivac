@@ -4,7 +4,7 @@
 
 本分支主要在 macOS 开发。2026-11-01 在 Windows 11 x64、Node 24.13.1、PowerShell 5.1、C: 与 E: NTFS 卷上完成依赖安装、类型检查、生产构建、contracts 68 项、Web 292 项及 Windows 定向回归。真实 Windows 覆盖 npm 启动路径、私有目录与凭据文件 ACL、文件占用、同卷及跨卷中文目录移动、PowerShell 输出和退出码、CIM 进程身份与停止、ConPTY 启动；Pi 最小 smoke 使用 deepseek/deepseek-flash 与 Anthropic Messages endpoint 成功完成真实模型回复。跨账号 ACL 读取按本次用户要求跳过，未计为通过。
 
-新增 `.github/workflows/windows-native.yml`，以 Windows PowerShell 5.1 运行 Windows 检查，并保留 macOS 针对性回归；远程 CI 尚未执行。Windows x64 的启动、对话、文件工具、共用命令、任务独立目录执行、MCP stdio、本机项目终端与显式启用的远程入口已在本机开放；Git 发布等能力继续由 PlatformCapabilities 拒绝。M1 的跨账号 ACL 读取依用户要求跳过，不计为通过；完整应用恢复和路径故障场景仍有未验收项。
+新增 `.github/workflows/windows-native.yml`，以 Windows PowerShell 5.1 运行 Windows 检查，并保留 macOS 针对性回归；远程 CI 尚未执行。Windows x64 的启动、对话、文件工具、共用命令、任务独立目录执行、MCP stdio、本机项目终端、显式启用的远程入口、任务工具、Skill 副作用、受控 Git、Git 发布与托管进程已在本机开放。系统文件定位、系统程序打开资料和回收站仍不可用。M1 的跨账号 ACL 读取依用户要求跳过，不计为通过；完整应用恢复和路径故障场景仍有未验收项。
 
 本轮补测在 Windows 11 x64 上完成共用命令、后台 HTTP 服务、取消、超时、输出额度、根退出后的子进程追踪、ConPTY 中文输入及停止、Node 与 `.cmd` MCP stdio 中文协议与停止。更新后的 Windows CI 同范围定向集 105 项通过、3 项按环境或平台条件跳过。`npm run check`、目录读取授权和会话命令准入回归通过。独立数据目录下的 Windows 浏览器 E2E 已让工作会话调用真实 PowerShell 工具并核对输出。第三方 CLI 的完整工作流仍未验收。
 
@@ -65,7 +65,7 @@ Windows 通过 Win32_Process 记录根和已观察后代，每次终止前核对
 
 Windows 无 POSIX SIGTERM 语义，CIM Terminate 不保证优雅退出。采样间已脱离且未观察到的后代不保证回收；初次身份无法确认时不放行命令也不宣称停止。当前不自动发现 Windows 后台子进程监听端口，port 保持 null。取消、超时和输出额度复用原服务协议，未知结果保留恢复。ProcessSupervisor 装配点可在后续实机证明确有需要时替换为 Job Object；本轮不增加原生辅助程序。
 
-托管进程首轮是否提供仍待决定，Windows managed() 拒绝，managed-process-supervisor 的隔离实现保持原样。Windows 实机已核对 CIM 对临时 Node 进程的身份观察、终止和消失确认；detached 子孙进程在根退出后继续存活时，已观察身份仍可追踪并清理。后代在采样间继续派生、异常查询及完整服务生命周期仍只经替身验证，尚不足以决定是否引入 Job Object。
+Windows 旧版 `managed()` 监护器仍拒绝创建 macOS 隔离进程；新任务托管脚本与兼容 `start` 入口复用共用后台命令，以当前 Windows 用户运行。实机已验证 Node HTTP 服务启动、停止和端口释放，不提供 macOS 的系统沙箱隔离。CIM 已核对临时 Node 进程的身份观察、终止和消失确认；detached 子孙进程在根退出后继续存活时，已观察身份仍可追踪并清理。采样间继续派生的后代与异常查询仍有监护边界，尚不足以决定是否引入 Job Object。
 本轮还从共用命令服务验证根退出后仍运行的后台子进程、HTTP 端口释放和停止回执。采样前脱组的进程及监护器异常退出仍没有实机覆盖，Job Object 结论不变。
 
 ## 远程访问
@@ -87,9 +87,9 @@ npm.cmd start
 
 TaskWorkingDirectories 在读取项目来源或创建目录、分支前核对 taskExecution/command 能力。Windows 分支为 Git for Windows 使用 git.exe、本地路径、独立空 hooks 目录和 NUL 全局配置；保持固定 HEAD 的独立 worktree，不改写 dirty 来源工作树。共用命令与监护分别接 CommandShell 和 ProcessSupervisor，旧隔离 Run 不自动迁移。
 
-Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 继续限 macOS；Windows 任务在独立 worktree 中经共用命令执行本地 git.exe，不能借任务开放专用 Git。
+Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 已在 Windows 独立 worktree 实机验证只读查询、状态、提交和租约结算；命令仍可直接操作仓库元数据，任务提示优先使用专用工具。
 
-Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。gitPublish 能力仍关闭，Git Credential Manager 与远端发布未在 Windows 实测。
+Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。Windows 本机 HTTPS 夹具已验证受信证书、凭据提供、申请、拒绝、批准、固定版本推送、重复决定、分支冲突和未知结果核对，`gitPublish` 已开放。没有可写的外部测试仓库，Git Credential Manager 与真实远端发布仍未实测；该限制不应表述为已完成真实远端验收。
 本轮在临时 Git 仓库由真实 Pi 会话配合本机脚本化模型完成准备失败后的继续执行、独立 worktree、`npm.cmd ci` 与测试、文件写入、本地提交、成果登记及停止结算；源仓库的固定 HEAD 和脏文件均保持原样。任务调度、暂停、取消和预算已有跨平台替身回归，Windows 真实模型任务、运行中停止后的恢复、发布批准与 Git Credential Manager 尚待实机验收。`taskExecution` 门禁开放，`gitPublish` 保持关闭。
 
 ## MCP stdio

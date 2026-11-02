@@ -46,7 +46,8 @@ export class TaskGitService {
     const gitDirectory = join(commonDirectory, 'worktrees', name);
     if (await realpath(gitDirectory) !== gitDirectory) fail('任务 Git 元数据发生变化。');
     const pointer = await this.worktreePointer(directory);
-    if (pointer !== `gitdir: ${gitDirectory}` || resolve((await readFile(join(gitDirectory, 'gitdir'), 'utf8')).trim()) !== join(directory, '.git')
+    const pointerPath = pointer.startsWith('gitdir: ') ? pointer.slice(8) : '';
+    if (!isAbsolute(pointerPath) || resolve(pointerPath) !== gitDirectory || resolve((await readFile(join(gitDirectory, 'gitdir'), 'utf8')).trim()) !== join(directory, '.git')
       || await realpath(resolve(gitDirectory, (await readFile(join(gitDirectory, 'commondir'), 'utf8')).trim())) !== commonDirectory) fail('任务 worktree 与项目仓库的关联发生变化。');
     const branch = `refs/heads/${branchName}`;
     if ((await readFile(join(gitDirectory, 'HEAD'), 'utf8')).trim() !== `ref: ${branch}`) fail('任务分支发生变化，未执行 Git 操作。');

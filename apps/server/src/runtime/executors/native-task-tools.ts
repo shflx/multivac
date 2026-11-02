@@ -5,6 +5,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { resolve } from 'node:path';
+import { createCommandShell } from './command-shell.js';
+import { spawnWindowsObservedCommand, stopWindowsObservedCommand } from './windows-stdio-supervisor.js';
 import { createBashToolDefinition, createEditToolDefinition, createReadToolDefinition, createWriteToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 
@@ -32,7 +34,8 @@ export class NativeTaskTools {
   private readonly children = new Set<ChildProcess>();
   private readonly signals = new AsyncLocalStorage<AbortSignal | undefined>();
   private disposed = false;
-  private constructor(readonly directory: string, private readonly profile: string, private readonly path: string, private readonly lease?: NativeTaskLease) {}
+  private constructor(readonly directory: string, private readonly profile: string, private readonly path: string, private readonly lease?: NativeTaskLease,
+    private readonly platform: NodeJS.Platform = process.platform) {}
 
   /** 独立托管入口只放行指定回环监听，普通任务工具的网络策略不变。 */
   managedProfile(port: number | null, readOnly = false): string {
@@ -46,6 +49,12 @@ export class NativeTaskTools {
     const denial = createPlatformCapabilities().denial('taskTools');
     if (denial) throw new Error(denial);
     const root = await realpath(directory);
+    if (process.platform === 'win32') {
+      const tools = new NativeTaskTools(root, '', '', lease, 'win32');
+      const probe = await tools.execute(process.execPath, ['-e', 'process.stdout.write("ready")']);
+      if (probe.code !== 0 || probe.output.toString() !== 'ready') throw new Error('Windows 直接执行探针失败，未启动任务。');
+      return tools;
+    }
     const node = await realpath(process.execPath);
     const protectedRoots: string[] = [];
     for (const path of protectedPaths) {
@@ -81,16 +90,21 @@ export class NativeTaskTools {
         if (!this.lease) { reject(new Error('没有已核对的任务执行租约。')); return; }
         limit = Math.min(limit, this.lease('starting', marker, options.input?.length ?? 0));
       }
-      const child = spawn('/usr/bin/sandbox-exec', ['-p', this.profile, executable, ...args], {
-        cwd: this.directory, stdio: ['pipe', 'pipe', 'pipe'],
-        env: { PATH: this.path, HOME: this.directory, TMPDIR: this.directory, LANG: 'en_US.UTF-8', OPENSSL_CONF: '/dev/null' },
-      });
+      const child = this.platform === 'win32'
+        ? spawnWindowsObservedCommand(executable, args, this.directory)
+        : spawn('/usr/bin/sandbox-exec', ['-p', this.profile, executable, ...args], {
+          cwd: this.directory, stdio: ['pipe', 'pipe', 'pipe'],
+          env: { PATH: this.path, HOME: this.directory, TMPDIR: this.directory, LANG: 'en_US.UTF-8', OPENSSL_CONF: '/dev/null' },
+        });
       this.children.add(child);
       child.once('spawn', () => { if (child.pid) options.onSpawn?.(child.pid); });
       let size = 0;
       let overflow = false;
       const chunks: Buffer[] = [];
-      const stop = () => { child.kill('SIGKILL'); };
+      const stop = () => {
+        if (this.platform === 'win32') stopWindowsObservedCommand(child);
+        else child.kill('SIGKILL');
+      };
       const timer = setTimeout(stop, options.timeoutMs ?? 60000);
       signal?.addEventListener('abort', stop, { once: true });
       if (signal?.aborted) stop();
@@ -100,10 +114,10 @@ export class NativeTaskTools {
         chunks.push(chunk);
         options.onData?.(chunk);
       };
-      child.stdout.on('data', receive);
-      child.stderr.on('data', receive);
-      child.stdin.on('error', () => { /* 提前停止时由 close 给出真实执行结果。 */ });
-      child.stdin.end(options.input);
+      child.stdout!.on('data', receive);
+      child.stderr!.on('data', receive);
+      child.stdin!.on('error', () => { /* 提前停止时由 close 给出真实执行结果。 */ });
+      child.stdin!.end(options.input);
       child.on('error', reject);
       child.on('close', (code) => {
         clearTimeout(timer);
@@ -137,7 +151,9 @@ export class NativeTaskTools {
       createWriteToolDefinition(this.directory, { operations: { writeFile, mkdir: async (path) => { await this.file('mkdir', path); } } }),
       createBashToolDefinition(this.directory, { exposeSessionEnvironment: false, operations: {
         exec: async (command, _cwd, options) => {
-          const result = await this.execute('/bin/bash', ['--noprofile', '--norc', '-c', command], {
+          const launch = this.platform === 'win32' ? createCommandShell('win32').launch(command)
+            : { file: '/bin/bash', args: ['--noprofile', '--norc', '-c', command] };
+          const result = await this.execute(launch.file, launch.args, {
             ...(options.signal ? { signal: options.signal } : {}),
             timeoutMs: Math.min((options.timeout ?? 60) * 1000, 60000), onData: options.onData,
             fenced: true,
@@ -157,7 +173,10 @@ export class NativeTaskTools {
 
   dispose(): void {
     this.disposed = true;
-    for (const child of this.children) child.kill('SIGKILL');
+    for (const child of this.children) {
+      if (this.platform === 'win32') stopWindowsObservedCommand(child);
+      else child.kill('SIGKILL');
+    }
   }
   get processesStopped(): boolean { return this.children.size === 0; }
 }

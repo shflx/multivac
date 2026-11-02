@@ -27,7 +27,8 @@ export function createPlatformCapabilities(host: { platform: NodeJS.Platform; ar
   };
   return Object.freeze({ platform: host.platform, arch: host.arch,
     denial: (capability: PlatformCapability) => host.platform === 'win32'
-      ? (capability === 'startup' || capability === 'command' || capability === 'remote' || capability === 'taskExecution' || capability === 'mcpStdio' || capability === 'terminal') && host.arch === 'x64' ? null
-        : `Windows 能力（${capability}）尚待 Windows 11 x64 实机验证，当前不可用。`
+      ? host.arch === 'x64' && (capability === 'startup' || capability === 'command' || capability === 'remote' || capability === 'taskExecution' || capability === 'mcpStdio' || capability === 'terminal' || capability === 'taskTools' || capability === 'skillRun' || capability === 'skillCopy' || capability === 'gitPublish' || capability === 'controlledGit' || capability === 'managedProcess') ? null
+        : capability === 'reveal' || capability === 'open' || capability === 'trash' ? reasons[capability]
+          : `Windows 能力（${capability}）尚待 Windows 11 x64 实机验证，当前不可用。`
       : reasons[capability] });
 }

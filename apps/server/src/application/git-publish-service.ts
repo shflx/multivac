@@ -4,6 +4,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
+import { win32 } from 'node:path';
 import { Check } from 'typebox/value';
 import { ProposeGitPublishSchema, UNKNOWN_CHANGE_ORIGIN, type ExternalOperation, type ProposeGitPublish, type DecideHumanRequest } from '@multivac/contracts';
 import { blocksTask, type ExternalOperationRepository } from '../modules/tasks/external-operation.js';
@@ -15,7 +16,8 @@ export interface GitPublishSource { directory: string; taskId: string | null; ca
 /** 只发布固定提交到不存在的新分支，不运行 shell，不使用仓库 hooks。 */
 export class GitPublishService {
   constructor(private readonly repository: ExternalOperationRepository, private readonly events: WorkbenchEvents,
-    private readonly source: (sessionId: string) => GitPublishSource, private readonly allowLocalForTest = false, private readonly platform: NodeJS.Platform = process.platform) {
+    private readonly source: (sessionId: string) => GitPublishSource, private readonly allowLocalForTest = false,
+    private readonly platform: NodeJS.Platform = process.platform, private readonly environment: NodeJS.ProcessEnv = process.env) {
     for (const operation of repository.operations()) if (operation.status === 'executing') this.save({ ...operation, status: 'unknown', result: '进程中断，发布结果未知；只能只读核对远端。' });
   }
   private assertPlatform(): void {
@@ -26,7 +28,7 @@ export class GitPublishService {
     this.assertPlatform();
     const { stdout } = await exec(this.platform === 'win32' ? 'git.exe' : 'git', ['-c', `core.hooksPath=${gitNullDevice(this.platform)}`, '-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${this.allowLocalForTest ? 'always' : 'never'}`, ...args], {
       cwd, timeout: 30000, maxBuffer: 128 * 1024,
-      env: gitEnvironment(this.platform, process.env, 'publish'),
+      env: gitEnvironment(this.platform, this.environment, 'publish'),
     });
     return stdout.trim();
   }
@@ -63,7 +65,10 @@ export class GitPublishService {
     const target = await this.git(cwd, ['remote', 'get-url', '--push', input.remote]);
     // 不接收内嵌凭据、shell transport 或任意协议；本地裸仓库仅供受控集成测试。
     const url = target.startsWith('https://') ? new URL(target) : null;
-    if ((!url || url.username || url.password || url.search || url.hash) && !(this.allowLocalForTest && target.startsWith('/'))) throw new TaskServiceError('INVALID_REQUEST', '仅支持无内嵌凭据的 HTTPS Git 远端。');
+    const localTestTarget = this.allowLocalForTest && (this.platform === 'win32'
+      ? win32.isAbsolute(target) && !target.startsWith('\\\\')
+      : target.startsWith('/'));
+    if ((!url || url.username || url.password || url.search || url.hash) && !localTestTarget) throw new TaskServiceError('INVALID_REQUEST', '仅支持无内嵌凭据的 HTTPS Git 远端。');
     const ref = `refs/heads/${input.branch}`;
     await this.git(cwd, ['check-ref-format', ref]);
     const commit = await this.git(cwd, ['rev-parse', '--verify', 'HEAD^{commit}']);

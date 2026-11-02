@@ -23,6 +23,38 @@ export interface PiSkills {
   prompt(): string;
   definitions: ToolDefinition[];
 }
+
+/** Skill 副作用共用同一执行与幂等路径；平台准入由工具入口先行核对。 */
+export async function executeSkillEffect(service: SkillSource, sessionId: string, toolCallId: string,
+  input: { action: 'copy' | 'run'; path: string; target?: string }, bytes: Buffer,
+  executor: NativeTaskTools['execute'], signal?: AbortSignal): Promise<string> {
+  if (input.action === 'run' && !/^scripts\/[^/]+\.(?:js|cjs)$/u.test(input.path))
+    throw new SkillError('只支持 scripts/ 下的 Node.js 单文件 .js/.cjs 脚本。');
+  const target = input.action === 'copy' ? skillPath(input.target ?? '') : '';
+  if (input.action === 'run' && bytes.length > 64 * 1024) throw new SkillError('脚本最多 64 KiB。');
+  const id = skillHash(JSON.stringify([sessionId, toolCallId]));
+  const previous = service.repository.beginEffect(id, skillHash(JSON.stringify(input)));
+  if (previous !== null) {
+    const result = JSON.parse(previous) as { text: string; error?: string };
+    if (result.error) throw new SkillError(result.error);
+    return result.text;
+  }
+  try {
+    const code = input.action === 'run'
+      ? bytes.toString('utf8')
+      : `require('node:fs').writeFileSync(${JSON.stringify(target)},require('node:fs').readFileSync(0),{flag:'wx'});process.stdout.write('模板已复制');`;
+    const result = await executor(process.execPath,
+      input.action === 'run' ? ['--input-type=commonjs', '-'] : ['--input-type=commonjs', '-e', code],
+      { ...(signal ? { signal } : {}), input: bytes, timeoutMs: 30000, limit: 64 * 1024 });
+    if (result.code !== 0) throw new SkillError(`${process.platform === 'win32' ? '直接执行' : '隔离执行'}已退出（${result.code ?? '被停止'}）：${result.output.toString('utf8').slice(0, 2000)}`);
+    const text = result.output.toString('utf8');
+    service.repository.endEffect(id, JSON.stringify({ text }));
+    return text;
+  } catch (error) {
+    service.repository.endEffect(id, JSON.stringify({ text: '', error: (error as Error).message }));
+    throw error;
+  }
+}
 /** 虚拟来源不映射内部磁盘路径。只有受控工具能读取已登记版本。 */
 export function createPiSkills(service: SkillSource, sessionId: string): PiSkills {
   let executor: NativeTaskTools['execute'] | undefined;
@@ -71,14 +103,16 @@ export function createPiSkills(service: SkillSource, sessionId: string): PiSkill
         name: 'skill_resource',
         label: '使用 Skill 资源',
         description:
-          '按 Skill 固定版本读取 UTF-8 资料、复制模板或执行 Node.js 单文件脚本。copy 只创建工作目录内新文件；run 仅 macOS 原生隔离，禁止网络和派生进程，无自动依赖安装。',
+          '按 Skill 固定版本读取 UTF-8 资料、复制模板或执行 Node.js 单文件脚本。copy 只创建工作目录内新文件；macOS 使用原生隔离，Windows 以当前用户直接执行 run，不限制脚本的文件、网络和派生进程访问；无自动依赖安装。',
         parameters: ResourceSchema,
         executionMode: 'sequential',
         execute: async (toolCallId, input, signal) => {
           if (signal?.aborted) throw new SkillError('本轮已取消。');
           if (!Check(ResourceSchema, input)) throw new SkillError('资源参数无效。');
-          if (process.platform === 'win32' && input.action !== 'read')
-            throw new SkillError(createPlatformCapabilities().denial(input.action === 'run' ? 'skillRun' : 'skillCopy')!, 403);
+          if (input.action !== 'read') {
+            const denial = createPlatformCapabilities().denial(input.action === 'run' ? 'skillRun' : 'skillCopy');
+            if (denial) throw new SkillError(denial, 403);
+          }
           const required = input.action === 'run' ? 'bash' : input.action === 'copy' ? 'write' : 'read';
           if (!service.context(sessionId).tools.includes(required))
             throw new SkillError(`当前宿主没有 ${required} 能力。`, 403);
@@ -92,44 +126,8 @@ export function createPiSkills(service: SkillSource, sessionId: string): PiSkill
               throw new SkillError('此资源不是 UTF-8 文本，请使用 copy。');
             }
           } else {
-            if (!executor) throw new SkillError('隔离执行器不可用。');
-            if (input.action === 'run' && !/^scripts\/[^/]+\.(?:js|cjs)$/u.test(input.path))
-              throw new SkillError('只支持 scripts/ 下的 Node.js 单文件 .js/.cjs 脚本。');
-            const target = input.action === 'copy' ? skillPath(input.target ?? '') : '';
-            if (input.action === 'run' && bytes.length > 64 * 1024) throw new SkillError('脚本最多 64 KiB。');
-            const id = skillHash(JSON.stringify([sessionId, toolCallId]));
-            const previous = service.repository.beginEffect(id, skillHash(JSON.stringify(input)));
-            if (previous !== null) {
-              const result = JSON.parse(previous) as { text: string; error?: string };
-              if (result.error) throw new SkillError(result.error);
-              text = result.text;
-            } else {
-              try {
-                const code =
-                  input.action === 'run'
-                    ? bytes.toString('utf8')
-                    : `require('node:fs').writeFileSync(${JSON.stringify(target)},require('node:fs').readFileSync(0),{flag:'wx'});process.stdout.write('模板已复制');`;
-                const result = await executor(
-                  process.execPath,
-                  input.action === 'run'
-                    ? ['--input-type=commonjs', '-']
-                    : ['--input-type=commonjs', '-e', code],
-                  { ...(signal ? { signal } : {}), input: bytes, timeoutMs: 30000, limit: 64 * 1024 },
-                );
-                if (result.code !== 0)
-                  throw new SkillError(
-                    `隔离执行已退出（${result.code ?? '被停止'}）：${result.output.toString('utf8').slice(0, 2000)}`,
-                  );
-                text = result.output.toString('utf8');
-                service.repository.endEffect(id, JSON.stringify({ text }));
-              } catch (error) {
-                service.repository.endEffect(
-                  id,
-                  JSON.stringify({ text: '', error: (error as Error).message }),
-                );
-                throw error;
-              }
-            }
+            if (!executor) throw new SkillError('Skill 执行器不可用。');
+            text = await executeSkillEffect(service, sessionId, toolCallId, { ...input, action: input.action as 'copy' | 'run' }, bytes, executor, signal);
           }
           return {
             content: [{ type: 'text', text }],

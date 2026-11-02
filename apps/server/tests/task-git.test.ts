@@ -19,8 +19,9 @@ async function fixture(legacy = false) {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-git-'));
   const source = join(root, 'source'), workRoot = join(root, 'work');
   await mkdir(source); await mkdir(join(workRoot, 'tasks'), { recursive: true });
-  const git = async (directory: string, args: string[]) => (await exec('/usr/bin/git', ['-c', 'user.name=Test', '-c', 'user.email=test@localhost', '-C', directory, ...args], {
-    env: { PATH: '/usr/bin:/bin', HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+  const git = async (directory: string, args: string[]) => (await exec(process.platform === 'win32' ? 'git.exe' : '/usr/bin/git', ['-c', 'user.name=Test', '-c', 'user.email=test@localhost', '-C', directory, ...args], {
+    env: process.platform === 'win32' ? { ...process.env, HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: 'NUL' }
+      : { PATH: '/usr/bin:/bin', HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
   })).stdout.trim();
   await git(source, ['init', '-b', 'main']);
   await writeFile(join(source, 'code.txt'), 'baseline\n');
@@ -43,7 +44,7 @@ async function fixture(legacy = false) {
     close: () => rm(root, { recursive: true, force: true }) };
 }
 
-test('真实受控 Git 可查看并提交恢复后的任务 worktree，主分支与无关暂存内容保持原样', { skip: process.platform !== 'darwin' }, async () => {
+test('真实受控 Git 可查看并提交恢复后的任务 worktree，主分支与无关暂存内容保持原样', { skip: process.platform !== 'darwin' && process.platform !== 'win32', timeout: 90_000 }, async () => {
   const f = await fixture();
   try {
     await writeFile(join(f.directory, 'code.txt'), 'task change\n');
@@ -158,7 +159,7 @@ test('真实受控 Git 不继承服务端 Git 环境，并在输出额度耗尽�
   }
 });
 
-test('任务会话实际注入受控 Git：真实提交记入共享额度，重放不重复提交，暂停后拒绝执行', { skip: process.platform !== 'darwin' }, async () => {
+test('任务会话实际注入受控 Git：真实提交记入共享额度，重放不重复提交，暂停后拒绝执行', { skip: process.platform !== 'darwin' && process.platform !== 'win32', timeout: 150_000 }, async () => {
   const f = await fixture();
   const environment = testApplicationEnvironment(f.root);
   const seed = new SqliteAssistantStore(join(environment.MULTIVAC_DATA_DIR!, 'multivac.sqlite'));

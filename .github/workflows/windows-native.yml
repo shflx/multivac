@@ -55,6 +55,15 @@ jobs:
           tests/terminal-lifecycle.test.ts
           tests/terminal-transport.test.ts
           tests/terminals.test.ts
+      - name: Windows Git, Skill and managed process acceptance
+        working-directory: apps/server
+        run: >-
+          npx.cmd tsx --test --test-concurrency=1
+          tests/git-read.test.ts
+          tests/task-git.test.ts
+          tests/git-publish.test.ts
+          tests/skill-resources.test.ts
+          tests/managed-processes.test.ts
 
   macos-regression:
     runs-on: macos-15
@@ -79,3 +88,8 @@ jobs:
           tests/project-file-scope.test.ts
           tests/file-durability.test.ts
           tests/task-scheduler.test.ts
+          tests/git-read.test.ts
+          tests/task-git.test.ts
+          tests/git-publish.test.ts
+          tests/skill-resources.test.ts
+          tests/managed-processes.test.ts

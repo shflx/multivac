@@ -33,6 +33,39 @@ test('已有版本 35 数据目录补建托管表，不移动或重复执行历�
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test('Windows 新任务托管脚本经 PowerShell 后台启动并确认停止', { skip: process.platform !== 'win32', timeout: 45_000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-managed-windows-'));
+  const work = join(root, 'work'), privateRoot = join(root, 'private');
+  await mkdir(work); await mkdir(privateRoot);
+  const store = new SqliteAssistantStore(join(privateRoot, 'store.sqlite'));
+  const service = new ManagedProcessService(store.managedProcesses, privateRoot, [privateRoot], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors });
+  const reserve = createServer();
+  await new Promise<void>(resolve => reserve.listen(0, '127.0.0.1', resolve));
+  const port = (reserve.address() as { port: number }).port;
+  await new Promise<void>(resolve => reserve.close(() => resolve()));
+  try {
+    await writeFile(join(work, 'server.cjs'), `require('node:http').createServer((_req,res)=>res.end('managed-ok')).listen(${port},'127.0.0.1');`);
+    const boundary = { taskId: 'task', runId: 'run', sessionId: 'session', directory: work, maxMillis: 20_000, maxBytes: 100_000 };
+    for (const entry of ['workspace', 'legacy'] as const) {
+      const input = { commandId: entry, name: '本机服务', script: 'server.cjs', port, requiredWhileRunning: false };
+      const started = entry === 'workspace'
+        ? await service.startWorkspace(input, boundary, 'execution', {
+          start: () => ({ maxBytes: boundary.maxBytes, maxMillis: boundary.maxMillis }), check() {}, progress: () => boundary.maxBytes, settle() {},
+        })
+        : await service.start(input, boundary);
+      let body = '';
+      for (let attempt = 0; attempt < 50; attempt++) {
+        try { body = await (await fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(200) })).text(); break; }
+        catch { await new Promise(resolve => setTimeout(resolve, 100)); }
+      }
+      assert.equal(body, 'managed-ok', JSON.stringify(started));
+      const stopped = await service.stop(started.processId);
+      assert.equal(stopped.state, 'exited');
+      await assert.rejects(fetch(`http://127.0.0.1:${port}`, { signal: AbortSignal.timeout(1000) }));
+    }
+  } finally { await service.close(); store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
 test('真实托管服务：回环监听、目录/网络/凭据/后代隔离、幂等与停止证明', { skip: process.platform !== 'darwin' }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-managed-'));
   const work = join(root, 'work'), privateRoot = join(root, 'private');

@@ -48,7 +48,8 @@ test('Windows 初始和继续提示词声明实际解释器，保留目录、批
   for (const resumed of [false, true]) {
     const prompt = renderTaskExecutionPrompt(task, { childCount: 0, resumed, platform: 'win32' });
     assert.match(prompt, /Windows PowerShell 5.1/); assert.match(prompt, /npm.cmd/);
-    assert.match(prompt, /git.exe/); assert.doesNotMatch(prompt, /commit_task_code|inspect_task_git/);
+    assert.match(prompt, /commit_task_code|inspect_task_git/);
+    assert.doesNotMatch(prompt, /专用受控 Git 工具尚未开放|旧隔离执行器仍不可用/);
     assert.match(prompt, /结果未知先核对|未知结果先只读对账|未知工具结果先只读对账/);
     assert.match(prompt, /外发仍须真实用户许可/);
   }

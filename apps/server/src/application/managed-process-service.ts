@@ -158,12 +158,19 @@ export class ManagedProcessService {
     const rel = relative(directory, script);
     if (rel.startsWith('..') || isAbsolute(rel)) throw new TaskServiceError('INVALID_REQUEST', '脚本不在任务目录内。');
     this.validateBoundary(boundary);
-    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    const quote = (value: string) => "'" + value.replaceAll("'", process.platform === 'win32' ? "''" : "'\\''") + "'";
+    const command = `${process.platform === 'win32' ? '&' : 'exec'} ${quote(process.execPath)} ${quote(script)}`;
     const result = await this.bash.execute({ sessionId: boundary.sessionId, taskId: boundary.taskId, runId: boundary.runId, executionId, directory }, input.commandId,
-      { command: `exec ${quote(process.execPath)} ${quote(script)}`, name: input.name, mode: 'background', requiredWhileRunning: input.requiredWhileRunning }, undefined, () => {}, undefined, undefined, control);
+      { command, name: input.name, mode: 'background', requiredWhileRunning: input.requiredWhileRunning }, undefined, () => {}, undefined, undefined, control);
     return result.process;
   }
   start(input: ManagedStart, boundary: ManagedBoundary): Promise<ManagedProcess> {
+    if (process.platform === 'win32') return this.startWorkspace(input, boundary, boundary.runId, {
+      start: () => ({ maxBytes: boundary.maxBytes, maxMillis: boundary.maxMillis }),
+      check: () => this.validateBoundary(boundary),
+      progress: () => boundary.maxBytes,
+      settle() {},
+    });
     const key = fingerprint({ input, taskId: boundary.taskId, runId: boundary.runId, sessionId: boundary.sessionId, directory: boundary.directory });
     const existing = this.repository.byCommand(input.commandId);
     if (existing) {

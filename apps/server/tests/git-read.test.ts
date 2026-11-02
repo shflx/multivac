@@ -20,8 +20,9 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'multivac-git-read-'));
   const source = join(root, 'source'), worktree = join(root, 'feature');
   await mkdir(source);
-  const git = async (directory: string, args: string[]) => (await exec('/usr/bin/git', ['-c', 'user.name=Test', '-c', 'user.email=test@localhost', '-C', directory, ...args], {
-    env: { PATH: '/usr/bin:/bin', HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+  const git = async (directory: string, args: string[]) => (await exec(process.platform === 'win32' ? 'git.exe' : '/usr/bin/git', ['-c', 'user.name=Test', '-c', 'user.email=test@localhost', '-C', directory, ...args], {
+    env: process.platform === 'win32' ? { ...process.env, HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: 'NUL' }
+      : { PATH: '/usr/bin:/bin', HOME: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
   })).stdout.trim();
   await git(source, ['init', '-b', 'main']);
   await writeFile(join(source, 'code.txt'), 'baseline\n');
@@ -69,6 +70,21 @@ test('只读 Git 从分支对象读取历史、文件和差异，保留工作树
     assert.equal(await f.git(f.source, ['rev-parse', 'HEAD']), head);
     assert.equal(await readFile(join(f.source, 'code.txt'), 'utf8'), 'unstaged\n');
     assert.equal(await readFile(join(f.worktree, 'only.txt'), 'utf8'), 'other worktree dirty\n');
+  } finally { await f.close(); }
+});
+
+test('Windows 只读 Git 查询分支、历史与文件，不修改工作树和暂存区', { skip: process.platform !== 'win32', timeout: 90_000 }, async () => {
+  const f = await fixture();
+  try {
+    const index = await readFile(join(f.source, '.git', 'index'));
+    const branches = await f.query({ operation: 'branches', limit: 2 });
+    assert.deepEqual(branches.branches.map((item: { name: string }) => item.name), ['feature/中文', 'main']);
+    const log = await f.query({ operation: 'log', ref: 'feature/中文', limit: 1 });
+    assert.equal(log.commits[0].message, 'feat: 分支内容');
+    const file = await f.query({ operation: 'file', ref: 'feature/中文', path: 'code.txt' });
+    assert.match(file.content, /feature two/u);
+    assert.deepEqual(await readFile(join(f.source, '.git', 'index')), index);
+    assert.equal(await readFile(join(f.source, 'code.txt'), 'utf8'), 'unstaged\n');
   } finally { await f.close(); }
 });
 
@@ -144,7 +160,7 @@ test('只读通道在操作系统层拒绝写入，不创建索引锁或修改�
   } finally { await f.close(); }
 });
 
-test('输出超限、取消和工作目录变化会终止只读 Git 并结算租约', native, async () => {
+test('输出超限、取消和工作目录变化会终止只读 Git 并结算租约', { skip: process.platform !== 'darwin' && process.platform !== 'win32', timeout: 90_000 }, async () => {
   const f = await fixture();
   try {
     f.setBudget(30);
