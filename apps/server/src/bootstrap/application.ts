@@ -987,7 +987,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (task.status === 'cancelled') gitPublish.invalidateTask(task.taskId);
     taskScheduler.wake();
   }, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
-  const taskAttachments = new TaskAttachmentService(store.taskAttachments, join(paths.dataDir, 'task-inputs'), tasks);
+  const taskAttachments = new TaskAttachmentService(store.taskAttachments, join(paths.dataDir, 'task-inputs'), tasks, store.taskRuns);
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
@@ -1025,7 +1025,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const taskProtectedPaths = [...new Set([...adapter.protectedPaths, paths.dataDir])];
   const taskDirectories = new TaskWorkingDirectories(workPaths.workRoot, (id) => projectService.getProject(id), taskProtectedPaths);
   const taskExecution: TaskExecutionService = new TaskExecutionService({
-    tasks, runs: store.taskRuns, requests: store.humanRequests, events: eventStream,
+    tasks, inputs: taskAttachments, runs: store.taskRuns, requests: store.humanRequests, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),
     stopRequiredProcesses: (id) => managedProcesses.stopRequired(id),
     requiredProcessesStopped: (id) => {

@@ -8,11 +8,21 @@ import { ImageError } from '../../application/validate-image.js';
 export function createTaskAttachmentHandler(service: TaskAttachmentService) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const url = new URL(request.url ?? '/', 'http://localhost');
+    const history = /^\/api\/tasks\/([A-Za-z0-9._:-]+)\/input-snapshots\/([A-Za-z0-9._:-]+)\/attachments\/([a-f0-9-]{36})\/content$/.exec(url.pathname);
     const match = /^\/api\/(tasks|task-attachment-drafts)\/([A-Za-z0-9._:-]+)\/attachments(?:\/([a-f0-9-]{36})(?:\/(content))?)?$/.exec(url.pathname);
-    if (!match) return false;
-    const owner: AttachmentOwner = match[1] === 'tasks' ? { taskId: match[2]! } : { draftId: match[2]! };
+    if (!match && !history) return false;
+    const owner: AttachmentOwner = match?.[1] === 'tasks' ? { taskId: match[2]! } : { draftId: match?.[2] ?? '' };
     const json = (status: number, result: unknown) => { response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); response.end(JSON.stringify(result)); };
+    const download = ({ attachment, data }: Awaited<ReturnType<TaskAttachmentService['read']>>) => {
+      response.writeHead(200, { 'content-type': attachment.mimeType, 'content-length': data.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(attachment.name)}` });
+      response.end(data);
+    };
     try {
+      if (history) {
+        if (request.method !== 'GET' || url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '历史输入仅支持下载。');
+        download(await service.readHistory(history[1]!, history[2]!, history[3]!)); return true;
+      }
+      if (!match) return false;
       let result: unknown;
       if (request.method === 'PUT' && match[3] && !match[4]) {
         if ([...url.searchParams.keys()].some(key => key !== 'name') || url.searchParams.getAll('name').length !== 1) throw new TaskServiceError('INVALID_REQUEST', '上传必须指定原文件名。');
@@ -28,9 +38,7 @@ export function createTaskAttachmentHandler(service: TaskAttachmentService) {
         if (url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '附件读取不接受查询参数。');
         if (request.method === 'GET' && !match[3]) result = { attachments: service.list(owner) };
         else if (request.method === 'GET' && match[3] && match[4]) {
-          const { attachment, data } = await service.read(owner, match[3]);
-          response.writeHead(200, { 'content-type': attachment.mimeType, 'content-length': data.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(attachment.name)}` });
-          response.end(data); return true;
+          download(await service.read(owner, match[3])); return true;
         } else if (request.method === 'DELETE' && match[3] && !match[4]) { service.remove(owner, match[3]); result = { ok: true }; }
         else throw new TaskServiceError('NOT_FOUND', '附件接口不存在。');
       }

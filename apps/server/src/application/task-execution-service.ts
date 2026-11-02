@@ -28,6 +28,7 @@ export interface TaskExecutionRuntime {
 }
 export interface TaskExecutionOptions {
   tasks: TaskService;
+  inputs?: Pick<import('./task-attachment-service.js').TaskAttachmentService, 'freeze' | 'verify'>;
   runs: TaskRunRepository;
   /** 用已保存的人工回应装配继续消息；不依赖发起继续请求的界面或内存标记。 */
   requests?: Pick<HumanRequestRepository, 'list'>;
@@ -286,7 +287,12 @@ export class TaskExecutionService {
     const at = this.now();
     const rootTask = this.root(task);
     const defaultBudget = this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET;
+    const sameInputBoundary = previous?.taskId === task.taskId && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId && !previous.redoRequested;
+    const inputSnapshot = sameInputBoundary
+      ? previous.inputSnapshot ?? { snapshotId: randomUUID(), fixedAt: at, attachments: [] }
+      : this.options.inputs?.freeze([task.taskId, ...treeTasks.map(item => item.taskId)]);
     const run: TaskRun = {
+      ...(inputSnapshot ? { inputSnapshot } : {}),
       ...(renewBudget ? { budgetRenewal: {
         limit: defaultBudget,
         previousLimit: rootTask.budget ?? defaultBudget,
@@ -367,6 +373,8 @@ export class TaskExecutionService {
     try {
       let run = this.options.runs.get(runId)!;
       const task = this.options.tasks.get(run.taskId);
+      if (run.inputSnapshot) await this.options.inputs?.verify(run.inputSnapshot);
+      signal.throwIfAborted();
       if (!run.directory) {
         const prepared = await this.options.prepare(task, runId, signal);
         this.updateRun(runId, 'prepared', (current, task) => {

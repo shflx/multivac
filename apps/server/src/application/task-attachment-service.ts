@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, open, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { TASK_ATTACHMENT_LIMITS as LIMITS, type TaskAttachment } from '@multivac/contracts';
+import { TASK_ATTACHMENT_LIMITS as LIMITS, type TaskAttachment, type TaskInputSnapshot } from '@multivac/contracts';
 import type { TaskAttachmentRepository } from '../modules/tasks/task-attachment.js';
 import type { TaskService } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
@@ -16,7 +16,7 @@ export type AttachmentOwner = { taskId: string } | { draftId: string };
 export class TaskAttachmentService {
   private tail: Promise<unknown> = Promise.resolve();
   private pending = new Map<string, number>();
-  constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService) {}
+  constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService, private readonly runs: import('../modules/tasks/task.js').TaskRunRepository) {}
 
   private key(owner: AttachmentOwner): string { return 'taskId' in owner ? `task:${owner.taskId}` : `draft:${owner.draftId}`; }
   private check(owner: AttachmentOwner, editing = false): void {
@@ -107,10 +107,29 @@ export class TaskAttachmentService {
     this.owned(owner, id);
     return { attachment, data };
   }
+  async readHistory(taskId: string, runId: string, id: string): Promise<{ attachment: TaskAttachment; data: Buffer }> {
+    this.tasks.get(taskId);
+    const run = this.runs.get(runId);
+    if (!run || run.taskId !== taskId && !run.treeTasks?.some(task => task.taskId === taskId)) throw new TaskServiceError('NOT_FOUND', '运行不属于当前任务。');
+    const attachment = run.inputSnapshot?.attachments.find(item => item.id === id && (run.taskId === taskId || item.taskId === taskId));
+    if (!attachment) throw new TaskServiceError('NOT_FOUND', '附件不属于此执行输入快照。');
+    return { attachment, data: await this.readFixed(attachment) };
+  }
+  freeze(taskIds: string[]): TaskInputSnapshot {
+    if (taskIds.some(taskId => this.pending.has(this.key({ taskId })))) invalid('任务范围内仍有附件上传，请等待上传结束后启动。');
+    const attachments = taskIds.flatMap(taskId => this.list({ taskId }));
+    if (attachments.length > 200 || attachments.reduce((sum, item) => sum + item.bytes, 0) > 200 * 1024 * 1024) invalid('本次固定输入超过 200 个或 200 MiB，请缩小任务树输入。');
+    return { snapshotId: randomUUID(), fixedAt: new Date().toISOString(), attachments };
+  }
+  async verify(snapshot: TaskInputSnapshot): Promise<void> {
+    for (const item of snapshot.attachments) await this.readFixed(item);
+  }
   async readFixed(item: TaskAttachment): Promise<Buffer> {
     if (!/^[a-f0-9-]{36}$/.test(item.id)) invalid('附件身份无效。');
     const storageKey = this.repository.storageKey(item.id);
     if (!storageKey || !/^[a-f0-9-]{36}$/.test(storageKey)) throw new TaskServiceError('NOT_FOUND', '附件存储引用不存在。');
+    const stored = this.repository.get(item.id);
+    if (!stored || stored.taskId !== item.taskId || stored.sha256 !== item.sha256 || stored.bytes !== item.bytes || stored.capability !== item.capability) invalid('固定附件归属或版本与存储记录不符。');
     let file;
     try { file = await open(join(this.directory, storageKey), constants.O_RDONLY | constants.O_NOFOLLOW); }
     catch { throw new TaskServiceError('NOT_FOUND', '固定附件原件缺失或不可读取。'); }

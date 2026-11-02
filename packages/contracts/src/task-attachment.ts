@@ -9,3 +9,9 @@ export const TaskAttachmentSchema = Type.Object({
   removedAt: Type.Union([Type.String(), Type.Null()]),
 }, { additionalProperties: false });
 export type TaskAttachment = Type.Static<typeof TaskAttachmentSchema>;
+
+export const TaskInputSnapshotSchema = Type.Object({
+  snapshotId: Type.String(), fixedAt: Type.String(),
+  attachments: Type.Array(TaskAttachmentSchema, { maxItems: 200 }),
+}, { additionalProperties: false });
+export type TaskInputSnapshot = Type.Static<typeof TaskInputSnapshotSchema>;

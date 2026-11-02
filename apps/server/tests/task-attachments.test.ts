@@ -42,7 +42,7 @@ test('暂存附件原子绑定任务；同名不覆盖、原请求重试、迟�
     app.taskAttachments.remove({ taskId: task.taskId }, id);
     assert.equal(app.taskAttachments.list({ taskId: task.taskId }).length, 1);
     await assert.rejects(app.taskAttachments.read({ taskId: task.taskId }, id), /已移除/);
-    assert.equal((await app.taskAttachments.readFixed(first)).toString(), '{"answer":42}');
+    assert.equal((await app.taskAttachments.readFixed({ ...first, taskId: task.taskId })).toString(), '{"answer":42}');
     assert.equal(app.artifacts.list(task.taskId).length, 0);
   } finally { await f.close(); }
 });
@@ -83,4 +83,73 @@ test('上传中不能消费暂存身份，执行及终态不能改动当前附�
     assert.throws(() => f.app.taskAttachments.remove({ taskId: task.taskId }, f.app.tasks.detail(task.taskId).attachments![0]!.id), /不能修改/);
     f.adapter.releasePromptCompletionBarrier(); await f.app.taskExecution.idle();
   } finally { await f.close(); }
+});
+
+test('入队固定父子范围；新子项不纳入，暂停继续沿用，安全重做采用新附件版本', async () => {
+  const f = await fixture(); const { app } = f;
+  try {
+    const external = app.tasks.create({ commandId: 'external', title: '等待人工条件', goal: '阻止派发', humanOnly: true }).task;
+    const root = app.tasks.create({ commandId: 'root', title: '父任务', goal: '整合', dependencyIds: [external.taskId] }).task;
+    const child = app.tasks.create({ commandId: 'child', title: '子任务', goal: '处理', parentTaskId: root.taskId }).task;
+    const rootInput = await app.taskAttachments.upload({ taskId: root.taskId }, randomUUID(), 'same.txt', Buffer.from('原输入'));
+    const childInput = await app.taskAttachments.upload({ taskId: child.taskId }, randomUUID(), 'child.txt', Buffer.from('子项输入'));
+    await app.taskExecution.control(root.taskId, { commandId: 'queue', revision: root.revision, action: 'start' });
+    const original = app.tasks.detail(root.taskId).runs![0]!;
+    assert.deepEqual(original.inputSnapshot?.attachments.map(item => item.id), [rootInput.id, childInput.id]);
+    assert.equal(original.hasStarted, false);
+    const later = app.tasks.create({ commandId: 'later', title: '新增子任务', goal: '之后', parentTaskId: root.taskId }).task;
+    await app.taskAttachments.upload({ taskId: later.taskId }, randomUUID(), 'later.txt', Buffer.from('不进入原范围'));
+    assert.equal(app.tasks.detail(root.taskId).runs![0]!.inputSnapshot!.attachments.length, 2);
+    assert.equal(app.tasks.detail(child.taskId).inputHistory![0]!.inputSnapshot!.attachments[0]!.id, childInput.id);
+    await app.taskExecution.control(root.taskId, { commandId: 'pause', revision: app.tasks.get(root.taskId).revision, action: 'pause' });
+    app.taskAttachments.remove({ taskId: root.taskId }, rootInput.id);
+    const replacement = await app.taskAttachments.upload({ taskId: root.taskId }, randomUUID(), 'same.txt', Buffer.from('新输入'));
+    await app.taskExecution.control(root.taskId, { commandId: 'resume', revision: app.tasks.get(root.taskId).revision, action: 'resume' });
+    const resumed = app.tasks.detail(root.taskId).runs![0]!;
+    assert.deepEqual(resumed.inputSnapshot, original.inputSnapshot);
+    assert.equal((await app.taskAttachments.readHistory(root.taskId, resumed.runId, rootInput.id)).data.toString(), '原输入');
+    await assert.rejects(app.taskAttachments.readHistory(later.taskId, resumed.runId, rootInput.id), /不属于/);
+    await assert.rejects(app.taskAttachments.readHistory(child.taskId, resumed.runId, rootInput.id), /不属于/);
+    await app.taskExecution.control(root.taskId, { commandId: 'pause-again', revision: app.tasks.get(root.taskId).revision, action: 'pause' });
+    const request = app.humanRequests.create(root.taskId, 'recovery', '核对后安全重做', 'recovery-inputs');
+    await app.humanRequests.decide(request.requestId, { commandId: 'restart-inputs', revision: request.revision, decision: 'restart' });
+    await app.taskExecution.control(root.taskId, { commandId: 'redo', revision: app.tasks.get(root.taskId).revision, action: 'resume' });
+    const redo = app.tasks.detail(root.taskId).runs![0]!;
+    assert.notEqual(redo.inputSnapshot!.snapshotId, original.inputSnapshot!.snapshotId);
+    assert.deepEqual(redo.inputSnapshot!.attachments.map(item => item.id), [replacement.id, childInput.id]);
+    assert.equal(redo.treeTasks!.length, 1);
+    assert.equal((await app.taskAttachments.readHistory(root.taskId, original.runId, rootInput.id)).data.toString(), '原输入');
+  } finally { await f.close(); }
+});
+
+test('原件损坏或缺失拒绝派发，不替换同名附件；暂停快照跨服务重启保留', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-input-recovery-'));
+  const env = testApplicationEnvironment(root);
+  let adapter = new FakeCoordinatorAdapter();
+  let app = createMultivacApplication(env, { coordinatorAdapter: adapter });
+  await app.ready;
+  try {
+    const task = app.tasks.create({ commandId: 'task', title: '读取材料', goal: '读取实际内容' }).task;
+    const input = await app.taskAttachments.upload({ taskId: task.taskId }, randomUUID(), 'source.txt', Buffer.from('original'));
+    adapter.armPromptCompletionBarrier();
+    await app.taskExecution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const original = app.tasks.detail(task.taskId).runs![0]!;
+    const pause = app.taskExecution.control(task.taskId, { commandId: 'pause', revision: app.tasks.get(task.taskId).revision, action: 'pause' });
+    adapter.releasePromptCompletionBarrier(); await pause;
+    await app.close();
+    adapter = new FakeCoordinatorAdapter();
+    app = createMultivacApplication(env, { coordinatorAdapter: adapter }); await app.ready;
+    assert.deepEqual(app.tasks.detail(task.taskId).runs![0]!.inputSnapshot, original.inputSnapshot);
+    const { readdir, writeFile } = await import('node:fs/promises');
+    const directory = join(root, 'data/task-inputs'); const [key] = await readdir(directory);
+    await writeFile(join(directory, key!), 'tampered');
+    await app.taskExecution.control(task.taskId, { commandId: 'resume-corrupt', revision: app.tasks.get(task.taskId).revision, action: 'resume' });
+    await app.taskExecution.idle();
+    assert.equal(app.tasks.get(task.taskId).status, 'failed');
+    assert.match(app.tasks.get(task.taskId).reason, /摘要不符|损坏/);
+    assert.equal(adapter.calls.filter(call => call.method === 'prompt').length, 0);
+    await rm(join(directory, key!));
+    await assert.rejects(app.taskAttachments.readHistory(task.taskId, original.runId, input.id), /缺失/);
+  } finally { adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle(); await app.close(); await rm(root, { recursive: true, force: true }); }
 });

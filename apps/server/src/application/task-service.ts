@@ -100,6 +100,9 @@ export class TaskService {
       requests: this.options.facts.requests.list(taskId).slice(0, 100),
       artifacts: this.options.facts.artifacts.list(taskId),
       attachments: this.options.attachmentInputs?.list(taskId) ?? [],
+      inputHistory: [...new Map([...this.options.facts.runs.list(taskId), ...(task.executionTaskId ? this.options.facts.runs.list(task.executionTaskId).filter(run => run.treeTasks?.some(child => child.taskId === taskId)) : [])].map(run => [run.runId, run])).values()]
+        .filter(run => run.inputSnapshot).slice(0, 100).map(run => ({ runId: run.runId, sessionId: run.sessionId, createdAt: run.createdAt,
+          inputSnapshot: { ...run.inputSnapshot!, attachments: run.inputSnapshot!.attachments.filter(item => run.taskId === taskId || item.taskId === taskId) } })),
     };
   }
 

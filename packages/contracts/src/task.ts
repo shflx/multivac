@@ -1,4 +1,4 @@
-import { TaskAttachmentSchema } from './task-attachment.js';
+import { TaskAttachmentSchema, TaskInputSnapshotSchema } from './task-attachment.js';
 import { SkillRefSchema } from './skill.js';
 import { Type } from 'typebox';
 import { WorkingDirectorySchema } from './workspace-session.js';
@@ -195,6 +195,7 @@ export const TaskControlSchema = Type.Object({
 }, { additionalProperties: false });
 export type TaskControl = Type.Static<typeof TaskControlSchema>;
 export const TaskRunSchema = Type.Object({
+  inputSnapshot: Type.Optional(TaskInputSnapshotSchema),
   /** 缺省表示历史原生隔离方式；新运行显式固定共用工作会话后端。 */
   executionMode: Type.Optional(Type.Union([Type.Literal('workspace'), Type.Literal('native-isolated')])),
   // 用户主动继续时重置任务树可用额度；历史运行与消耗保留，用检查点划分新一轮预算。
@@ -250,6 +251,7 @@ export const TaskDetailSchema = Type.Object({
   totalChildren: Type.Integer({ minimum: 0 }),
   runs: Type.Optional(Type.Array(TaskRunSchema, { maxItems: 100 })),
   requests: Type.Optional(Type.Array(HumanRequestSchema, { maxItems: 100 })),
+  inputHistory: Type.Optional(Type.Array(Type.Pick(TaskRunSchema, ['runId', 'sessionId', 'createdAt', 'inputSnapshot']), { maxItems: 100 })),
   attachments: Type.Optional(Type.Array(TaskAttachmentSchema)),
   artifacts: Type.Optional(Type.Array(ArtifactVersionSchema, { maxItems: 100 })),
 }, { additionalProperties: false });
