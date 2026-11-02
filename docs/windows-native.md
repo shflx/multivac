@@ -85,12 +85,12 @@ npm.cmd start
 
 ## 新任务和 Git 工作目录
 
-TaskWorkingDirectories 在读取项目来源或创建目录、分支前核对 taskExecution/command 能力。Windows 分支为 Git for Windows 使用 git.exe、本地路径、独立空 hooks 目录和 NUL 全局配置；保持固定 HEAD 的独立 worktree，不改写 dirty 来源工作树。共用命令与监护分别接 CommandShell 和 ProcessSupervisor，旧隔离 Run 不自动迁移。
+TaskWorkingDirectories 在读取项目来源或创建目录、分支前核对 taskExecution/command 能力。任务绑定的项目首个目录是 Git 仓库根目录时，Windows 通过 Git for Windows 的 git.exe、本地路径、独立空 hooks 目录和 NUL 全局配置，从固定 HEAD 创建任务专用分支与独立 worktree，不改写 dirty 来源工作树。非 Git 项目使用独立快照，未绑定项目使用空的独立目录；这两种情况不是 Git worktree。共用命令与监护分别接 CommandShell 和 ProcessSupervisor，旧隔离 Run 不自动迁移。
 
 Windows 任务提示明确使用 PowerShell 5.1 与 npm.cmd/npx.cmd。非 macOS 不使用 APFS 克隆，依赖未自动准备时如实说明，可经共用命令安装。专用受控 Git 已在 Windows 独立 worktree 实机验证只读查询、状态、提交和租约结算；命令仍可直接操作仓库元数据，任务提示优先使用专用工具。
 
-Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。Windows 本机 HTTPS 夹具已验证受信证书、凭据提供、申请、拒绝、批准、固定版本推送、重复决定、分支冲突和未知结果核对，`gitPublish` 已开放。没有可写的外部测试仓库，Git Credential Manager 与真实远端发布仍未实测；该限制不应表述为已完成真实远端验收。
-本轮在临时 Git 仓库由真实 Pi 会话配合本机脚本化模型完成准备失败后的继续执行、独立 worktree、`npm.cmd ci` 与测试、文件写入、本地提交、成果登记及停止结算；源仓库的固定 HEAD 和脏文件均保持原样。任务调度、暂停、取消和预算已有跨平台替身回归，Windows 真实模型任务、运行中停止后的恢复、发布批准与 Git Credential Manager 尚待实机验收。`taskExecution` 门禁开放，`gitPublish` 保持关闭。
+Git 发布继续固定提交、HTTPS 远端与新分支，经真实单次批准再执行；未知结果只读核对，不重推。Windows 凭据环境保留 Git for Windows 所需用户路径，禁用交互登录，不继承模型秘密；准备 worktree 不读取用户全局 Git 配置。Windows 本机 HTTPS 夹具已验证受信证书、凭据提供、申请、拒绝、批准、固定版本推送、重复决定、分支冲突和未知结果核对，`gitPublish` 已开放。当前仓库的 `origin` 是 GitHub SSH 远端，本机已安装 Git Credential Manager 并配置 `credential.helper=manager`；SSH 推送不会验证 GCM。HTTPS 写入权限与真实远端发布仍未实测，不能将本机夹具结果表述为已完成真实远端验收。
+本轮在临时 Git 仓库由真实 Pi 会话配合本机脚本化模型完成准备失败后的继续执行、独立 worktree、`npm.cmd ci` 与测试、文件写入、本地提交、成果登记及停止结算；源仓库的固定 HEAD 和脏文件均保持原样。任务调度、暂停、取消和预算已有跨平台替身回归。Windows 真实模型任务、运行中停止后的恢复、浏览器中的完整发布批准流程，以及 Git Credential Manager 与真实远端发布尚待实机验收；本机 HTTPS 夹具的服务级发布批准已通过。`taskExecution` 与 `gitPublish` 门禁均已开放。
 
 ## MCP stdio
 
