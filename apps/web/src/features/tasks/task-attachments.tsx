@@ -36,6 +36,7 @@ export function TaskAttachments({ taskId, draftId, editable = false, disabled = 
   useOptionalWorkbenchEvents(event => { if (event.type === 'workbench.connected' || event.type === 'task-attachments.changed' && event.taskId === taskId) void refresh(); });
   useEffect(() => { alive.current = true; void refresh(); return () => { alive.current = false; ++generation.current; }; }, [base]);
   useEffect(() => { onBlocked?.(uploads.length > 0 || !!removing); }, [uploads, removing, onBlocked]);
+  useEffect(() => () => onBlocked?.(false), [onBlocked]);
   async function upload(entry: Upload) {
     setUploads(values => values.map(value => value.id === entry.id ? { ...value, busy: true, error: '' } : value));
     try {

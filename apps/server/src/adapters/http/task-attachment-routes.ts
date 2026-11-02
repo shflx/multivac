@@ -27,13 +27,15 @@ export function createTaskAttachmentHandler(service: TaskAttachmentService) {
       if (request.method === 'PUT' && match[3] && !match[4]) {
         if ([...url.searchParams.keys()].some(key => key !== 'name') || url.searchParams.getAll('name').length !== 1) throw new TaskServiceError('INVALID_REQUEST', '上传必须指定原文件名。');
         if (Number(request.headers['content-length']) > TASK_ATTACHMENT_LIMITS.bytes) throw new ImageError(413, '单文件上限 10 MiB。');
-        const chunks: Buffer[] = []; let bytes = 0;
-        for await (const chunk of request) {
-          bytes += chunk.length;
-          if (bytes > TASK_ATTACHMENT_LIMITS.bytes) throw new ImageError(413, '单文件上限 10 MiB。');
-          chunks.push(Buffer.from(chunk));
-        }
-        result = await service.upload(owner, match[3], url.searchParams.get('name')!, Buffer.concat(chunks));
+        result = await service.receive(owner, match[3], url.searchParams.get('name')!, async () => {
+          const chunks: Buffer[] = []; let bytes = 0;
+          for await (const chunk of request) {
+            bytes += chunk.length;
+            if (bytes > TASK_ATTACHMENT_LIMITS.bytes) throw new ImageError(413, '单文件上限 10 MiB。');
+            chunks.push(Buffer.from(chunk));
+          }
+          return Buffer.concat(chunks);
+        });
       } else {
         if (url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '附件读取不接受查询参数。');
         if (request.method === 'GET' && !match[3]) result = { attachments: service.list(owner) };

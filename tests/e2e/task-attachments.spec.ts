@@ -80,3 +80,44 @@ test('任务详情及时同步其他窗口上传与移除，其他格式准确�
   expect((await request.delete(url)).ok()).toBeTruthy();
   await expect(inputs).toContainText('暂无附件');
 });
+
+test('详情附件上传中与失败时阻止启动，重试或取消后按完整清单启动', async ({ page, request }, info) => {
+  await resetE2eState(request);
+  await page.goto('/'); await openPanel(page, 'management');
+  await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
+  await page.getByRole('button', { name: '新建任务', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '创建任务' });
+  const title = '上传完成后启动';
+  await dialog.getByLabel('任务名称', { exact: true }).fill(title);
+  await dialog.getByLabel('目标说明', { exact: true }).fill('以用户选择的完整附件为输入。');
+  await dialog.getByRole('button', { name: '创建任务', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: '任务详情' });
+  const inputs = inspector.getByRole('region', { name: '输入附件', exact: true });
+  const start = inspector.getByRole('button', { name: `启动任务：${title}`, exact: true });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let failFirst = true;
+  await page.route(/\/api\/tasks\/[^/]+\/attachments\/[^/?]+\?name=/, async route => {
+    if (route.request().url().includes('cancel.txt') || failFirst) {
+      failFirst = false; await gate;
+      await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { message: '上传暂不可用，请重试' } }) });
+    } else await route.continue();
+  });
+  try {
+    await inputs.getByLabel('添加任务附件').setInputFiles({ name: 'chosen.txt', mimeType: 'text/plain', buffer: Buffer.from('本轮需要读取的材料') });
+    await expect(inputs).toContainText('上传中…'); await expect(start).toBeDisabled();
+    await page.screenshot({ path: info.outputPath('upload-pending.png') });
+    release();
+    await expect(inputs).toContainText('上传暂不可用'); await expect(start).toBeDisabled();
+    await page.screenshot({ path: info.outputPath('upload-error.png') });
+    await inputs.getByRole('button', { name: '重试上传', exact: true }).click();
+    await expect(inputs.locator('.task-attachment-row')).toHaveCount(1); await expect(start).toBeEnabled();
+    await inputs.getByLabel('添加任务附件').setInputFiles({ name: 'cancel.txt', mimeType: 'text/plain', buffer: Buffer.from('不再上传') });
+    await expect(inputs).toContainText('上传暂不可用'); await expect(start).toBeDisabled();
+    await inputs.getByRole('button', { name: '取消此上传', exact: true }).click();
+    await expect(start).toBeEnabled(); await start.click();
+    await inspector.getByText('执行输入历史', { exact: true }).click();
+    await expect(inspector.getByRole('region', { name: '执行输入历史' })).toContainText('1 个附件');
+    await page.screenshot({ path: info.outputPath('complete-input-started.png') });
+  } finally { release(); }
+});

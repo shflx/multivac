@@ -42,15 +42,26 @@ export class TaskAttachmentService {
     if (!item) throw new TaskServiceError('NOT_FOUND', '附件不存在、已移除或不属于当前任务。');
     return item;
   }
+  /** 请求正文尚在接收时也占用输入，防止另一个窗口提前固定不完整清单。 */
+  receive(owner: AttachmentOwner, id: string, name: string, read: () => Promise<Buffer>): Promise<TaskAttachment> {
+    return this.pendingUpload(owner, async () => this.upload(owner, id, name, await read()));
+  }
   upload(owner: AttachmentOwner, id: string, name: string, data: Buffer): Promise<TaskAttachment> {
+    return this.pendingUpload(owner, () => {
+      const result = this.tail.then(() => this.save(owner, id, name, data));
+      this.tail = result.catch(() => {});
+      return result;
+    });
+  }
+  private async pendingUpload<T>(owner: AttachmentOwner, action: () => Promise<T>): Promise<T> {
+    this.check(owner, true);
     const key = this.key(owner);
     this.pending.set(key, (this.pending.get(key) ?? 0) + 1);
-    const result = this.tail.then(() => this.save(owner, id, name, data)).finally(() => {
+    try { return await action(); }
+    finally {
       const remaining = (this.pending.get(key) ?? 1) - 1;
       if (remaining) this.pending.set(key, remaining); else this.pending.delete(key);
-    });
-    this.tail = result.catch(() => {});
-    return result;
+    }
   }
   private async save(owner: AttachmentOwner, id: string, name: string, data: Buffer): Promise<TaskAttachment> {
     this.check(owner, true);

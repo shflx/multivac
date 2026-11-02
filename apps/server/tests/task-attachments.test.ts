@@ -111,6 +111,14 @@ test('上传中不能消费暂存身份，执行及终态不能改动当前附�
     assert.throws(() => f.app.tasks.create(input), /仍在上传/);
     await upload;
     const task = f.app.tasks.create(input).task;
+    let complete!: (data: Buffer) => void;
+    const body = new Promise<Buffer>(resolve => { complete = resolve; });
+    const receiving = f.app.taskAttachments.receive({ taskId: task.taskId }, randomUUID(), 'slow.txt', () => body);
+    try {
+      await assert.rejects(f.app.taskExecution.control(task.taskId, { commandId: 'start-receiving', revision: task.revision, action: 'start' }), /仍有附件上传/);
+    } finally { complete(Buffer.from('收到全部正文后才能固定')); await receiving; }
+    await assert.rejects(f.app.taskAttachments.receive({ taskId: task.taskId }, randomUUID(), 'aborted.txt', async () => { throw new Error('正文中断'); }), /正文中断/);
+    assert.equal(f.app.taskAttachments.freeze([task.taskId]).attachments.length, 2);
     f.adapter.armPromptCompletionBarrier();
     await f.app.taskExecution.control(task.taskId, { commandId: 'start', revision: task.revision, action: 'start' });
     await assert.rejects(f.app.taskAttachments.upload({ taskId: task.taskId }, randomUUID(), 'late', Buffer.from('late')), /不能修改/);
@@ -363,6 +371,21 @@ test('HTTP 附件接口核对归属、来源、真实类型与下载头，默认
     const api = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
     const task = app.tasks.create({ commandId: 'http', title: 'HTTP 上传', goal: '核对接口' }).task;
     const other = app.tasks.create({ commandId: 'http-other', title: '其他任务', goal: '归属' }).task;
+    const { request: httpRequest } = await import('node:http');
+    const started = new Promise<void>(resolve => app.server.once('request', () => setImmediate(resolve)));
+    let send!: import('node:http').ClientRequest;
+    const received = new Promise<import('node:http').IncomingMessage>((resolve, reject) => {
+      send = httpRequest(`${api}/api/tasks/${task.taskId}/attachments/${randomUUID()}?name=slow.txt`, { method: 'PUT', headers: { 'content-length': '2' } }, resolve);
+      send.once('error', reject);
+    });
+    send.write('a'); await started;
+    try { assert.throws(() => app.taskAttachments.freeze([task.taskId]), /仍有附件上传/); }
+    finally {
+      send.end('b'); const response = await received;
+      for await (const _ of response) { /* 消费响应，让连接正常结束。 */ }
+      assert.equal(response.statusCode, 200);
+    }
+    assert.equal(app.taskAttachments.freeze([task.taskId]).attachments.length, 1);
     const id = randomUUID(), path = `/api/tasks/${task.taskId}/attachments/${id}`;
     const uploaded = await fetch(`${api}${path}?name=${encodeURIComponent('../../input.png')}`, { method: 'PUT', headers: { 'content-type': 'image/png' }, body: 'actual utf8 text' });
     assert.ok(uploaded.ok); assert.equal((await uploaded.json()).capability, 'text');

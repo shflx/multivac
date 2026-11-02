@@ -1,5 +1,5 @@
 import { TaskAttachments } from './task-attachments.js';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowRight, Bot, CircleAlert, FileText, MoreHorizontal } from 'lucide-react';
 import type { Task, TaskDetail, HumanRequest } from '@multivac/contracts';
 import { TaskRequestCard } from './task-request-card.js';
@@ -8,16 +8,18 @@ import { taskColumn, taskLabel } from './task-panel-state.js';
 import { TaskFilter } from './task-filter.js';
 
 /** 详情先呈现当前需要处理的事；长目标、历史版本和进展按需展开。 */
-export function TaskInspectorContent({ task, detail, requests, project, agent, parent, navigation, actions, management, relations, error, retry, earlier, loadingEarlier, onPriority, onOpenSession, onHumanOnly, humanOnlyBusy }: {
+export function TaskInspectorContent({ task, detail, requests, project, agent, parent, navigation, actions, management, relations, error, retry, earlier, loadingEarlier, onPriority, onOpenSession, onHumanOnly, humanOnlyBusy, onAttachmentsBlocked }: {
   task: Task; detail: TaskDetail | null; requests: readonly HumanRequest[]; project: string;
   /** 执行智能体的显示名。 */
   agent: string;
   parent: ReactNode; navigation: ReactNode; actions: ReactNode; management: ReactNode; relations: ReactNode;
   error: string; retry: () => void; earlier: () => void; loadingEarlier: boolean;
   humanOnlyBusy: boolean;
+  onAttachmentsBlocked: (taskId: string, blocked: boolean) => void;
   onHumanOnly: (value: boolean) => void;
   onPriority: (priority: Task['priority']) => void; onOpenSession: (id: string) => void;
 }) {
+  const attachmentStatus = useCallback((blocked: boolean) => onAttachmentsBlocked(task.taskId, blocked), [onAttachmentsBlocked, task.taskId]);
   const [goalExpanded, setGoalExpanded] = useState(false);
   const longGoal = task.goal.length > 120 || task.goal.split('\n').length > 3;
   const [allEvents, setAllEvents] = useState(false);
@@ -66,7 +68,7 @@ export function TaskInspectorContent({ task, detail, requests, project, agent, p
     {task.completionReport && <section aria-label="工作会话完成说明"><h3>完成说明</h3>{!pending.some((request) => request.completionReportId === task.completionReport!.reportId) && <p className="task-goal">{task.completionReport.summary}</p>}{task.status === 'paused' && task.feedback && <p className="task-goal">修改意见：{task.feedback}</p>}<button type="button" className="inline-link" onClick={() => onOpenSession(task.completionReport!.sessionId)}>查看来源会话</button></section>}
     <section className="task-goal-section"><h3>目标</h3><p className={goalExpanded || !longGoal ? 'task-goal' : 'task-goal collapsed'}>{task.goal}</p>{longGoal && <button type="button" className="inline-link" aria-expanded={goalExpanded} onClick={() => setGoalExpanded(!goalExpanded)}>{goalExpanded ? '收起目标' : '展开目标'}</button>}</section>
     {!detail && !error && <p className="task-muted" role="status">正在读取任务详情…</p>}
-    <TaskAttachments taskId={task.taskId} editable={!!detail && ['idle', 'paused', 'failed'].includes(task.status) && !task.executionTaskId && !detail.runs?.some(run => !run.stopConfirmed)} />
+    <TaskAttachments taskId={task.taskId} onBlocked={attachmentStatus} editable={!!detail && ['idle', 'paused', 'failed'].includes(task.status) && !task.executionTaskId && !detail.runs?.some(run => !run.stopConfirmed)} />
     {!!detail?.inputHistory?.length && <section aria-label="执行输入历史"><details><summary>执行输入历史</summary>{detail.inputHistory.map(run => <details key={run.runId}><summary>{new Date(run.createdAt).toLocaleString()} · {run.inputSnapshot!.attachments.length} 个附件</summary><p className="task-muted">运行 {run.runId} · 快照 {run.inputSnapshot!.snapshotId} · 会话 {run.sessionId}</p>{run.inputSnapshot!.attachments.map(item => <p key={item.id}>{item.name} · 来源任务 {item.taskId} · SHA-256 {item.sha256} <a className="inline-link" href={`/api/tasks/${task.taskId}/input-snapshots/${run.runId}/attachments/${item.id}/content`} download={item.name}>下载固定原件</a></p>)}</details>)}</details></section>}
     {artifacts.length > 0 && <section aria-label="成果"><h3>{reviewIds.size ? '其他成果' : '成果'}</h3>{artifact(artifacts[0]!)}{artifacts.length > 1 && <details><summary>历史成果 · {artifacts.length - 1}</summary>{artifacts.slice(1).map(artifact)}</details>}{output && !reviewIds.has(output) && <ArtifactPreview versionId={output} />}</section>}
     {relations}

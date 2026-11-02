@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState, useRef, type CSSProperties } from 'react';
 import { UserRound, Columns3, List, Search, Plus, X, Play, Pause, CircleX, MessageSquare, Trash2, ChevronDown, ChevronUp, Folder, CircleDashed, LoaderCircle, CircleAlert, CheckCircle2, ArrowRight } from 'lucide-react';
 import { type Task, type TaskDetail, type TaskControl, type TaskViewStatus } from '@multivac/contracts';
 import { useConfirm } from '../../components/confirm-card.js';
@@ -51,6 +51,13 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const [detailAttempt, setDetailAttempt] = useState(0);
   const [progressLoading, setProgressLoading] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [attachmentBlocks, setAttachmentBlocks] = useState<ReadonlySet<string>>(() => new Set());
+  const attachmentStatus = useCallback((taskId: string, blocked: boolean) => setAttachmentBlocks(current => {
+    if (current.has(taskId) === blocked) return current;
+    const next = new Set(current);
+    if (blocked) next.add(taskId); else next.delete(taskId);
+    return next;
+  }), []);
   const [order, setOrder] = useState<string[]>(() => {
     try { const value: unknown = JSON.parse(localStorage.getItem('multivac.tasks.order.v1') ?? '[]'); return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(id)).slice(0, 10000) : []; } catch { return []; }
   });
@@ -118,6 +125,10 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   const projectName = (task: Task) => workspaces?.find((workspace) => workspace.project?.projectId === task.projectId)?.name ?? (task.projectId ? '项目已失效' : '日常');
   async function act(task: Task, action: TaskControl['action']) {
     if (busy) return;
+    if ((action === 'start' || action === 'resume') && attachmentBlocks.has(task.taskId)) {
+      setNotice('附件变更尚未完成，请等待上传结束，或重试、取消失败的上传。');
+      return;
+    }
     setBusy(task.taskId); setNotice('');
     try { await store!.control(task, action); }
     catch (failure) { setNotice(failure instanceof Error ? failure.message : '操作未执行。'); }
@@ -220,19 +231,22 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
     const pending = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
     const canResume = task.status === 'paused' || (['waiting', 'recovery'].includes(task.status) && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed);
     // 卡片上需要你处理的动作保留文字；常规动作只留图标，悬停或聚焦卡片时浮现。
-    const button = (label: string, Icon: typeof Play, onClick: () => void, attention = false) => compact && !attention
-      ? <button type="button" className="icon-button task-card-primary" aria-label={`${label}：${task.title}`} title={label} disabled={busy === task.taskId} onClick={onClick}><Icon /></button>
-      : <button type="button" className={compact ? 'inline-link task-card-primary attention' : 'primary-button'} aria-label={`${label}：${task.title}`} disabled={busy === task.taskId} onClick={onClick}><Icon />{label}</button>;
+    const button = (label: string, Icon: typeof Play, onClick: () => void, { attention = false, requiresInputs = false } = {}) => {
+      const disabled = busy === task.taskId || requiresInputs && attachmentBlocks.has(task.taskId);
+      return compact && !attention
+        ? <button type="button" className="icon-button task-card-primary" aria-label={`${label}：${task.title}`} title={label} disabled={disabled} onClick={onClick}><Icon /></button>
+        : <button type="button" className={compact ? 'inline-link task-card-primary attention' : 'primary-button'} aria-label={`${label}：${task.title}`} disabled={disabled} onClick={onClick}><Icon />{label}</button>;
+    };
     return <div className={`task-actions ${compact ? 'compact' : 'task-detail-actions'}`}>
       {task.executionTaskId && !['done', 'review', 'cancelled'].includes(task.status) ? button('查看父任务执行', ArrowRight, () => { void navigateTask(task.executionTaskId!); })
-        : compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task), true)
-        : compact && abnormalTask(task) ? button('查看原因', CircleAlert, () => selectTask(task), true)
+        : compact && pending ? button(pending.kind === 'review' ? '查看成果并验收' : '处理请求', pending.kind === 'review' ? CheckCircle2 : CircleAlert, () => selectTask(task), { attention: true })
+        : compact && abnormalTask(task) ? button('查看原因', CircleAlert, () => selectTask(task), { attention: true })
         : !compact && pending ? (pending.kind === 'authorization' && task.sessionId ? button('处理授权', CircleAlert, () => onOpenSession(task.sessionId!)) : null)
         : task.humanOnly && !['done', 'cancelled'].includes(task.status) ? button('标记完成', CheckCircle2, () => void confirmHumanCompletion(task))
-        : ['idle', 'failed'].includes(task.status) ? button('启动任务', Play, () => void act(task, 'start'))
-        : canResume ? button('继续任务', Play, () => void act(task, 'resume'))
+        : ['idle', 'failed'].includes(task.status) ? button('启动任务', Play, () => void act(task, 'start'), { requiresInputs: true })
+        : canResume ? button('继续任务', Play, () => void act(task, 'resume'), { requiresInputs: true })
         // 阻塞卡片先了解卡在哪里；暂停仍可在详情里操作。
-        : compact && taskColumn(task, requests) === 'waiting' ? button('查看原因', CircleAlert, () => selectTask(task), true)
+        : compact && taskColumn(task, requests) === 'waiting' ? button('查看原因', CircleAlert, () => selectTask(task), { attention: true })
         : ['queued', 'running', 'waiting'].includes(task.status) ? button('暂停任务', Pause, () => void act(task, 'pause'))
         : compact ? button('查看详情', ArrowRight, () => selectTask(task)) : null}
       {!compact && canResume && !task.humanOnly && !pending && <small className="task-resume-hint">继续任务会按当前偏好补充执行额度，已有工作和历史记录保留。{task.parentTaskId && '父子任务共享补充后的额度。'}</small>}
@@ -315,7 +329,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
           actions={actions(chosen)} management={management(chosen)}
           relations={<TaskRelations key={chosen.taskId} task={chosen} onOpen={(id) => void navigateTask(id)} onCreateChild={() => { setCreatingParent(chosen); setCreating(true); }} />}
           error={detailError} retry={() => setDetailAttempt((attempt) => attempt + 1)} earlier={() => void earlierProgress()} loadingEarlier={progressLoading === chosen.taskId}
-          humanOnlyBusy={busy === chosen.taskId} onHumanOnly={(humanOnly) => void updateHumanOnly(chosen, humanOnly)} onOpenSession={onOpenSession} onPriority={(priority) => void store.update(chosen, { priority }).catch((failure) => setNotice(failure.message))} />
+          onAttachmentsBlocked={attachmentStatus} humanOnlyBusy={busy === chosen.taskId} onHumanOnly={(humanOnly) => void updateHumanOnly(chosen, humanOnly)} onOpenSession={onOpenSession} onPriority={(priority) => void store.update(chosen, { priority }).catch((failure) => setNotice(failure.message))} />
       </aside>}
     </div>
     {creating && <NewTaskDialog {...(creatingParent ? { parentTask: creatingParent } : {})} initialProjectId={project} projects={workspaces?.filter((workspace) => workspace.project).map((workspace) => ({ id: workspace.project!.projectId, name: workspace.name })) ?? []} onClose={() => { setCreating(false); setCreatingParent(null); }} onCreated={(task) => { setCreating(false); setCreatingParent(null); void navigateTask(task.taskId); }} />}
