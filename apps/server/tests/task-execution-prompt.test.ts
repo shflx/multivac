@@ -10,6 +10,7 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { renderInternalToolsPrompt } from '../src/modules/internal-tools/internal-tool.js';
 import { WORK_SESSION_TASK_TOOLS } from '../src/application/internal-tools/index.js';
 import { TASK_EXECUTION_TOOLS } from '../src/application/internal-tools/task-execution-tools.js';
+import { renderTaskExecutionPrompt } from '../src/application/task-execution-prompt.js';
 
 test('提示词按固定子任务范围装配，继续时保留用户原文并提供恢复入口', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-task-prompt-'));
@@ -55,6 +56,22 @@ test('提示词按固定子任务范围装配，继续时保留用户原文并�
       assert.equal(tasks.get(task.taskId).completedAt, null);
     }
   } finally { execution.dispose(); store.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('同会话 Inbox 回应只提示固定附件身份，不重复长文件名与读取说明', () => {
+  const inputSnapshot = { snapshotId: 'fixed-snapshot', fixedAt: '2026-11-02T00:00:00.000Z', attachments: [{
+    id: 'fixed-attachment', taskId: 'task', name: '长材料名称'.repeat(30), mimeType: 'text/plain', capability: 'text' as const,
+    bytes: 12, sha256: 'a'.repeat(64), createdAt: '', removedAt: null,
+  }] };
+  const task = { taskId: 'task', title: '读取材料', goal: '完整目标', scope: '', acceptanceCriteria: '核对原件', acceptance: true, feedback: '' };
+  const initial = renderTaskExecutionPrompt(task, { childCount: 0, resumed: false, inputSnapshot });
+  assert.ok(initial.includes(inputSnapshot.attachments[0]!.name));
+  const resumed = renderTaskExecutionPrompt(task, { childCount: 0, resumed: true, inputSnapshot,
+    inboxResponses: [{ requestId: 'answer', question: '采用哪份材料？', decision: 'answer', answer: '沿用原件。' }] });
+  assert.match(resumed, /沿用固定输入快照 fixed-snapshot，共 1 个附件/);
+  assert.match(resumed, /list_task_attachments\/read_task_attachment/);
+  assert.doesNotMatch(resumed, /长材料名称|输入清单预览|目标：完整目标|文本沿 nextOffset/);
+  assert.ok(resumed.length < initial.length / 2);
 });
 
 test('任务工具说明去重，普通工作会话仍使用原说明；工具注册与专属描述保留', () => {

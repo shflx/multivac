@@ -40,7 +40,7 @@ export function renderTaskExecutionPrompt(task: Pick<Task, 'taskId' | 'title' | 
       ...context.inboxResponses.map(request => `请求：${request.question}（${request.requestId}）\n用户决定：${request.decision}\n用户回应：${request.answer || '无补充内容'}`),
       `沿用本会话已有任务上下文。继续前用 get_task(taskId="${task.taskId}") 核对当前任务、原人工请求、运行停止事实及最近进展；已有恢复检查点保留，未知工具结果先只读对账，不重放副作用。回应不扩大目录、权限或验收边界。`,
       ...(context.childCount > 0 ? [`固定子任务：${context.childCount} 项，用 get_task_execution_tree 核对当前进度，沿用原固定范围。`] : []),
-      ...(inputs ? [inputs] : []),
+      ...(context.inputSnapshot ? [`沿用固定输入快照 ${context.inputSnapshot.snapshotId}，共 ${context.inputSnapshot.attachments.length} 个附件；核对清单和原件用 list_task_attachments/read_task_attachment。`] : []),
       // 依赖可能在回应期间补齐，增量提示也如实说明当前情况。
       ...(context.dependencies ? [context.dependencies] : []),
     ].join('\n\n');
