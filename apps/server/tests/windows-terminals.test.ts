@@ -115,9 +115,11 @@ test('Windows 实机终端可输入中文并取得进程树停止证明', { skip
 
 test('Windows 实机 Codex app-server 可在回环地址初始化并确认停止', { skip: process.platform !== 'win32', timeout: 40_000 }, async () => {
   const server = new CodexAppServer('win32');
+  const root = mkdtempSync(join(tmpdir(), 'multivac-codex-thread-'));
   try {
     assert.match(await server.endpoint(), /^ws:\/\/127\.0\.0\.1:\d+$/u);
-  } finally { await server.close(); }
+    assert.match(await server.createThread(root, 'Windows 终端验收'), /^[0-9a-f-]{36}$/u);
+  } finally { await server.close(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test('Windows 实机 ConPTY 可启动 Codex CLI 并确认停止', { skip: process.platform !== 'win32', timeout: 40_000 }, async () => {

@@ -46,6 +46,15 @@ jobs:
           tests/project-file-scope.test.ts
           tests/file-durability.test.ts
           tests/task-scheduler.test.ts
+          tests/unified-mcp-transports.test.ts
+          tests/mcp-authorization.test.ts
+          tests/mcp-execution.test.ts
+          tests/terminal-application.test.ts
+          tests/terminal-agent-session.test.ts
+          tests/terminal-entry.test.ts
+          tests/terminal-lifecycle.test.ts
+          tests/terminal-transport.test.ts
+          tests/terminals.test.ts
 
   macos-regression:
     runs-on: macos-15

@@ -105,3 +105,48 @@ test('真实HTTP/WS：来源拒绝、刷新快照、多窗口接管、慢窗口�
     for (const socket of sockets) socket.terminate(); closeSockets(); await service.close(); await new Promise<void>(resolve => server.close(() => resolve())); store.close(); rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('Windows 真实HTTP/WS：来源拒绝、输入快照、接管、结束及重开', { skip: process.platform !== 'win32', timeout: 60_000 }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'multivac-terminal-windows-http-'));
+  const store = new SqliteAssistantStore(join(root, 'metadata.sqlite'));
+  const project = store.projects.create({ projectId: 'windows-terminal', name: '终端验收', directories: [{ kind: 'mounted', path: root }], defaultConstraints: '', createdAt: new Date().toISOString() }).project;
+  const service = new TerminalService(store.terminals, () => project, new WorkbenchEvents(), nativeTerminalProcess);
+  const access = new RemoteAccess({ enabled: false, token: '', origin: '', host: '127.0.0.1' });
+  const route = createTerminalRoutes(service);
+  const server = createServer((request, response) => { if (guardTerminalHttp(request, response, access)) void route(request, response); });
+  const closeSockets = attachTerminalWebSockets(server, service, access);
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const post = (path: string, body: unknown, source: string | null = origin) => fetch(origin + path, { method: 'POST', headers: { 'content-type': 'application/json', ...(source ? { origin: source } : {}) }, body: JSON.stringify(body) });
+  const sockets: WebSocket[] = [];
+  try {
+    for (const source of [null, 'http://evil.example']) assert.equal((await post('/api/terminals/list', { projectId: project.projectId }, source)).status, 403);
+    const created = await post('/api/terminals', { projectId: project.projectId, preset: { kind: 'blank' }, size });
+    const createdBody = await created.text();
+    assert.equal(created.status, 200, createdBody.slice(0, 300));
+    const record = (JSON.parse(createdBody) as { terminal: ProjectTerminal }).terminal;
+    const url = `${origin.replace('http', 'ws')}/api/terminals/${record.terminalId}/stream`;
+    const first = await windowFor(url, origin); sockets.push(first.socket);
+    first.send({ type: 'input', data: "Write-Output 'WIN-TERMINAL-READY'\r" });
+    await until(() => first.data.includes('WIN-TERMINAL-READY'), 15_000);
+    const second = await windowFor(url, origin); sockets.push(second.socket);
+    assert.match(second.snapshot, /WIN-TERMINAL-READY/u);
+    second.send({ type: 'input', data: "Write-Output 'NOT-OWNER'\r" });
+    await until(() => second.messages.some(message => message.type === 'error' && message.code === 'NOT_OWNER'));
+    second.send({ type: 'takeover', size: { cols: 100, rows: 30 } });
+    await until(() => first.messages.some(message => message.type === 'owner' && message.ownerConnectionId === second.connectionId));
+    second.send({ type: 'input', data: "Write-Output 'TAKEOVER-READY'\r" });
+    await until(() => first.data.includes('TAKEOVER-READY'), 15_000);
+    const ended = await post(`/api/terminals/${record.terminalId}/end`, { instanceId: record.instanceId });
+    assert.equal(ended.status, 200); assert.equal(service.get(record.terminalId).status, 'exited');
+    const reopened = await post(`/api/terminals/${record.terminalId}/reopen`, { instanceId: record.instanceId, size });
+    assert.equal(reopened.status, 200);
+    const next = (await reopened.json() as { terminal: ProjectTerminal }).terminal;
+    assert.notEqual(next.instanceId, record.instanceId);
+    const latest = await windowFor(url, origin); sockets.push(latest.socket);
+    assert.ok(!latest.snapshot.includes('WIN-TERMINAL-READY'));
+  } finally {
+    for (const socket of sockets) socket.terminate(); closeSockets(); await service.close();
+    await new Promise<void>(resolve => server.close(() => resolve())); store.close(); rmSync(root, { recursive: true, force: true });
+  }
+});

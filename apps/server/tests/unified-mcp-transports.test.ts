@@ -8,6 +8,8 @@ import type { McpService } from '@multivac/contracts';
 import { McpConnections } from '../src/modules/mcp/connections.js';
 import { mcpFingerprint } from '../src/modules/mcp/mcp.js';
 import { mcpWireFactory } from '../src/runtime/executors/mcp-wire-factory.js';
+import { mcpProcessEnvironment } from '../src/runtime/executors/mcp-wire-factory.js';
+import { runProgramSync } from '../src/runtime/program-launch.js';
 import { McpExecutionService, type McpExecutionHost } from '../src/application/mcp-execution-service.js';
 import { mcpFixture, mcpTemporaryDirectory } from './fixtures/mcp-fixture.js';
 
@@ -16,7 +18,8 @@ async function until(check: () => boolean) {
   throw new Error('受控 MCP 未达到预期状态。');
 }
 
-for (const transport of ['stdio', 'http'] as const) test(`两类会话共用真实 MCP ${transport}：子进程/网络、真实许可、取消及版本核对`, { timeout: 30_000 }, async t => {
+for (const transport of ['stdio', 'http'] as const) test(`两类会话共用真实 MCP ${transport}：子进程/网络、真实许可、取消及版本核对`, { timeout: 45_000 }, async t => {
+  const windows = process.platform === 'win32';
   const f = mcpFixture();
   const root = realpathSync(mcpTemporaryDirectory('unified-'));
   const work = join(root, 'work'); await mkdir(work);
@@ -41,6 +44,7 @@ for (const transport of ['stdio', 'http'] as const) test(`两类会话共用真�
   const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   await writeFile(join(work, 'service.cjs'), `
 const fs=require('node:fs');
+if(process.argv.includes('--version')){console.log('fixture-ready');process.exit(0);}
 if(process.env.OPENAI_API_KEY || process.env.MULTIVAC_DATA_DIR) process.exit(44);
 const worker=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});
 fs.writeFileSync('worker.pid',String(worker.pid));
@@ -56,11 +60,16 @@ input.on('line',async line=>{
 `);
   await mkdir(join(work, 'node_modules/.bin'), { recursive: true });
   await writeFile(join(work, 'package.json'), JSON.stringify({name:'controlled-mcp',version:'1.0.0'}));
-  await writeFile(join(work, 'mcp-launcher'), '#!/bin/sh\nexec '+JSON.stringify(process.execPath)+' service.cjs\n', {mode:0o755});
-  await symlink('../../mcp-launcher', join(work, 'node_modules/.bin/unified-mcp'));
+  if (windows) await writeFile(join(work, 'node_modules/.bin/unified-mcp.cmd'), `@echo off\r\n"${process.execPath}" "%~dp0..\\..\\service.cjs" %*\r\n`);
+  else {
+    await writeFile(join(work, 'mcp-launcher'), '#!/bin/sh\nexec '+JSON.stringify(process.execPath)+' service.cjs\n', {mode:0o755});
+    await symlink('../../mcp-launcher', join(work, 'node_modules/.bin/unified-mcp'));
+  }
   // 真实 npx 启动本地夹具，不下载第三方包，也不采用用户 npm 配置。
   const definition: McpService['transport'] = transport === 'stdio'
-    ? { kind: 'stdio', command: 'npx', args: ['--offline', '--no-install', '--cache', join(root, 'cache'), '--userconfig', '/dev/null', 'unified-mcp'], cwd: null, environmentKeys: [] }
+    ? { kind: 'stdio', command: 'npx', args: windows
+      ? ['--offline', '--no-install', '--cache', join(root, 'cache'), '--userconfig', 'NUL', '--call', 'unified-mcp']
+      : ['--offline', '--no-install', '--cache', join(root, 'cache'), '--userconfig', '/dev/null', 'unified-mcp'], cwd: null, environmentKeys: [] }
     : { kind: 'streamable-http', url: url + '/mcp' };
   const service = { ...f.service, revision: 2, transport: definition, configVersion: mcpFingerprint(definition) };
   f.repository.commit('transport', mcpFingerprint(service), new Date().toISOString(), tx => tx.put('service', service, 1));
@@ -80,6 +89,13 @@ input.on('line',async line=>{
   const connections = new McpConnections(f.repository, mcpWireFactory(host, accounts, [], f.repository));
   const execution = new McpExecutionService(f.repository, connections, host);
   try {
+    if (windows && transport === 'stdio') {
+      const probe = runProgramSync('npx.cmd', ['--offline', '--no-install', '--cache', join(root, 'cache'), '--userconfig', 'NUL', '--call', 'unified-mcp --version'], {
+        cwd: work, env: mcpProcessEnvironment({}), encoding: 'utf8', timeout: 10000,
+      });
+      assert.equal(probe.status, 0, JSON.stringify({ error: probe.error?.message, stderr: probe.stderr, stdout: probe.stdout }));
+      assert.match(probe.stdout, /fixture-ready/u);
+    }
     for (const session of ['work', 'task']) {
       t.diagnostic(`${session}: connecting`);
       const live = await connections.connect('service', 'account', { sessionId: session, host: session === 'task' ? 'task' : 'work' });

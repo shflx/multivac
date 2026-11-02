@@ -26,6 +26,7 @@ const Title = Type.String({ minLength: 1, maxLength: TERMINAL_TITLE_MAX_LENGTH, 
 const Watermark = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 const NullableText = Type.Union([Type.String({ minLength: 1 }), Type.Null()]);
 const Uuid = Type.String({ pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' });
+const LocalDirectory = Type.String({ minLength: 1, maxLength: 4096, pattern: '^(?:/[^\u0000]*|[A-Za-z]:\\\\[^\u0000]*)$' });
 
 /** 预设决定启动图标；不依据前台程序更新身份。argv 始终逐项保存，不能拼成未转义的 shell 文本。 */
 export const TerminalPresetSchema = Type.Union([
@@ -73,7 +74,7 @@ export type TerminalStatus = Type.Static<typeof TerminalStatusSchema>;
 /** SQLite 仅保存这份元数据。无 PID、连接、正文、画面、输入或 ACK 水位。 */
 export const ProjectTerminalSchema = Type.Object({
   terminalId: Id, projectId: ProjectIdSchema, instanceId: Id, title: Title,
-  directory: Type.String({ minLength: 1, maxLength: 4096, pattern: '^/[^\u0000]*$' }),
+  directory: LocalDirectory,
   preset: TerminalPresetSchema, status: TerminalStatusSchema,
   lastExit: Type.Union([TerminalExitSchema, Type.Null()]),
   createdAt: Timestamp, instanceStartedAt: Timestamp, lastActivityAt: Timestamp,
@@ -91,7 +92,7 @@ export const TerminalResponseSchema = Type.Object({ terminal: ProjectTerminalSch
 export const TerminalListResponseSchema = Type.Object({ terminals: Type.Array(ProjectTerminalSchema) }, { additionalProperties: false });
 
 export const CreateTerminalSchema = Type.Object({
-  projectId: ProjectIdSchema, directory: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, pattern: '^/[^\u0000]*$' })),
+  projectId: ProjectIdSchema, directory: Type.Optional(LocalDirectory),
   preset: TerminalPresetSchema, title: Type.Optional(Title), size: TerminalSizeSchema,
 }, { additionalProperties: false });
 export type CreateTerminal = Type.Static<typeof CreateTerminalSchema>;

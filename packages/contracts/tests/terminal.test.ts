@@ -11,6 +11,8 @@ test('终端：尺寸、预设及创建参数严格校验', () => {
   for (const size of [{ cols: 9, rows: 4 }, { cols: 241, rows: 4 }, { cols: 80, rows: 3 }, { cols: 80, rows: 101 }, { cols: 80.5, rows: 24 }]) assert.equal(Check(TerminalSizeSchema, size), false);
   const request = { projectId: 'project', preset: { kind: 'custom', executable: 'printf', argv: ['%s', 'a b', "a'b", ''] }, size: { cols: 80, rows: 24 } };
   assert.ok(Check(CreateTerminalSchema, request));
+  assert.ok(Check(CreateTerminalSchema, { ...request, directory: 'E:\\中文 项目\\work' }));
+  for (const directory of ['E:relative', '\\\\server\\share', '\\\\?\\E:\\work', 'E:/work']) assert.equal(Check(CreateTerminalSchema, { ...request, directory }), false);
   for (const patch of [{ directory: '../outside' }, { preset: { kind: 'blank', argv: [] } }, { preset: { kind: 'custom', executable: ' ', argv: [] } }, { preset: { kind: 'codex', argv: ['\0'] } }, { title: ' ' }, { taskId: 'task' }]) assert.equal(Check(CreateTerminalSchema, { ...request, ...patch }), false);
   assert.equal(Check(TerminalCommandPresetsSchema, [{ presetId: 'p', title: '自定义', command: request.preset }]), true);
 });
@@ -42,5 +44,6 @@ test('终端：退出码 0 且存在信号不表示成功；持久化元数据�
   assert.equal(terminalExitedSuccessfully({ ...exit, reason: 'user-ended' }), false);
   const record = { terminalId: 't', projectId: 'p', instanceId: 'i', title: '终端', directory: '/project', preset: { kind: 'blank' }, status: 'starting', lastExit: null, createdAt: 'now', instanceStartedAt: 'now', lastActivityAt: 'now', closedAt: null, unread: false, notificationCount: 0 };
   assert.ok(Check(ProjectTerminalSchema, record));
+  assert.ok(Check(ProjectTerminalSchema, { ...record, directory: 'E:\\中文 项目\\work' }));
   for (const field of ['output', 'pid', 'snapshot', 'watermark', 'connectionId', 'taskId']) assert.equal(Check(ProjectTerminalSchema, { ...record, [field]: 'forbidden' }), false);
 });

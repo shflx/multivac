@@ -93,3 +93,38 @@ test('终端创建卡：长目录不撑出卡片，命令解析错误保留输�
   await page.screenshot({ path: info.outputPath('terminal-create-invalid-command.png') });
   await page.keyboard.press('Escape'); await expect(dialog).toBeHidden();
 });
+
+test('Windows 浏览器：新建 PowerShell 终端、刷新、接管与结束', async ({ page, request, context }) => {
+  test.skip(process.platform !== 'win32');
+  test.setTimeout(60_000);
+  await resetE2eState(request);
+  const created = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: 'Windows 终端验收' } });
+  expect(created.status()).toBe(201);
+  const { project } = await created.json();
+  await page.goto('/'); await openPanel(page, 'workspace'); await ensureWorkspaceRail(page);
+  const group = page.locator(`[data-workspace-id="${project.projectId}"]`);
+  await group.locator('.rail-folder-toggle').click();
+  await group.getByRole('button', { name: '在「Windows 终端验收」新建会话或终端', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^空白终端/ }).click();
+  await expect(view(page)).toHaveAttribute('data-connection', 'connected');
+  const terminalId = await page.locator('.rail-item[data-terminal-id]').getAttribute('data-terminal-id');
+  await command(page, "Write-Output 'WINDOWS-BROWSER-READY'");
+  await expect.poll(() => output(page), { timeout: 15_000 }).toContain('WINDOWS-BROWSER-READY');
+  await page.reload();
+  await expect(view(page)).toHaveAttribute('data-connection', 'connected');
+  await expect.poll(() => output(page)).toContain('WINDOWS-BROWSER-READY');
+  const second = await context.newPage();
+  try {
+    await second.goto('/'); await openPanel(second, 'workspace'); await ensureWorkspaceRail(second);
+    await second.locator(`.rail-item[data-terminal-id="${terminalId}"] .rail-session-open`).click();
+    await expect(view(second)).toHaveAttribute('data-owner', 'false');
+    await view(second).locator('.xterm-helper-textarea').focus();
+    await expect(view(second)).toHaveAttribute('data-owner', 'true');
+    await command(second, "Write-Output 'WINDOWS-TAKEOVER-READY'");
+    await expect.poll(() => output(second), { timeout: 15_000 }).toContain('WINDOWS-TAKEOVER-READY');
+    await menuAction(second, '结束进程');
+    await expect(view(second)).toContainText('用户结束');
+    await view(second).getByRole('button', { name: '关闭终端', exact: true }).click();
+    await expect(second.locator(`.rail-item[data-terminal-id="${terminalId}"]`)).toHaveCount(0);
+  } finally { await second.close(); }
+});

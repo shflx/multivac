@@ -12,7 +12,7 @@ export function createPlatformCapabilities(host: { platform: NodeJS.Platform; ar
     startup: null,
     taskExecution: null,
     gitPublish: null,
-    terminal: mac && host.arch === 'arm64' ? null : '项目终端仅支持 macOS arm64 本机桌面。',
+    terminal: mac && host.arch === 'arm64' ? null : '项目终端仅支持 macOS arm64 或 Windows 11 x64 本机桌面。',
     mcpStdio: host.platform === 'win32' ? '当前平台尚不支持 MCP stdio。' : null,
     taskTools: mac ? null : '当前平台尚无通过验证的原生任务工具隔离，未启动任务。',
     command: host.platform === 'win32' ? '当前共用 bash 后端尚不支持 Windows。' : null,
@@ -27,7 +27,7 @@ export function createPlatformCapabilities(host: { platform: NodeJS.Platform; ar
   };
   return Object.freeze({ platform: host.platform, arch: host.arch,
     denial: (capability: PlatformCapability) => host.platform === 'win32'
-      ? (capability === 'startup' || capability === 'command' || capability === 'remote' || capability === 'taskExecution') && host.arch === 'x64' ? null
+      ? (capability === 'startup' || capability === 'command' || capability === 'remote' || capability === 'taskExecution' || capability === 'mcpStdio' || capability === 'terminal') && host.arch === 'x64' ? null
         : `Windows 能力（${capability}）尚待 Windows 11 x64 实机验证，当前不可用。`
       : reasons[capability] });
 }

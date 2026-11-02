@@ -4,7 +4,7 @@
 
 本分支主要在 macOS 开发。2026-11-01 在 Windows 11 x64、Node 24.13.1、PowerShell 5.1、C: 与 E: NTFS 卷上完成依赖安装、类型检查、生产构建、contracts 68 项、Web 292 项及 Windows 定向回归。真实 Windows 覆盖 npm 启动路径、私有目录与凭据文件 ACL、文件占用、同卷及跨卷中文目录移动、PowerShell 输出和退出码、CIM 进程身份与停止、ConPTY 启动；Pi 最小 smoke 使用 deepseek/deepseek-flash 与 Anthropic Messages endpoint 成功完成真实模型回复。跨账号 ACL 读取按本次用户要求跳过，未计为通过。
 
-新增 `.github/workflows/windows-native.yml`，以 Windows PowerShell 5.1 运行 Windows 检查，并保留 macOS 针对性回归；远程 CI 尚未执行。Windows x64 的启动、对话、文件工具、共用命令、任务独立目录执行与显式启用的远程入口已在本机开放；MCP、终端和 Git 发布等能力继续由 PlatformCapabilities 拒绝。M1 的跨账号 ACL 读取依用户要求跳过，不计为通过；完整应用恢复和路径故障场景仍有未验收项。
+新增 `.github/workflows/windows-native.yml`，以 Windows PowerShell 5.1 运行 Windows 检查，并保留 macOS 针对性回归；远程 CI 尚未执行。Windows x64 的启动、对话、文件工具、共用命令、任务独立目录执行、MCP stdio、本机项目终端与显式启用的远程入口已在本机开放；Git 发布等能力继续由 PlatformCapabilities 拒绝。M1 的跨账号 ACL 读取依用户要求跳过，不计为通过；完整应用恢复和路径故障场景仍有未验收项。
 
 本轮补测在 Windows 11 x64 上完成共用命令、后台 HTTP 服务、取消、超时、输出额度、根退出后的子进程追踪、ConPTY 中文输入及停止、Node 与 `.cmd` MCP stdio 中文协议与停止。更新后的 Windows CI 同范围定向集 105 项通过、3 项按环境或平台条件跳过。`npm run check`、目录读取授权和会话命令准入回归通过。独立数据目录下的 Windows 浏览器 E2E 已让工作会话调用真实 PowerShell 工具并核对输出。第三方 CLI 的完整工作流仍未验收。
 
@@ -98,8 +98,7 @@ Windows stdio 启动复用 program-launch：Node、uvx 等原生 argv 直接运�
 
 连接前沿用账号、目录、项目、分类和逐次许可核对，取消及未知调用不重发。Windows 关闭连接通过结束输入请求监护清理，不强杀监护器后冒充服务已退出。CIM 查询失败、异常退出等无法证明停止时保留原租约和恢复事实。私有凭据只注入配置声明的环境，不进入公开日志；Windows 按大小写保护执行环境，拒绝覆盖 PATH、ComSpec、NODE_/OPENSSL_ 等监护运行变量。未自动继承服务端模型密钥。
 
-MCP stdio 能力仍关闭。替身核对握手、字节传输、取消前不启动与查询失败不提供证明；macOS 真实 stdio/HTTP、任务/工作会话许可和版本回归通过。Windows npx/uvx、实际 MCP 服务协议及后代退出均待实机验证，采样遗漏边界同 ProcessSupervisor。
-本轮 Node 本地夹具经原生 argv 与 `.cmd` 启动器完成中文 JSON 请求响应和进程树退出确认。应用账号许可链路仍待实机验证，MCP stdio 门禁保持关闭。
+Windows x64 MCP stdio 已开放。Node 本地夹具经原生 argv 与 `.cmd` 启动器完成中文 JSON 请求响应和进程树退出确认；真实 `npx.cmd --call` 离线启动本地 MCP 服务，工作会话与任务会话均完成连接、账号许可、调用、取消、版本核对及后代停止。Windows 的 `npx.cmd` 位置参数形式在离线缓存缺失时尝试访问 registry，因此本地夹具使用 `--call`。`uvx.exe --version` 已通过，uvx 托管的 MCP 服务链路仍未实测。采样遗漏边界同 ProcessSupervisor。
 
 ## 项目终端与 CLI
 
@@ -109,5 +108,4 @@ ConPTY 的 Node 根先等 CIM 身份握手，再以继承控制台方式启动�
 
 自管 Codex app-server 仅监听动态 127.0.0.1 WebSocket 地址，与终端共用 Windows CLI 启动；复用 CIM 根握手监督，宿主输入管道关闭即请求停止。连接异常、初始化/就绪超时及正常退出均请求清理；原实例未确认停止时拒绝启动新实例，停止超时明确失败。macOS 看门狗保持原行为。终端身份、Host/Origin、远程拒绝、刷新/重开和会话 ID 跟踪规则保持原样。
 
-4 项平台替身核对默认程序、参数、输入握手、PID 复用、查询失败和停止凭据；现有真实 macOS PTY、画面与 CLI 会话跟踪定向回归通过。Windows 实机已核对 ConPTY 启动 PowerShell 并读取输出。本机可执行版本为 Claude Code 2.1.29、Codex CLI 0.163.0、uvx 0.6.14。组合键、CLI 交互、app-server 建立会话和完整服务退出仍待实机测试。terminal 能力关闭，PROJECT_CONSTRAINTS.md 的 macOS arm64 开放边界保持不变。
-本轮真实 ConPTY 空白 PowerShell 终端完成中文输入及进程树停止证明。停止确认后释放 node-pty 句柄；锁定版本的控制台列表辅助脚本只对已退出目标的 `AttachConsole failed` 返回空列表，避免释放时异常。Codex app-server 经本机回环 WebSocket 初始化并确认进程停止；Codex CLI 通过已配置的 API key 完成一次临时只读模型请求，ConPTY 预设也成功启动 CLI 并确认退出。Claude CLI 的账号返回订阅无效；CLI 交互、app-server 建立会话及完整应用退出仍未验收，终端门禁保持关闭。
+Windows 11 x64 的本机项目终端已开放。实机 ConPTY 空白 PowerShell 终端完成中文输入及进程树停止证明；终端生命周期验证了目录卸载、停止未确认保护与项目收尾。HTTP/WS 验证了来源拒绝、输入与快照、双窗口接管、结束及重开；真实应用验证了正常退出先收尾终端、重启后只恢复结束元数据。Chromium 浏览器从项目菜单新建终端后完成输入、刷新、第二窗口接管与停止。Codex app-server 经回环 WebSocket 创建并命名会话，停止时确认进程退出；Codex CLI 已通过临时只读模型请求，ConPTY 预设启动与停止通过。Claude CLI 的账号返回订阅无效；两个 CLI 的完整浏览器交互和会话接回仍未实测。锁定版本 node-pty 的控制台列表辅助脚本只对已退出目标的 `AttachConsole failed` 返回空列表，升级仍须复验。

@@ -51,6 +51,7 @@ test('终端守卫：HTTP与upgrade在下游读取/创建/附着前拒绝非法�
     }
     assert.equal(reads, 0); assert.equal(attachments, 0);
     assert.equal(terminalEntryDenial(local(), access, { platform: 'darwin', arch: 'arm64' }), null);
+    assert.equal(terminalEntryDenial(local(), access, { platform: 'win32', arch: 'x64' }), null);
     for (const platform of [{ platform: 'linux', arch: 'arm64' }, { platform: 'darwin', arch: 'x64' }] as const) assert.match(terminalEntryDenial(local(), access, platform)!, /macOS arm64/u);
   } finally { access.close(); }
 });

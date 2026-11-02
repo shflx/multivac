@@ -1,13 +1,13 @@
 # 项目终端
 
-项目终端让用户在项目目录运行交互 shell、Claude Code、Codex 或自定义程序。首版支持 **macOS arm64 的本机桌面浏览器**。远程访问、手机和其他服务端平台没有启动入口，服务端也拒绝对应的 HTTP 和 WebSocket 请求。
+项目终端让用户在项目目录运行交互 shell、Claude Code、Codex 或自定义程序。支持 **macOS arm64 与 Windows 11 x64 的本机桌面浏览器**。远程访问、手机和其他服务端平台没有启动入口，服务端也拒绝对应的 HTTP 和 WebSocket 请求。
 
 ## 创建与使用
 
 1. 在工作区侧栏展开项目，点击 `+`。菜单分为会话和终端；终端包含空白终端、Claude Code、Codex、自定义命令。
 2. 项目只有一个目录时，空白终端、Claude Code、Codex 直接在该目录启动；项目有多个目录时在创建卡中选择，默认主目录。修改主目录不移动已有终端；移除终端正在使用的目录会触发进程收尾。
 3. 自定义命令写成一行，例如 `npm run dev`；Claude Code、Codex 可在创建卡中追加参数。命令按空白拆分，支持单双引号与反斜杠转义，不做变量展开或通配；拆出的各项参数逐项交给程序，不再拼成 shell 文本。要使用重定向或管道，可以显式运行 `/bin/sh -c '你的命令'`。自定义命令可以保存为常用命令，之后在创建卡中一键填入。
-4. CLI 需要用户自行安装并登录。Multivac 使用登录交互 shell 启动程序；缺少程序、未登录及程序自己的确认界面均在终端中如实呈现。终端不替用户批准 CLI 的权限请求。
+4. CLI 需要用户自行安装并登录。macOS 使用登录交互 shell，Windows 使用 ConPTY 启动 PowerShell 或所选 CLI；缺少程序、未登录及程序自己的确认界面均在终端中如实呈现。终端不替用户批准 CLI 的权限请求。
 
 终端与会话按最近活动混排，启动预设决定图标；运行中不显示文字，有新输出显示圆点，终端发出通知显示铃铛，结束后显示退出码或信号。并排时终端与会话一起占用栏位：会话按工作区现场填入各栏，仍有空栏时自动放入本项目的终端（新建的在前）；并排时新建的终端进入第一栏。侧栏“更多”菜单可以把终端放进指定的栏，点击未显示的终端则单独查看。终端占用的栏位只在本窗口生效，不写入工作区现场；显示终端时不把栏位作为当前视图交给 Multivac。终端标题栏与会话一致：点击后成为当前对象，“更多”菜单中有全屏、结束进程与关闭终端；改名在侧栏“更多”菜单中。进程结束后画面保留，底部提供关闭与重新打开。普通聊天不会初始化 xterm。浏览器可复制选中的终端文字、粘贴输入并打开链接；链接使用独立窗口且不携带 opener。
 
@@ -51,7 +51,7 @@
 
 SQLite 只保存终端元数据和启动参数；自定义预设保存在偏好。PTY 输出、输入、画面、PID、连接和 ACK 水位只存在服务进程内存中，不进入工作台持久事件、会话历史或模型上下文。终端不创建 Task/Run、Inbox、成果或工具授权，不提供引用到对话的入口。验证脚本显式保存的截图和测试日志属于开发验收材料，不是运行期终端日志。
 
-HTTP 和 WebSocket 在查终端、创建进程或附着之前共同核对：macOS arm64、本机桌面身份、实际回环对端，以及完整 Host/Origin 的协议、主机和端口。终端读取也使用带 JSON 正文的 POST，缺 Origin 不放行。生产登记 API 端口；开发另登记 5173 代理入口，不接受任意 localhost 端口或转发头伪装。远程 `/api/events` 不投递终端工作台事件。
+HTTP 和 WebSocket 在查终端、创建进程或附着之前共同核对：macOS arm64 或 Windows 11 x64、本机桌面身份、实际回环对端，以及完整 Host/Origin 的协议、主机和端口。终端读取也使用带 JSON 正文的 POST，缺 Origin 不放行。生产登记 API 端口；开发另登记 5173 代理入口，不接受任意 localhost 端口或转发头伪装。远程 `/api/events` 不投递终端工作台事件。
 
 每终端独立 headless，解析输出、resize 和快照使用同一队列及内部顺序号。尺寸为 10–240 列、4–100 行。待解析超过 256 KiB 暂停读取，低于 64 KiB 恢复；解析缓存硬限 1 MiB，超过则收尾当前实例。WebSocket 每帧不超过 16 KiB，禁用压缩；每窗口未确认输出超过 256 KiB 时暂停向该窗口发送，等它确认完已发内容后补发当前画面快照（跳过中间输出），不断开连接，输入照常；接回期间积压超过上限同样改为快照结束后再补发一次。正在查看的终端不标记未读，活动时间最多 5 秒更新一次，状态不变时不发布工作台事件。根进程退出后不再写入 PTY。控制消息队列及浏览器写入队列也有上限。不设固定终端数量上限。
 
@@ -92,6 +92,16 @@ npm run check -w @multivac/web
 npm run build -w @multivac/web
 node_modules/.bin/tsx --test apps/server/tests/terminal-*.test.ts apps/server/tests/terminals.test.ts packages/contracts/tests/terminal.test.ts
 MULTIVAC_MODE=development MULTIVAC_E2E_API_PORT=4329 npx playwright test -c playwright.terminals.config.ts
+```
+
+Windows PowerShell 5.1 使用：
+
+```powershell
+npm.cmd run build -w @multivac/contracts
+npm.cmd run build -w @multivac/web
+npx.cmd tsx --test apps/server/tests/terminal-application.test.ts apps/server/tests/terminal-entry.test.ts apps/server/tests/terminal-lifecycle.test.ts apps/server/tests/terminal-transport.test.ts apps/server/tests/windows-terminals.test.ts packages/contracts/tests/terminal.test.ts
+$env:MULTIVAC_E2E_API_PORT = '4329'
+npx.cmd playwright test -c playwright.terminals.config.ts --grep 'Windows 浏览器'
 ```
 
 真实 CLI 验证需要本机安装并登录，显式增加 `MULTIVAC_TERMINAL_CLI_E2E=1`。它启动真实 CLI 并使用 `/help` 测试交互、刷新、第二窗口和接管；不调用模型执行文件或命令工作。第一次进入测试创建的目录时，CLI 可能显示自己的目录信任页。安装、登录、目录确认或其他 CLI 前置条件缺失时，应保留失败/未完成记录，不能以模拟 CLI 替代真实通过。Vite 已有漏洞评估属于独立维护范围，本功能不升级 Vite。

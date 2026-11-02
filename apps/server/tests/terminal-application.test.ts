@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
-test('真实应用：正常退出先停止终端再关库，重新启动清空遗留运行状态且不恢复画面', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' }, async () => {
+test('真实应用：正常退出先停止终端再关库，重新启动清空遗留运行状态且不恢复画面', { skip: process.platform !== 'win32' && (process.platform !== 'darwin' || process.arch !== 'arm64'), timeout: 60_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-terminal-app-'));
   const environment = testApplicationEnvironment(root);
   const app = createMultivacApplication(environment); let closed = false;

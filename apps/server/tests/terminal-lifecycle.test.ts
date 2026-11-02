@@ -17,7 +17,7 @@ function fixture() {
   const events = new WorkbenchEvents(); const service = new TerminalService(store.terminals, id => store.projects.get(id)!, events, nativeTerminalProcess);
   return { root, project, store, service, events, async close() { await service.close(); store.close(); rmSync(root, { recursive: true, force: true }); } };
 }
-test('生命周期：目录卸载只停止受影响终端，原目录不可用时拒绝重开，正常服务退出先收尾', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' }, async () => {
+test('生命周期：目录卸载只停止受影响终端，原目录不可用时拒绝重开，正常服务退出先收尾', { skip: process.platform !== 'win32' && (process.platform !== 'darwin' || process.arch !== 'arm64'), timeout: 40_000 }, async () => {
   const f = fixture();
   try {
     const first = f.service.create({ projectId: f.project.projectId, preset: { kind: 'blank' }, size });
@@ -32,7 +32,7 @@ test('生命周期：目录卸载只停止受影响终端，原目录不可用�
     assert.equal(f.service.get(second.terminalId).lastExit?.reason, 'service-shutdown'); assert.equal(f.service.runtime(second.terminalId), undefined);
   } finally { await f.close(); }
 });
-test('生命周期：无法确认停止时保留未确认且禁止关闭重开；项目收尾覆盖所有终端', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' }, async () => {
+test('生命周期：无法确认停止时保留未确认且禁止关闭重开；项目收尾覆盖所有终端', { skip: process.platform !== 'win32' && (process.platform !== 'darwin' || process.arch !== 'arm64'), timeout: 40_000 }, async () => {
   const f = fixture();
   try {
     const record = f.service.create({ projectId: f.project.projectId, preset: { kind: 'blank' }, size });
@@ -49,11 +49,14 @@ test('生命周期：无法确认停止时保留未确认且禁止关闭重开�
     assert.ok(f.service.list(f.project.projectId).every(item => item.status === 'exited' && item.lastExit?.reason === 'project-removed'));
   } finally { await f.close(); }
 });
-test('生命周期：重启只改遗留元数据，新实例无旧画面；反复创建结束关闭释放运行资源', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' }, async () => {
+test('生命周期：重启只改遗留元数据，新实例无旧画面；反复创建结束关闭释放运行资源', { skip: process.platform !== 'win32' && (process.platform !== 'darwin' || process.arch !== 'arm64'), timeout: 60_000 }, async () => {
   const f = fixture();
   try {
     for (let i = 0; i < 5; i++) {
-      const record = f.service.create({ projectId: f.project.projectId, preset: { kind: 'custom', executable: '/bin/sh', argv: ['-c', 'printf OLD-SCREEN; exit 1'] }, size });
+      const preset = process.platform === 'win32'
+        ? { kind: 'custom' as const, executable: 'powershell.exe', argv: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Write-Output OLD-SCREEN; exit 1'] }
+        : { kind: 'custom' as const, executable: '/bin/sh', argv: ['-c', 'printf OLD-SCREEN; exit 1'] };
+      const record = f.service.create({ projectId: f.project.projectId, preset, size });
       await until(() => f.service.get(record.terminalId).status === 'exited');
       assert.equal(f.service.get(record.terminalId).lastExit?.code, 1);
       await f.service.closeTerminal(record.terminalId, record.instanceId, false);
