@@ -1,3 +1,4 @@
+import { TaskAttachmentReader } from '../application/task-attachment-reader.js';
 import { TaskAttachmentService } from '../application/task-attachment-service.js';
 import { ScheduleInputService } from '../application/schedule-input-service.js';
 import { SqliteScheduleInputs } from '../storage/sqlite-schedule-inputs.js';
@@ -408,6 +409,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const webSettings = new WebSettingsService(webSettingsStore, environmentWebProvider, createNamedWebProvider,
     () => workbenchEvents.publish({ type: 'web-settings.changed' }));
   const internalToolServices: InternalToolServices = {
+    taskAttachments: { list: (id, input, signal) => taskAttachmentReader.list(id, input, signal), read: (id, input, signal) => taskAttachmentReader.read(id, input, signal) },
     web: { search: (id, input, signal) => webAccess.search(id, input, signal), fetch: (id, input, signal) => webAccess.fetch(id, input, signal) },
     notes: {
       list: () => store.noteCodec.run(undefined, () => notesService.list()),
@@ -1046,6 +1048,20 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       if (store.taskRuns.bySession(id)?.executionMode !== 'workspace') throw new Error('旧任务运行保持原执行方式，须先核对停止，再显式继续创建新 Run。');
       return sessionRuntimes.acquire(record);
     },
+  });
+  const taskAttachmentReader = new TaskAttachmentReader(taskAttachments, {
+    context: id => {
+      const record = sessionRegistry.get(id);
+      if (!record || record.kind !== 'work' || record.archivedAt || record.host || store.schedules.bySession(id)) throw new TaskServiceError('INVALID_REQUEST', '当前宿主不能读取任务附件。');
+      const run = store.taskRuns.bySession(id);
+      if (!run) return null;
+      taskScheduler.assertOwner();
+      const task = tasks.get(run.taskId);
+      if (run.executionMode !== 'workspace' || run.ownerId !== taskExecution.ownerId || run.stopIntent || run.stopConfirmed || run.status !== 'running' || task.status !== 'running' || task.currentRunId !== run.runId) throw new TaskServiceError('INVALID_REQUEST', '当前任务执行或输入快照已失效。');
+      return run;
+    },
+    supportsImages: id => adapter.capabilities.imageInput && adapter.supportsImageInput(id),
+    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 16 * 1024 * 1024,
   });
   adapter.bindTaskLease((id, phase, marker, bytes) => store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : taskExecution.nativeLease(id, phase, marker, bytes), id => {
     const run = store.taskRuns.bySession(id);

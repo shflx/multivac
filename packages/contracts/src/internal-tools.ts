@@ -72,6 +72,8 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   web_search: { displayName: '搜索网页', keyArgument: { argument: 'query', action: '搜索' } },
   web_fetch: { displayName: '读取网页', keyArgument: { argument: 'url', action: '读取' } },
   read_git: { displayName: '读取本地 Git 仓库', keyArgument: { argument: 'ref', action: '读取分支' } },
+  list_task_attachments: { displayName: '查询任务输入附件', keyArgument: { argument: 'taskId', action: '查询附件' } },
+  read_task_attachment: { displayName: '读取任务输入附件', keyArgument: { argument: 'attachmentId', action: '读取附件' } },
   read_project_resource: { displayName: '读取项目资料', keyArgument: { argument: 'resourceId', action: '读取资料' } },
   inspect_task_git: { displayName: '查看任务代码差异' },
   commit_task_code: { displayName: '提交任务代码', keyArgument: { argument: 'message', action: '创建本地提交' } },

@@ -39,7 +39,7 @@ export function createPiInternalToolSet(
         signal ?? new AbortController().signal,
       );
       if (!outcome.ok) throw new Error(outcome.reason);
-      return { content: [{ type: 'text', text: outcome.content }], details: outcome.result };
+      return { content: [{ type: 'text' as const, text: outcome.content }, ...(outcome.images ?? []).map(image => ({ type: 'image' as const, mimeType: image.mimeType, data: image.data }))], details: outcome.result };
     },
   }));
   return { specs: tools.specs, definitions };

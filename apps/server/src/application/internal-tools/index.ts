@@ -1,3 +1,4 @@
+import { TASK_ATTACHMENT_TOOLS } from './task-attachment-tools.js';
 import { SCHEDULE_TOOLS } from './schedule-tools.js';
 import { openTerminalTool } from './terminal-tools.js';
 import { readSessionHistoryTool, readSessionMessageTool } from './session-transcript-tools.js';
@@ -87,6 +88,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
 
 /** 工作会话可只读查询当前 Git 仓库与项目资料、查询任务、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */
 export const WORK_SESSION_TASK_TOOLS: readonly InternalToolDefinition[] = [
+  ...TASK_ATTACHMENT_TOOLS,
   ...MCP_EXECUTION_TOOLS,
   readGitTool, readProjectResourceTool,
   listTasksTool, getTaskTool, listTaskGroupsTool, updateTaskTool, completeTaskTool, confirmHumanTaskTool, proposeGitPublishTool, ...WORK_PROCESS_TOOLS,

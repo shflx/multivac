@@ -37,6 +37,7 @@ import type { WorkspaceSessionService } from '../workspace-session-service.js';
  * 这些只能由用户在界面的确认卡上确认后经对应接口完成。
  */
 export interface InternalToolServices {
+  taskAttachments?: Pick<import('../task-attachment-reader.js').TaskAttachmentReader, 'list' | 'read'>;
   schedules?: Pick<import('../schedule-service.js').ScheduleService, 'context' | 'preview' | 'page' | 'get' | 'detail' | 'create' | 'update' | 'control' | 'reconcile'>;
   scheduleInputs?: Pick<import('../schedule-input-service.js').ScheduleInputService, 'ask'>;
   web?: Pick<import('../web-access-service.js').WebAccessService, 'search' | 'fetch'>;
@@ -405,6 +406,7 @@ export class InternalToolService implements CoordinatorInternalTools {
       const success = tool.effect === 'propose'
         ? await tool.execute(params as never, { ...context, propose: (proposal) => this.propose(proposal, context) })
         : await tool.execute(params as never, context);
+      if (success.images?.length && tool.effect !== 'query') throw new InternalToolError('图片内容只能通过只读工具交付，不能保存到副作用回执。');
       return { ok: true, ...success };
     } catch (error) {
       if (error instanceof InternalToolError) return { ok: false, reason: error.reason };

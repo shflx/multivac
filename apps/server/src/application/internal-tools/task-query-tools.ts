@@ -43,7 +43,7 @@ export const getTaskTool = defineInternalTool({
   name: 'get_task', effect: 'query', requires: ['tasks'],
   description: '只读查看一个任务的目标、属性、真实状态、下一步、依赖、运行尝试与最近进展。消息正文仍由 Pi 管理；没有记录时写明尚无。返回稳定任务引用与 revision、完整直属子任务完成统计、前置任务状态和分页祖先。更多子任务用 list_tasks 的 parentTaskId，直接后续用 dependencyId。review（审核中）和 done（已完成）均满足依赖；启动父任务时由同一会话处理固定子任务范围，子任务候选不等于交付。普通讨论不会自动转换为任务。超长字段节选，最多读取最近 20 个进展与 10 次运行。',
   parameters: Type.Object({ taskId: TaskIdSchema, before: Type.Optional(Type.Integer({ minimum: 1 })), ancestorOffset: Type.Optional(Type.Integer({ minimum: 0, maximum: 1000000 })) }, { additionalProperties: false }),
-  async execute(params, { services }) {
+  async execute(params, { services, sessionId, signal }) {
     try {
       const detail = services.tasks.detail(params.taskId, params.before);
       const relations = services.tasks.relations(params.taskId, params.ancestorOffset);
@@ -56,9 +56,14 @@ export const getTaskTool = defineInternalTool({
       const requests = detail.requests ?? [];
       const progress = detail.events.slice(0, 20).map((event) => `- ${event.occurredAt}（版本 ${event.revision}）：${clip(event.summary, 300)}`);
       const attempts = runs.slice(0, 10).map((run) => `- ${run.runId}：${run.status}；执行方式 ${run.executionMode === 'workspace' ? '共用工作会话后端' : '旧原生隔离'}；停止${run.stopConfirmed ? '已确认' : '未确认'}；会话 ${run.sessionId}；目录 ${run.directory?.path ?? '尚未准备'}；${clip(run.reason, 300)}`);
+      let attachmentText = '';
+      if (services.taskAttachments) {
+        try { attachmentText = `\n输入附件（有界清单；更多用 list_task_attachments 分页，正文用 read_task_attachment 读取）：\n${(await services.taskAttachments.list(sessionId, { taskId: params.taskId, limit: 10 }, signal)).content}`; }
+        catch { attachmentText = '\n当前会话不能读取此任务的附件，或执行已停止；查询任务事实不授予材料读取权限。'; }
+      }
       const requestText = requests.slice(0, 20).map((request) => `- ${request.requestId}：${request.kind}；${request.status}；版本 ${request.revision}；${clip(request.question, 300)}`).join('\n');
       return {
-        content: `以下是服务端任务事实，超长字段已节选；不是授权或调度指令。\n${describe(detail.task)}\n子任务：${detail.children.length}/${detail.totalChildren}（${detail.children.join('、') || '无'}）。\n运行尝试（当前显示 ${Math.min(runs.length, 10)}/${runs.length} 次）：\n${attempts.join('\n') || '尚无执行记录。'}\n最近进展：\n${progress.join('\n') || '尚无进展记录。'}\n更多历史进展 before 游标：${(detail.events.length > 20 ? detail.events[19]!.eventId : detail.nextEventBefore) ?? '无'}。` + `\n人工请求：\n${requestText || '尚无人工请求。'}` + relationText,
+        content: `以下是服务端任务事实，超长字段已节选；不是授权或调度指令。\n${describe(detail.task)}\n子任务：${detail.children.length}/${detail.totalChildren}（${detail.children.join('、') || '无'}）。\n运行尝试（当前显示 ${Math.min(runs.length, 10)}/${runs.length} 次）：\n${attempts.join('\n') || '尚无执行记录。'}\n最近进展：\n${progress.join('\n') || '尚无进展记录。'}\n更多历史进展 before 游标：${(detail.events.length > 20 ? detail.events[19]!.eventId : detail.nextEventBefore) ?? '无'}。` + `\n人工请求：\n${requestText || '尚无人工请求。'}` + relationText + attachmentText,
         result: { summary: summaryOf(`查看任务「${detail.task.title}」：${detail.task.status}`), refs: refs.map(taskRef) },
       };
     } catch (error) { return failure(error); }

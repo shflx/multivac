@@ -23,6 +23,7 @@ export interface ScriptedModelRequest {
   tools: string[];
   systemPrompt: string;
   userTexts: string[];
+  imageUrls: string[];
 }
 
 /** 消息内容的文本：字符串原样，分段内容只取 text 段。 */
@@ -55,6 +56,7 @@ export async function startScriptedModel() {
         tools: (body.tools ?? []).flatMap((tool) => tool.function?.name ? [tool.function.name] : []),
         systemPrompt: typeof system?.content === 'string' ? system.content : JSON.stringify(system?.content ?? ''),
         userTexts: body.messages.filter((message) => message.role === 'user').map((message) => contentText(message.content)),
+        imageUrls: body.messages.flatMap(message => Array.isArray(message.content) ? message.content.flatMap(part => part?.type === 'image_url' && typeof part.image_url?.url === 'string' ? [part.image_url.url] : []) : []),
       });
       // 只取本轮新增的工具结果：最后一条非 tool 消息之后的 tool 消息。
       const trailing: string[] = [];

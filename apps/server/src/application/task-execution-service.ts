@@ -279,8 +279,6 @@ export class TaskExecutionService {
     // 目标、范围与项目都未变时沿用原目录；用户要求安全重做时换新会话。
     const sameBoundary = previous?.taskId === task.taskId && previous?.directory && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId;
     const sessionId = sameBoundary && !previous.redoRequested ? previous.sessionId : randomUUID();
-    const prompt = this.prompt(task, { childCount: treeTasks.length, resumed: previous !== null }, previous, sessionId);
-    if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
     if (sameBoundary && this.options.directoryOccupied?.(previous!.directory!.path)) throw new TaskServiceError('TASK_CONFLICT', '目录仍被托管进程占用，请先停止并核对。');
 
     const runId = randomUUID();
@@ -291,6 +289,8 @@ export class TaskExecutionService {
     const inputSnapshot = sameInputBoundary
       ? previous.inputSnapshot ?? { snapshotId: randomUUID(), fixedAt: at, attachments: [] }
       : this.options.inputs?.freeze([task.taskId, ...treeTasks.map(item => item.taskId)]);
+    const prompt = this.prompt(task, { childCount: treeTasks.length, resumed: previous !== null, ...(inputSnapshot ? { inputSnapshot } : {}) }, previous, sessionId);
+    if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
     const run: TaskRun = {
       ...(inputSnapshot ? { inputSnapshot } : {}),
       ...(renewBudget ? { budgetRenewal: {
@@ -395,6 +395,7 @@ export class TaskExecutionService {
       });
       const previous = this.options.runs.list(task.taskId).find(previous => previous.runId !== run.runId) ?? null;
       const text = this.prompt(task, {
+        ...(run.inputSnapshot ? { inputSnapshot: run.inputSnapshot } : {}),
         childCount: run.treeTasks?.length ?? 0,
         resumed: previous !== null,
         dependencies: await this.options.describeDependencies?.(run.directory.path) ?? null,

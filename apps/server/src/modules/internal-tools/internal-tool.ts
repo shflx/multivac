@@ -58,6 +58,8 @@ export class InternalToolError extends Error {
 
 /** 工具成功时交给模型的正文与公开的结果（白名单，见契约 AssistantToolResultSchema）。 */
 export interface InternalToolSuccess {
+  /** 只读工具交给执行器的临时图片，不进入公开结果或副作用回执账本。 */
+  images?: { mimeType: string; data: string }[];
   content: string;
   result: AssistantToolResult;
 }
