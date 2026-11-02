@@ -2,10 +2,10 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { TaskAttachment } from '@multivac/contracts';
 import type { TaskAttachmentRepository } from '../modules/tasks/task-attachment.js';
 export const TASK_ATTACHMENT_MIGRATION = `
-CREATE TABLE task_attachment (id TEXT PRIMARY KEY, task_id TEXT, draft_id TEXT, metadata TEXT NOT NULL, storage_key TEXT NOT NULL UNIQUE, bytes INTEGER NOT NULL) STRICT;
-CREATE INDEX task_attachment_task ON task_attachment(task_id);
-CREATE INDEX task_attachment_draft_idx ON task_attachment(draft_id);
-CREATE TABLE task_attachment_draft (id TEXT PRIMARY KEY, task_id TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS task_attachment (id TEXT PRIMARY KEY, task_id TEXT, draft_id TEXT, metadata TEXT NOT NULL, storage_key TEXT NOT NULL UNIQUE, bytes INTEGER NOT NULL) STRICT;
+CREATE INDEX IF NOT EXISTS task_attachment_task ON task_attachment(task_id);
+CREATE INDEX IF NOT EXISTS task_attachment_draft_idx ON task_attachment(draft_id);
+CREATE TABLE IF NOT EXISTS task_attachment_draft (id TEXT PRIMARY KEY, task_id TEXT NOT NULL) STRICT;
 `;
 export class SqliteTaskAttachmentRepository implements TaskAttachmentRepository {
   constructor(private readonly db: DatabaseSync) {}

@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import sharp from 'sharp';
+import { DatabaseSync } from 'node:sqlite';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
@@ -45,6 +46,39 @@ test('暂存附件原子绑定任务；同名不覆盖、原请求重试、迟�
     assert.equal((await app.taskAttachments.readFixed({ ...first, taskId: task.taskId })).toString(), '{"answer":42}');
     assert.equal(app.artifacts.list(task.taskId).length, 0);
   } finally { await f.close(); }
+});
+
+test('附件迁移可重放并保留暂存归属、当前输入、移除记录与历史原件', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-attachment-migration-'));
+  const env = testApplicationEnvironment(root);
+  let app = createMultivacApplication(env, { coordinatorAdapter: new FakeCoordinatorAdapter() });
+  try {
+    await app.ready;
+    const draftId = randomUUID();
+    const source = await app.taskAttachments.upload({ draftId }, randomUUID(), 'source.txt', Buffer.from('历史原件'));
+    const task = app.tasks.create({ commandId: 'migration-task', attachmentDraftId: draftId, title: '迁移保留输入', goal: '核对历史' }).task;
+    await app.taskExecution.control(task.taskId, { commandId: 'migration-start', revision: task.revision, action: 'start' });
+    await app.taskExecution.idle();
+    const original = app.tasks.detail(task.taskId).runs![0]!;
+    await app.taskExecution.control(task.taskId, { commandId: 'migration-pause', revision: app.tasks.get(task.taskId).revision, action: 'pause' });
+    app.taskAttachments.remove({ taskId: task.taskId }, source.id);
+    const current = await app.taskAttachments.upload({ taskId: task.taskId }, randomUUID(), 'current.txt', Buffer.from('当前输入'));
+    const pendingOwner = { draftId: randomUUID() };
+    const pending = await app.taskAttachments.upload(pendingOwner, randomUUID(), 'pending.txt', Buffer.from('未消费暂存'));
+    const databasePath = app.paths.databasePath;
+    await app.close();
+    const database = new DatabaseSync(databasePath);
+    database.exec('DELETE FROM schema_migrations WHERE version = (SELECT MAX(version) FROM schema_migrations)');
+    database.close();
+    app = createMultivacApplication(env, { coordinatorAdapter: new FakeCoordinatorAdapter() });
+    await app.ready;
+    assert.deepEqual(app.taskAttachments.list({ taskId: task.taskId }), [current]);
+    assert.deepEqual(app.taskAttachments.list(pendingOwner), [pending]);
+    assert.deepEqual(app.tasks.detail(task.taskId).runs![0]!.inputSnapshot, original.inputSnapshot);
+    assert.equal((await app.taskAttachments.readHistory(task.taskId, original.runId, source.id)).data.toString(), '历史原件');
+    assert.equal((await app.taskAttachments.read({ taskId: task.taskId }, current.id)).data.toString(), '当前输入');
+    await assert.rejects(app.taskAttachments.upload({ draftId }, randomUUID(), 'late.txt', Buffer.from('迟到')), /已绑定/);
+  } finally { await app.taskExecution.idle(); await app.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('内容核定图片、UTF-8 和仅下载；损坏图片与预算准确拒绝', async () => {
