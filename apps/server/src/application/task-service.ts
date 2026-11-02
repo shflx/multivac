@@ -30,6 +30,7 @@ export function fingerprint(value: unknown): string {
 }
 
 export interface TaskServiceOptions {
+  attachmentInputs?: { list(taskId: string): import('@multivac/contracts').TaskAttachment[]; claim(draftId: string, taskId: string): void };
   validateSkill?: (ref: import('@multivac/contracts').SkillRef, projectId: string | null) => void;
   /** 任务、运行、请求与成果事实；删除、编辑与完成保护都依赖其中的运行和请求记录。 */
   facts: TaskFactsStore;
@@ -98,6 +99,7 @@ export class TaskService {
       runs: this.options.facts.runs.list(taskId),
       requests: this.options.facts.requests.list(taskId).slice(0, 100),
       artifacts: this.options.facts.artifacts.list(taskId),
+      attachments: this.options.attachmentInputs?.list(taskId) ?? [],
     };
   }
 
@@ -184,7 +186,7 @@ export class TaskService {
     };
     // 未标记“我来处理”、使用默认执行智能体与旧版缺省语义一致，保持升级前创建命令的重放指纹。
     const { humanOnly, agentId, ...boundaryFields } = fields;
-    const key = fingerprint({ kind: 'create', ...boundaryFields, ...(humanOnly ? { humanOnly: true } : {}), ...(agentId === DEFAULT_AGENT_ID ? {} : { agentId }) });
+    const key = fingerprint({ kind: 'create', ...(input.attachmentDraftId ? { attachmentDraftId: input.attachmentDraftId } : {}), ...boundaryFields, ...(humanOnly ? { humanOnly: true } : {}), ...(agentId === DEFAULT_AGENT_ID ? {} : { agentId }) });
     let changed = false;
     const task = this.options.facts.transaction(() => {
       const replay = this.replay<Task>(input.commandId, key);
@@ -198,6 +200,10 @@ export class TaskService {
       this.validate(task);
       this.options.requireAgent?.(task.agentId!);
       this.options.facts.tasks.save(task, null);
+      if (input.attachmentDraftId) {
+        if (!this.options.attachmentInputs) invalid('任务附件服务不可用。');
+        this.options.attachmentInputs.claim(input.attachmentDraftId, task.taskId);
+      }
       this.record(input.commandId, key, task, 'created', '任务已创建，尚未执行。');
       changed = true;
       return task;

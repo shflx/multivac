@@ -1,3 +1,5 @@
+import { createTaskAttachmentHandler } from '../adapters/http/task-attachment-routes.js';
+import type { TaskAttachmentService } from '../application/task-attachment-service.js';
 import { createScheduleRequestHandler } from '../adapters/http/schedule-routes.js';
 import type { ScheduleService } from '../application/schedule-service.js';
 import { createNoteVaultRequestHandler } from '../adapters/http/note-vault-routes.js';
@@ -135,6 +137,7 @@ export interface MultivacHttpServerOptions {
   stopSessionProcesses?: (sessionId: string, commandId: string) => Promise<void>;
   runs?: RunsService;
   tasks?: TaskService;
+  taskAttachments?: TaskAttachmentService;
   /** 智能体（命名执行配置）；未提供时不开放智能体接口。 */
   agents?: AgentService;
   taskExecution?: TaskExecutionService;
@@ -198,6 +201,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const usageRoutes = options.usage ? createUsageRequestHandler(options.usage) : undefined;
   const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks, options.workspaceSessionService, options.stopSessionProcesses) : undefined;
   const agentRoutes = options.agents ? createAgentRequestHandler(options.agents) : undefined;
+  const taskAttachmentRoutes = options.taskAttachments ? createTaskAttachmentHandler(options.taskAttachments) : undefined;
   const taskRoutes = options.tasks ? createTaskRequestHandler(options.tasks, options.taskExecution, options.humanRequests, options.runs) : undefined;
   const inboxRoutes = options.inbox ? createInboxHandler(options.inbox, options.artifacts) : undefined;
   const conversationConfirmations = options.inbox ? createConversationConfirmationHandler(options.inbox) : undefined;
@@ -294,6 +298,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (notesRoutes && await notesRoutes(request, response)) return;
       if (noteAssistantRoutes && await noteAssistantRoutes(request, response)) return;
       if (noteSuggestionRoutes && await noteSuggestionRoutes(request, response)) return;
+      if (taskAttachmentRoutes && await taskAttachmentRoutes(request, response)) return;
       if (taskRoutes && await taskRoutes(request, response)) return;
       if (agentRoutes && await agentRoutes(request, response)) return;
       if (conversationConfirmations && await conversationConfirmations(request, response)) return;

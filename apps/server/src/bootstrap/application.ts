@@ -1,3 +1,4 @@
+import { TaskAttachmentService } from '../application/task-attachment-service.js';
 import { ScheduleInputService } from '../application/schedule-input-service.js';
 import { SqliteScheduleInputs } from '../storage/sqlite-schedule-inputs.js';
 import { requestScheduleInputTool } from '../application/internal-tools/schedule-input-tool.js';
@@ -974,7 +975,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (error instanceof AgentServiceError) throw new TaskServiceError(error.code, error.message);
     throw error;
   };
-  const tasks: TaskService = new TaskService({ validateSkill: (ref,projectId) => {
+  const tasks: TaskService = new TaskService({ attachmentInputs: { list: id => taskAttachments.list({ taskId: id }), claim: (draftId, taskId) => taskAttachments.claim(draftId, taskId) }, validateSkill: (ref,projectId) => {
     const record=skills.repository.get(ref.skillId);skills.repository.version(ref.skillId,ref.version);
     const available=skills.availability({...record,version:ref.version},{sessionId:null,projectId,host:'task',tools:['read','write','edit','bash',...WORK_SESSION_TASK_TOOLS.map(t=>t.name),...TASK_EXECUTION_TOOLS.map(t=>t.name)]});
     if(!available.available)throw new Error(available.reasons.join('；'));
@@ -986,6 +987,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (task.status === 'cancelled') gitPublish.invalidateTask(task.taskId);
     taskScheduler.wake();
   }, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
+  const taskAttachments = new TaskAttachmentService(store.taskAttachments, join(paths.dataDir, 'task-inputs'), tasks);
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
@@ -1312,7 +1314,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     noteSuggestions,
     inbox,
     images,
-    managedProcesses, runs, tasks, agents, taskExecution, humanRequests, artifacts,
+    managedProcesses, runs, tasks, agents, taskAttachments, taskExecution, humanRequests, artifacts,
     stopSessionProcesses,
     service,
     commandService,
@@ -1343,7 +1345,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
-    terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, schedules, mcp, mcpAccounts, mcpManagement, mcpResources,
+    taskAttachments, terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, schedules, mcp, mcpAccounts, mcpManagement, mcpResources,
     server,
     remoteAccess,
     paths,

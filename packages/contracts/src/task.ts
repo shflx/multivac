@@ -1,3 +1,4 @@
+import { TaskAttachmentSchema } from './task-attachment.js';
 import { SkillRefSchema } from './skill.js';
 import { Type } from 'typebox';
 import { WorkingDirectorySchema } from './workspace-session.js';
@@ -76,6 +77,7 @@ export type Task = Type.Static<typeof TaskSchema>;
 export const CreateTaskSchema = Type.Object({
   skill: Type.Optional(SkillRefSchema),
   commandId: TaskIdSchema,
+  attachmentDraftId: Type.Optional(TaskIdSchema),
   title: Title, goal: TaskFields.goal, humanOnly: Type.Optional(Type.Boolean()),
   projectId: Type.Optional(NullableId), scope: Type.Optional(Text),
   priority: Type.Optional(Priority), acceptance: Type.Optional(Type.Boolean()),
@@ -248,6 +250,7 @@ export const TaskDetailSchema = Type.Object({
   totalChildren: Type.Integer({ minimum: 0 }),
   runs: Type.Optional(Type.Array(TaskRunSchema, { maxItems: 100 })),
   requests: Type.Optional(Type.Array(HumanRequestSchema, { maxItems: 100 })),
+  attachments: Type.Optional(Type.Array(TaskAttachmentSchema)),
   artifacts: Type.Optional(Type.Array(ArtifactVersionSchema, { maxItems: 100 })),
 }, { additionalProperties: false });
 export type TaskDetail = Type.Static<typeof TaskDetailSchema>;

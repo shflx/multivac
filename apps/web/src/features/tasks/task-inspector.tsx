@@ -1,3 +1,4 @@
+import { TaskAttachments } from './task-attachments.js';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowRight, Bot, CircleAlert, FileText, MoreHorizontal } from 'lucide-react';
 import type { Task, TaskDetail, HumanRequest } from '@multivac/contracts';
@@ -65,6 +66,7 @@ export function TaskInspectorContent({ task, detail, requests, project, agent, p
     {task.completionReport && <section aria-label="工作会话完成说明"><h3>完成说明</h3>{!pending.some((request) => request.completionReportId === task.completionReport!.reportId) && <p className="task-goal">{task.completionReport.summary}</p>}{task.status === 'paused' && task.feedback && <p className="task-goal">修改意见：{task.feedback}</p>}<button type="button" className="inline-link" onClick={() => onOpenSession(task.completionReport!.sessionId)}>查看来源会话</button></section>}
     <section className="task-goal-section"><h3>目标</h3><p className={goalExpanded || !longGoal ? 'task-goal' : 'task-goal collapsed'}>{task.goal}</p>{longGoal && <button type="button" className="inline-link" aria-expanded={goalExpanded} onClick={() => setGoalExpanded(!goalExpanded)}>{goalExpanded ? '收起目标' : '展开目标'}</button>}</section>
     {!detail && !error && <p className="task-muted" role="status">正在读取任务详情…</p>}
+    <TaskAttachments key={task.taskId} taskId={task.taskId} editable={['idle', 'paused', 'failed'].includes(task.status) && !task.executionTaskId && !detail?.runs?.some(run => !run.stopConfirmed)} />
     {artifacts.length > 0 && <section aria-label="成果"><h3>{reviewIds.size ? '其他成果' : '成果'}</h3>{artifact(artifacts[0]!)}{artifacts.length > 1 && <details><summary>历史成果 · {artifacts.length - 1}</summary>{artifacts.slice(1).map(artifact)}</details>}{output && !reviewIds.has(output) && <ArtifactPreview versionId={output} />}</section>}
     {relations}
     <section><details><summary>范围、目录与执行信息</summary><dl className="task-properties"><div><dt>范围</dt><dd>{task.scope || (task.humanOnly ? '未指定' : '本任务独立目录')}</dd></div><div><dt>目录</dt><dd>{task.humanOnly ? '无需 Agent 执行目录' : detail?.runs?.[0]?.directory?.path ?? (detail ? '尚未准备' : '读取中…')}</dd></div><div><dt>验收</dt><dd>{task.humanOnly ? '由你确认完成' : task.acceptance ? '需要人工验收' : task.acceptanceCriteria || '待明确自检要求'}</dd></div><div><dt>下一步</dt><dd>{task.nextStep || '暂无'}</dd></div><div><dt>执行方式</dt><dd>{detail?.runs?.[0] ? detail.runs[0].executionMode === 'workspace' ? '与工作会话共用执行后端' : '旧原生隔离方式（保留原记录，恢复前核对停止）' : '尚未执行'}</dd></div><div><dt>运行</dt><dd>{detail?.runs?.[0]?.reason ?? (detail ? '暂无执行记录' : '读取中…')}</dd></div></dl></details></section>

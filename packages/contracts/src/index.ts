@@ -56,3 +56,5 @@ export * from './web-settings.js';
 export * from './note-security.js';
 export * from './schedule.js';
 export * from './schedule-time.js';
+
+export * from './task-attachment.js';

@@ -1,3 +1,4 @@
+import { TaskAttachments } from './task-attachments.js';
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { CircleAlert, Folder, LoaderCircle, Plus, X } from 'lucide-react';
@@ -28,6 +29,8 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
   const [humanOnly, setHumanOnly] = useState(false);
   const [acceptance, setAcceptance] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [attachmentDraftId] = useState(() => crypto.randomUUID());
+  const [attachmentsBlocked, setAttachmentsBlocked] = useState(false);
   const [error, setError] = useState('');
   const submitting = useRef(false);
   const creation = useRef<{ key: string; commandId: string } | null>(null);
@@ -58,12 +61,12 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
   }, [error, busy]);
 
   async function submit() {
-    if (!store || submitting.current || !name.trim() || !goal.trim() || invalidRelations) return;
+    if (!store || submitting.current || attachmentsBlocked || !name.trim() || !goal.trim() || invalidRelations) return;
     submitting.current = true;
     setBusy(true);
     setError('');
     try {
-      const input = { humanOnly, title: name.trim(), goal: goal.trim(), scope: scope.trim(), priority,
+      const input = { attachmentDraftId, humanOnly, title: name.trim(), goal: goal.trim(), scope: scope.trim(), priority,
         projectId: projectId || null, parentTaskId, dependencyIds: [...dependencyIds].sort(),
         acceptance, acceptanceCriteria: acceptance ? '' : '非空文本',
       };
@@ -106,13 +109,14 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
         <details className="task-create-relations" open={!!parentTask || undefined}><summary>任务关系（选填）</summary>
           <TaskRelationshipFields projectId={projectId || null} parentTaskId={parentTaskId} dependencyIds={dependencyIds} onParent={setParentTaskId} onDependencies={setDependencyIds} disabled={busy} parentReason={parentTask ? '从父任务创建，项目与父任务固定。' : null} />
         </details>
+        <TaskAttachments draftId={attachmentDraftId} editable disabled={busy} onBlocked={setAttachmentsBlocked} />
         {invalidRelations && <p className="task-create-error" role="alert">关系已失效或不属于当前项目，请核对任务关系后重新选择。</p>}
         <label className="task-create-acceptance"><input type="checkbox" checked={humanOnly} disabled={busy} onChange={(event) => setHumanOnly(event.target.checked)} /><span>我来处理</span></label><p className="task-create-hint">选中后由你完成，Agent 不会执行。</p>
         {!humanOnly && <label className="task-create-acceptance"><input type="checkbox" disabled={busy} checked={acceptance} onChange={(event) => setAcceptance(event.target.checked)} /><span>完成后需要我验收</span></label>}
         {!humanOnly && !acceptance && <p className="task-create-hint">无需人工验收时，会检查成果内容非空。</p>}
         {error && <p className="task-create-error" role="alert">{error}</p>}
       </div>
-      <footer><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy || !name.trim() || !goal.trim() || invalidRelations}>{busy ? <LoaderCircle className="spin" /> : <Plus />}创建任务</button></footer>
+      <footer><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy || attachmentsBlocked || !name.trim() || !goal.trim() || invalidRelations}>{busy ? <LoaderCircle className="spin" /> : <Plus />}创建任务</button></footer>
     </form>
   </div>, document.body);
 }

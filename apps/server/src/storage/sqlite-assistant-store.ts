@@ -1,3 +1,4 @@
+import { SqliteTaskAttachmentRepository, TASK_ATTACHMENT_MIGRATION } from './sqlite-task-attachment-repository.js';
 import { NoteRecordCodec, NOTE_PROTECTION_MIGRATION } from './note-record-codec.js';
 import { SqliteNoteSecurityRepository, NOTE_SECURITY_MIGRATION, NOTE_KEYPAIR_MIGRATION } from './sqlite-note-security-repository.js';
 import { CONTEXT_COMPACTION_MIGRATION, SqliteContextCompactionRepository } from './sqlite-context-compaction-repository.js';
@@ -343,6 +344,7 @@ const MIGRATIONS = [
   NOTE_KEYPAIR_MIGRATION,
   SCHEDULE_MIGRATION,
   SCHEDULE_EXECUTION_MIGRATION,
+  TASK_ATTACHMENT_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -403,6 +405,7 @@ export interface SqliteAssistantStoreOptions {
 export class SqliteAssistantStore {
   readonly usage: SqliteUsageRepository;
   readonly images: SqliteImageRepository;
+  readonly taskAttachments: SqliteTaskAttachmentRepository;
   readonly noteImages: SqliteNoteImagesRepository;
   readonly projectResources: SqliteProjectResourceRepository;
   readonly tasks: SqliteTaskRepository;
@@ -486,6 +489,7 @@ export class SqliteAssistantStore {
       this.notificationChannels = new SqliteNotificationChannelRepository(this.database);
       this.wechatBindings = new SqliteWechatBindingRepository(this.database);
       this.images = new SqliteImageRepository(this.database);
+      this.taskAttachments = new SqliteTaskAttachmentRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
       this.agents = new SqliteAgentRepository(this.database);
       this.managedProcesses = new SqliteManagedProcessRepository(this.database);
