@@ -177,3 +177,26 @@ test('清理跳过上传中的草稿，正文结束后清理可重放', async ()
     assert.equal(await f.app.taskAttachments.cleanupExpired(future), 0);
   } finally { await f.close(); }
 });
+
+test('消息受理持久化失败时草稿锁定回滚，原命令可再次受理', async () => {
+  const f = await fixture();
+  const { DatabaseSync } = await import('node:sqlite');
+  try {
+    const draftId = randomUUID();
+    await f.app.taskAttachments.upload({ draftId, sessionId }, randomUUID(), '需求.md', Buffer.from('事务回滚'));
+    const command = { commandId: randomUUID(), assistantSessionId: sessionId, text: '创建任务', contextRefs: [], attachmentDraftId: draftId };
+    const database = new DatabaseSync(f.app.paths.databasePath);
+    try {
+      database.exec("CREATE TRIGGER reject_attachment_message BEFORE INSERT ON assistant_command_receipt BEGIN SELECT RAISE(ABORT, '受理失败'); END");
+      const failed = await f.request('/api/assistant/turns', command);
+      assert.equal(failed.status, 500);
+      assert.equal(f.app.taskAttachments.repository.sessionDraft(draftId)!.commandId, null);
+    } finally {
+      database.exec('DROP TRIGGER IF EXISTS reject_attachment_message');
+      database.close();
+    }
+    const sent = await f.request('/api/assistant/turns', command);
+    assert.equal(sent.status, 200);
+    assert.equal(f.app.taskAttachments.repository.sessionDraft(draftId)!.commandId, command.commandId);
+  } finally { await f.close(); }
+});

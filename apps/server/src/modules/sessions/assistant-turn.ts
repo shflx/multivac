@@ -10,6 +10,7 @@ import type {
   ToolAuthorizationApproval,
   ToolAuthorizationStatus,
 } from '@multivac/contracts';
+import type { TaskAttachmentRepository } from '../tasks/task-attachment.js';
 
 export type AssistantDispatchMode = 'prompt' | 'steer' | 'followUp' | 'abort';
 
@@ -27,7 +28,8 @@ export interface StoredAssistantCommandReceipt extends AssistantCommandReceipt {
 }
 
 export interface CreateAssistantCommandInput {
-  onAccept?: () => void;
+  /** 只在受理事务内提供绑定到该事务的附件仓储。 */
+  onAccept?: (attachments: TaskAttachmentRepository) => void;
   commandId: string;
   assistantSessionId: string;
   kind: AssistantCommandKind;

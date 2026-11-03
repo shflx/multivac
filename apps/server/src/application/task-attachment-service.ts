@@ -21,16 +21,16 @@ export class TaskAttachmentService {
   constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService, private readonly runs: import('../modules/tasks/task.js').TaskRunRepository, private readonly changed?: (taskId: string) => void, private readonly messageSent?: (sessionId: string, commandId: string) => boolean, private readonly now: () => Date = () => new Date()) {}
 
   private key(owner: AttachmentOwner): string { return 'taskId' in owner ? `task:${owner.taskId}` : `draft:${owner.draftId}`; }
-  private check(owner: AttachmentOwner, editing = false): void {
+  private check(owner: AttachmentOwner, editing = false, repository = this.repository): void {
     const id = 'taskId' in owner ? owner.taskId : owner.draftId;
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) invalid('附件归属身份无效。');
     if ('draftId' in owner) {
-      if (this.repository.sessionDraftExpired(owner.draftId) || this.cleaning.has(owner.draftId)) invalid('会话附件已过期清理，请重新选择文件。');
-      const draft = this.repository.sessionDraft(owner.draftId);
+      if (repository.sessionDraftExpired(owner.draftId) || this.cleaning.has(owner.draftId)) invalid('会话附件已过期清理，请重新选择文件。');
+      const draft = repository.sessionDraft(owner.draftId);
       if (owner.sessionId && (!draft || draft.sessionId !== owner.sessionId) || draft && draft.sessionId !== owner.sessionId) invalid('附件草稿不属于当前会话。');
-      if (draft && !this.repository.draftOwner(owner.draftId) && this.now().getTime() - Date.parse(draft.createdAt) >= SESSION_ATTACHMENT_RETENTION_MS) invalid('会话附件已过期，请重新选择文件。');
+      if (draft && !repository.draftOwner(owner.draftId) && this.now().getTime() - Date.parse(draft.createdAt) >= SESSION_ATTACHMENT_RETENTION_MS) invalid('会话附件已过期，请重新选择文件。');
       if (editing && draft?.commandId) invalid('附件草稿已随消息发送，不能再增删。');
-      if (this.repository.draftOwner(owner.draftId)) invalid('暂存材料已绑定任务，请在任务详情管理附件。');
+      if (repository.draftOwner(owner.draftId)) invalid('暂存材料已绑定任务，请在任务详情管理附件。');
       return;
     }
     const task = this.tasks.get(owner.taskId);
@@ -39,9 +39,9 @@ export class TaskAttachmentService {
       if (!['idle', 'paused', 'failed'].includes(task.status) || this.tasks.executionOwner(task.taskId) || detail.runs?.some(run => !run.stopConfirmed || run.pendingToolIds.length || run.nativePendingIds?.length)) invalid('执行中及终态不能修改输入，请先确认任务已安全停止。');
     }
   }
-  list(owner: AttachmentOwner): TaskAttachment[] {
-    this.check(owner);
-    return ('taskId' in owner ? this.repository.list(owner.taskId) : this.repository.draft(owner.draftId)).filter(item => !item.removedAt);
+  list(owner: AttachmentOwner, repository = this.repository): TaskAttachment[] {
+    this.check(owner, false, repository);
+    return ('taskId' in owner ? repository.list(owner.taskId) : repository.draft(owner.draftId)).filter(item => !item.removedAt);
   }
   private owned(owner: AttachmentOwner, id: string): TaskAttachment {
     this.check(owner);
@@ -113,19 +113,19 @@ export class TaskAttachmentService {
     if ('taskId' in owner) this.changed?.(owner.taskId);
     return item;
   }
-  messageDraft(sessionId: string, draftId: string, commandId?: string): MessageAttachments {
-    const draft = this.repository.sessionDraft(draftId);
-    this.check({ draftId, sessionId });
+  messageDraft(sessionId: string, draftId: string, commandId?: string, repository = this.repository): MessageAttachments {
+    const draft = repository.sessionDraft(draftId);
+    this.check({ draftId, sessionId }, false, repository);
     if (!draft || draft.commandId && draft.commandId !== commandId) invalid('附件草稿已发送或不存在。');
     if (this.pending.has(this.key({ draftId }))) invalid('附件仍在上传，请等待上传完成后发送。');
-    const attachments = this.list({ draftId, sessionId });
+    const attachments = this.list({ draftId, sessionId }, repository);
     if (!attachments.length) invalid('附件草稿没有已完成上传的文件。');
     return { draftId, attachments };
   }
   /** 由消息受理仓储在同一短事务内调用。 */
-  sendMessageDraft(sessionId: string, draftId: string, commandId: string): MessageAttachments {
-    const files = this.messageDraft(sessionId, draftId, commandId);
-    this.repository.sendSessionDraft(draftId, commandId);
+  sendMessageDraft(sessionId: string, draftId: string, commandId: string, repository: TaskAttachmentRepository): MessageAttachments {
+    const files = this.messageDraft(sessionId, draftId, commandId, repository);
+    repository.sendSessionDraft(draftId, commandId);
     return files;
   }
   projectMessageAttachments(sessionId: string, files: MessageAttachments): MessageAttachments {

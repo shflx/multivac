@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { SqliteTaskAttachmentRepository } from './sqlite-task-attachment-repository.js';
 import { type CommandRow, commandFromRow, appendEventRow, readCommand, requireCommand } from './sqlite-assistant-event-rows.js';
 import { runInTransaction } from './sqlite-transaction.js';
 import type { AssistantCommandTerminalOutcome } from '@multivac/contracts';
@@ -65,7 +66,7 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
     return runInTransaction(this.database, () => {
       const existing = readCommand(this.database, input.commandId);
       if (existing) return { receipt: existing, event: null };
-      input.onAccept?.();
+      input.onAccept?.(new SqliteTaskAttachmentRepository(this.database));
       const now = this.now();
       this.database.prepare(`
         INSERT INTO assistant_command_receipt (
