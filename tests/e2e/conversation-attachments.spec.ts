@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import { test, expect } from '@playwright/test';
 import { fakeApiRoot, resetE2eState } from './test-state.js';
 
@@ -72,7 +73,22 @@ test('全局文件拖放使用附件通道，图片选择继续使用 imageIds',
   await expect(home.getByLabel('待发送文件')).toHaveCount(0);
   await home.getByRole('button', { name: '添加图片或文件' }).click();
   await expect(home.getByRole('menuitem', { name: /添加图片/ })).toBeVisible();
-  await home.getByLabel('选择图片文件').setInputFiles({ name: 'picture.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aIuoAAAAASUVORK5CYII=', 'base64') });
+  const picture = { name: 'picture.png', mimeType: 'image/png', buffer: await sharp({ create: { width: 4, height: 4, channels: 3, background: 'blue' } }).png().toBuffer() };
+  await home.getByLabel('选择图片文件').setInputFiles(picture);
   await expect(home.locator('.image-draft-item')).toHaveCount(1);
   await expect(home.getByLabel('待发送文件')).toHaveCount(0);
+  // 同一图片经“添加文件”选择时成为附件，与看图输入同时发送。
+  await home.getByLabel('选择附件文件').setInputFiles(picture);
+  await expect(home.getByLabel('待发送文件')).toContainText('已上传');
+  await home.getByLabel('Multivac 草稿').fill('查看图片并保留文件');
+  const sending = page.waitForRequest(value => value.method() === 'POST' && value.url().endsWith('/api/assistant/turns'));
+  await expect(home.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+  await home.getByRole('button', { name: '发送消息', exact: true }).click();
+  const command = (await sending).postDataJSON();
+  expect(command.imageIds).toHaveLength(1);
+  expect(command.attachmentDraftId).toMatch(/^[a-f0-9-]{36}$/);
+  const files = home.getByLabel('消息附件').filter({ hasText: 'picture.png' });
+  await expect(files).toContainText('未使用');
+  await files.getByRole('button', { name: '读取', exact: true }).click();
+  await expect(files.getByRole('img', { name: 'picture.png' })).toBeVisible();
 });

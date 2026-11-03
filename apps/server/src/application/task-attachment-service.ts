@@ -205,6 +205,7 @@ export class TaskAttachmentService {
     const leaf = basename(decoded);
     if (this.repository.get(decoded) || this.repository.isStorageKey(leaf) ||
         /^(?:task-attachment|attachment):/i.test(decoded) || /^(?:https?:\/\/[^/]+)?\/api\/(?:tasks|task-attachment-drafts)\/[^/]+\/(?:input-snapshots\/[^/]+\/)?attachments(?:\/[^\s]*)?$/.test(decoded) ||
+        /^(?:https?:\/\/[^/]+)?\/api\/sessions\/[^/]+\/attachment-drafts\/[^/]+\/attachments(?:\/[^\s]*)?$/.test(decoded) ||
         resolve(decoded) === this.directory || resolve(decoded).startsWith(`${this.directory}/`)) invalid('输入附件原件、身份或下载链接不能直接作为成果；请另行生成报告或修改版。');
   }
   async readHistory(taskId: string, runId: string, id: string): Promise<{ attachment: TaskAttachment; data: Buffer }> {

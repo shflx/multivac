@@ -317,7 +317,7 @@ test('父子成果候选拒绝输入身份、链接、原件路径与链接文�
     await adapter.waitForPromptCompletionBarrierEntry();
     const run = app.tasks.detail(task.taskId).runs![0]!; const directory = run.directory!.path;
     assert.deepEqual(await readdir(directory), []);
-    const references = [input.id, `attachment:${input.id}`, `/api/tasks/${task.taskId}/attachments/${input.id}/content`, `https://localhost/api/tasks/${task.taskId}/input-snapshots/${run.runId}/attachments/${input.id}/content`, source];
+    const references = [input.id, `attachment:${input.id}`, `/api/sessions/global-coordinator/attachment-drafts/draft/attachments/${input.id}/content`, `/api/tasks/${task.taskId}/attachments/${input.id}/content`, `https://localhost/api/tasks/${task.taskId}/input-snapshots/${run.runId}/attachments/${input.id}/content`, source];
     for (const path of references) assert.throws(() => app.artifacts.reportChild(run.sessionId, randomUUID(), child.taskId, '原件不能交付', '原件', path), /原件|相对路径/);
     await symlink(source, join(directory, 'original-link.md'));
     await link(source, join(directory, 'original-hardlink.md'));
