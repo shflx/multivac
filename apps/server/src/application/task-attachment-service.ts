@@ -215,11 +215,12 @@ export class TaskAttachmentService {
     if (!attachment) throw new TaskServiceError('NOT_FOUND', '附件不属于此执行输入快照。');
     return { attachment, data: await this.readFixed(attachment) };
   }
-  freeze(taskIds: string[]): TaskInputSnapshot {
+  freeze(taskIds: string[], ancestorTaskIds: string[] = []): TaskInputSnapshot {
+    taskIds = [...new Set([...taskIds, ...ancestorTaskIds])];
     if (taskIds.some(taskId => this.pending.has(this.key({ taskId })))) invalid('任务范围内仍有附件上传，请等待上传结束后启动。');
     const attachments = taskIds.flatMap(taskId => this.list({ taskId }));
-    if (attachments.length > 200 || attachments.reduce((sum, item) => sum + item.bytes, 0) > 200 * 1024 * 1024) invalid('本次固定输入超过 200 个或 200 MiB，请缩小任务树输入。');
-    return { snapshotId: randomUUID(), fixedAt: new Date().toISOString(), attachments };
+    if (attachments.length > 200 || attachments.reduce((sum, item) => sum + item.bytes, 0) > 200 * 1024 * 1024) invalid('本次固定输入超过 200 个或 200 MiB，请缩小任务树及祖先附件输入。');
+    return { snapshotId: randomUUID(), fixedAt: new Date().toISOString(), attachments, ...(ancestorTaskIds.length ? { ancestorTaskIds: [...new Set(ancestorTaskIds)].filter(id => attachments.some(item => item.taskId === id)) } : {}) };
   }
   async verify(snapshot: TaskInputSnapshot, signal?: AbortSignal): Promise<void> {
     for (const item of snapshot.attachments) { signal?.throwIfAborted(); await this.readFixed(item); }

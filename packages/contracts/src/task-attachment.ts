@@ -12,6 +12,7 @@ export type TaskAttachment = Type.Static<typeof TaskAttachmentSchema>;
 
 export const TaskInputSnapshotSchema = Type.Object({
   snapshotId: Type.String(), fixedAt: Type.String(),
+  ancestorTaskIds: Type.Optional(Type.Array(Type.String(), { maxItems: 200, uniqueItems: true })),
   attachments: Type.Array(TaskAttachmentSchema, { maxItems: 200 }),
 }, { additionalProperties: false });
 export type TaskInputSnapshot = Type.Static<typeof TaskInputSnapshotSchema>;

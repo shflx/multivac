@@ -401,3 +401,77 @@ test('HTTP 附件接口核对归属、来源、真实类型与下载头，默认
     assert.equal(remoteRouteAllowed('GET', `/api/tasks/${task.taskId}/input-snapshots/run/attachments/${id}/content`), false);
   } finally { app.server.closeAllConnections(); await new Promise<void>(resolve => app.server.close(() => resolve())); await f.close(); }
 });
+
+test('独立子任务固定祖先附件：只读快照、来源标记、期间增删与非祖先权限隔离', async () => {
+  const f = await fixture(); const { app, adapter } = f;
+  try {
+    const parent = app.tasks.create({ commandId: 'ancestor', title: '上级需求', goal: '整合' }).task;
+    const child = app.tasks.create({ commandId: 'standalone', title: '独立子项', goal: '读取上级输入', parentTaskId: parent.taskId }).task;
+    const unrelated = app.tasks.create({ commandId: 'unrelated', title: '其他材料', goal: '拒绝' }).task;
+    const source = await app.taskAttachments.upload({ taskId: parent.taskId }, randomUUID(), '需求.md', Buffer.from('上级需求=7391'));
+    const outside = await app.taskAttachments.upload({ taskId: unrelated.taskId }, randomUUID(), '私有.md', Buffer.from('不可读'));
+    adapter.armPromptCompletionBarrier();
+    await app.taskExecution.control(child.taskId, { commandId: 'start-alone', revision: child.revision, action: 'start' });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const run = app.tasks.detail(child.taskId).runs![0]!;
+    assert.equal(run.treeTasks?.length ?? 0, 0);
+    assert.deepEqual(run.inputSnapshot!.ancestorTaskIds, [parent.taskId]);
+    assert.deepEqual(run.inputSnapshot!.attachments.map(item => item.id), [source.id]);
+    const created = adapter.calls.find(call => call.method === 'createSession' && call.input.assistantSessionId === run.sessionId);
+    assert.ok(created?.method === 'createSession');
+    const invoke = (toolName: string, args: unknown) => created.input.internalTools!.invoke({ assistantSessionId: run.sessionId, toolName, toolCallId: randomUUID(), args }, new AbortController().signal);
+    const listing = await invoke('list_task_attachments', { taskId: parent.taskId });
+    assert.ok(listing.ok); assert.equal(JSON.parse(listing.content).attachments[0].relation, 'ancestor');
+    const read = await invoke('read_task_attachment', { taskId: parent.taskId, attachmentId: source.id });
+    assert.ok(read.ok); assert.equal(JSON.parse(read.content).text, '上级需求=7391');
+    const later = await app.taskAttachments.upload({ taskId: parent.taskId }, randomUUID(), '之后.md', Buffer.from('执行后新增'));
+    app.taskAttachments.remove({ taskId: parent.taskId }, source.id);
+    assert.equal((await invoke('read_task_attachment', { attachmentId: later.id })).ok, false);
+    assert.equal((await invoke('list_task_attachments', { taskId: unrelated.taskId })).ok, false);
+    assert.equal((await invoke('read_task_attachment', { attachmentId: outside.id })).ok, false);
+    assert.equal((await invoke('read_task_attachment', { attachmentId: source.id })).ok, true);
+    const prompt = adapter.calls.find(call => call.method === 'prompt' && call.assistantSessionId === run.sessionId);
+    assert.ok(prompt?.method === 'prompt'); assert.match(prompt.text, /上级任务/); assert.match(prompt.text, /只读参考/);
+    adapter.releasePromptCompletionBarrier(); await app.taskExecution.idle();
+    await app.taskExecution.control(child.taskId, { commandId: 'pause-alone', revision: app.tasks.get(child.taskId).revision, action: 'pause' });
+    await app.taskExecution.control(child.taskId, { commandId: 'resume-alone', revision: app.tasks.get(child.taskId).revision, action: 'resume' });
+    await app.taskExecution.idle();
+    assert.deepEqual(app.tasks.detail(child.taskId).runs![0]!.inputSnapshot, run.inputSnapshot);
+  } finally { await f.close(); }
+});
+
+test('祖先附件计入200个总上限，超限拒绝入队且不保存运行', async () => {
+  const f = await fixture(); const { app } = f;
+  try {
+    let parentTaskId: string | undefined;
+    const ancestors: string[] = [];
+    for (let index = 0; index < 10; index++) {
+      const task = app.tasks.create({ commandId: `count-ancestor-${index}`, title: '祖先材料', goal: '传递', ...(parentTaskId ? { parentTaskId } : {}) }).task;
+      ancestors.push(task.taskId); parentTaskId = task.taskId;
+      for (let file = 0; file < 20; file++) await app.taskAttachments.upload({ taskId: task.taskId }, randomUUID(), '材料.md', Buffer.from('参考'));
+    }
+    const child = app.tasks.create({ commandId: 'count-child', title: '子任务', goal: '核对总预算', parentTaskId }).task;
+    assert.equal(app.taskAttachments.freeze([child.taskId], ancestors).attachments.length, 200);
+    await app.taskAttachments.upload({ taskId: child.taskId }, randomUUID(), '多一个.md', Buffer.from('超限'));
+    await assert.rejects(app.taskExecution.control(child.taskId, { commandId: 'count-start', revision: child.revision, action: 'start' }), /200 个或 200 MiB/);
+    assert.equal(app.tasks.get(child.taskId).status, 'idle'); assert.equal(app.tasks.detail(child.taskId).runs!.length, 0);
+  } finally { await f.close(); }
+});
+
+test('祖先附件计入200MiB总上限，即使文件数量未超限也拒绝启动', async () => {
+  const f = await fixture(); const { app } = f;
+  try {
+    let parentTaskId: string | undefined;
+    const ancestors: string[] = [], data = Buffer.alloc(10 * 1024 * 1024, 65);
+    for (let index = 0; index < 4; index++) {
+      const task = app.tasks.create({ commandId: `bytes-ancestor-${index}`, title: '祖先材料', goal: '传递', ...(parentTaskId ? { parentTaskId } : {}) }).task;
+      ancestors.push(task.taskId); parentTaskId = task.taskId;
+      for (let file = 0; file < 5; file++) await app.taskAttachments.upload({ taskId: task.taskId }, randomUUID(), '材料.txt', data);
+    }
+    const child = app.tasks.create({ commandId: 'bytes-child', title: '子任务', goal: '核对总大小', parentTaskId }).task;
+    assert.equal(app.taskAttachments.freeze([child.taskId], ancestors).attachments.length, 20);
+    await app.taskAttachments.upload({ taskId: child.taskId }, randomUUID(), '多十MiB.txt', data);
+    await assert.rejects(app.taskExecution.control(child.taskId, { commandId: 'bytes-start', revision: child.revision, action: 'start' }), /200 个或 200 MiB/);
+    assert.equal(app.tasks.detail(child.taskId).runs!.length, 0);
+  } finally { await f.close(); }
+});

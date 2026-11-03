@@ -273,6 +273,17 @@ export class TaskExecutionService {
     return result;
   }
 
+  private inputAncestors(task: Task): string[] {
+    const ids: string[] = [], seen = new Set([task.taskId]);
+    let parent = task.parentTaskId;
+    while (parent) {
+      if (seen.has(parent)) throw new TaskServiceError('INVALID_REQUEST', '任务树存在循环。');
+      seen.add(parent); ids.push(parent);
+      parent = this.options.tasks.get(parent).parentTaskId;
+    }
+    return ids;
+  }
+
   /** 为启动或继续创建新的运行记录并绑定子任务；在任务事实事务内执行，不启动任何外部操作。 */
   private planRun(task: Task, previous: TaskRun | null, renewBudget: boolean, facts: TaskFacts): { task: Task; run: TaskRun; children: Task[] } {
     const treeTasks = this.treeScope(task, previous?.taskId === task.taskId ? previous : null);
@@ -288,7 +299,7 @@ export class TaskExecutionService {
     const sameInputBoundary = previous?.taskId === task.taskId && previous.goal === task.goal && previous.scope === task.scope && previous.projectId === task.projectId && !previous.redoRequested;
     const inputSnapshot = sameInputBoundary
       ? previous.inputSnapshot ?? { snapshotId: randomUUID(), fixedAt: at, attachments: [] }
-      : this.options.inputs?.freeze([task.taskId, ...treeTasks.map(item => item.taskId)]);
+      : this.options.inputs?.freeze([task.taskId, ...treeTasks.map(item => item.taskId)], this.inputAncestors(task));
     const prompt = this.prompt(task, { childCount: treeTasks.length, resumed: previous !== null, ...(inputSnapshot ? { inputSnapshot } : {}) }, previous, sessionId);
     if (Buffer.byteLength(prompt, 'utf8') > 12 * 1024) throw new TaskServiceError('INVALID_REQUEST', '目标与范围超过单次执行上下文上限，请缩小任务。');
     const run: TaskRun = {
