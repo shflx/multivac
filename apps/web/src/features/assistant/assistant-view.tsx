@@ -1,3 +1,4 @@
+import { FileDraftPreview, MessageFiles } from './file-input.js';
 import { CompactFeedback, ContextPanel } from './context-panel.js';
 import { MessageActions } from './message-copy.js';
 import { CANCELLED_SEND_ERRORS } from './command-feedback.js';
@@ -802,6 +803,7 @@ function AssistantSessionView({
                       </span>
                       <div className="chat-content">
                         <span className="message-author">{item.message.toolName ? `工具 · ${item.message.toolName}` : item.message.role === 'assistant' ? messageExecutor(item.message, session.runTraces, session.commandAnchors, session.executors)?.name ?? 'Multivac' : '你'}</span>
+                        {item.message.attachments && <MessageFiles files={item.message.attachments} sessionId={session.sessionId} />}
                         {item.message.imageIds?.length ? <ImageGallery sources={item.message.imageIds.map((id, index) => ({ url: imageContentUrl(session.sessionId, id), alt: `图片 ${index + 1}` }))} /> : null}
                         {item.message.skill && (
                           <span className="message-skill" title={`本条消息使用 Skill「${item.message.skill.label}」`}>
@@ -866,7 +868,7 @@ function AssistantSessionView({
                 <div className="send-error" role="alert">
                   <CircleAlert aria-hidden="true" />
                   <span>{contentSendError}</span>
-                  {(pageState.draft.trim() || session.imageDraft.items.length > 0) && (
+                  {(pageState.draft.trim() || session.imageDraft.items.length > 0 || session.fileDraft.items.length > 0) && (
                     <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
                       <RefreshCw aria-hidden="true" />
                       {canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '重试发送'}
@@ -933,7 +935,7 @@ function AssistantSessionView({
           ) : (
             <div className="assistant-composer"
               onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
-              onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); session.imageDraft.add(Array.from(event.dataTransfer.files)); } }}>
+              onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); if (isCoordinator) { if (!submitting && !session.pendingSubmission?.unknown) session.fileDraft.add(Array.from(event.dataTransfer.files)); } else session.imageDraft.add(Array.from(event.dataTransfer.files)); } }}>
               {runStatusBar}
               {runActive && (
                 <div className="streaming-behavior" role="group" aria-label="运行中消息行为">
@@ -992,6 +994,7 @@ function AssistantSessionView({
                   )}
                 </div>
               )}
+              {isCoordinator && <FileDraftPreview draft={session.fileDraft} disabled={submitting || Boolean(session.pendingSubmission?.unknown)} />}
               <ImageDraftPreview draft={session.imageDraft} sessionId={session.sessionId} />
               <div className="composer-inline-input">
               {allowAgentSelection && !isCoordinator && !remote && <div className="composer-agent-slot" ref={setAgentMentionTarget} />}
@@ -1054,7 +1057,7 @@ function AssistantSessionView({
               )}
               <div className="composer-bar">
                 <div className="composer-meta">
-                  <ComposerAddMenu draft={session.imageDraft} {...(allowAgentSelection && !isCoordinator && !remote ? { mcpResources: {
+                  <ComposerAddMenu draft={session.imageDraft} {...(isCoordinator ? { files: { disabled: submitting || Boolean(session.pendingSubmission?.unknown), add: session.fileDraft.add } } : {})} {...(allowAgentSelection && !isCoordinator && !remote ? { mcpResources: {
                     sessionId: session.sessionId, disabled: status !== 'ready' || runBusy || submitting,
                     onQuote: (quote: AssistantMcpQuote) => { session.setQuote(quote); composerRef.current?.focus(); },
                   } } : {})} />

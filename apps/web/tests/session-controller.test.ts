@@ -335,3 +335,27 @@ test('运行中不能切换智能体，追加发送需先选择追加方式', as
   assert.equal(deriveSessionView(controller.getState(), controller.model, { ids: () => [], ready: true }).canSubmit, true);
   controller.dispose();
 });
+
+test('附件未完成时禁发；未知结果重试沿用原草稿身份并保留新草稿', async () => {
+  let attempts = 0;
+  const { controller, sent } = harness({ send: async command => {
+    if (++attempts === 1) throw new TypeError('network');
+    return receipt(command.commandId, 'terminal', 'succeeded');
+  } });
+  await ready(controller);
+  let draftId: string | undefined = 'draft-a', uploaded = false;
+  controller.fileDraft = { id: () => draftId, get ready() { return uploaded; }, clear: id => { if (id === draftId) draftId = undefined; }, restore: async () => {} };
+  controller.updateDraft('读取附件');
+  await controller.submitDraft();
+  assert.equal(sent.length, 0);
+  uploaded = true;
+  await controller.submitDraft({ clearOnSubmit: true }); await settle();
+  assert.equal(controller.getState().pendingCommand?.attachmentDraftId, 'draft-a');
+  draftId = 'draft-b'; controller.imageDraftChanged(); controller.updateDraft('下一份文件');
+  await controller.retryUnknownSubmission(); await settle();
+  assert.equal(sent[0]?.commandId, sent[1]?.commandId);
+  assert.equal(sent[1]?.attachmentDraftId, 'draft-a');
+  assert.equal(draftId, 'draft-b');
+  assert.equal(controller.getState().page.draft, '下一份文件');
+  controller.dispose();
+});

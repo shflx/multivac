@@ -159,6 +159,7 @@ export class TaskAttachmentService {
   }
   remove(owner: AttachmentOwner, id: string): void {
     this.check(owner, true);
+    if ('draftId' in owner && this.pending.has(this.key(owner))) invalid('附件仍在上传，请等待上传结束后移除。');
     this.owned(owner, id);
     this.repository.remove(id, new Date().toISOString());
     if ('taskId' in owner) this.changed?.(owner.taskId);

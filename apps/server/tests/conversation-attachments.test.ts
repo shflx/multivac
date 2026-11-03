@@ -1,3 +1,4 @@
+import { remoteRouteAllowed } from '../src/adapters/http/remote-policy.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { randomUUID } from 'node:crypto';
@@ -114,4 +115,17 @@ test('全局工具读取真实草稿并一次性领用；未发送、跨会话�
     assert.equal(page.messages.find((item: any) => item.attachments?.draftId === draftId).attachments.taskId, task.taskId);
     assert.equal((await f.app.taskAttachments.readMessageAttachment(sessionId, draftId, id)).data.toString(), text);
   } finally { await f.close(); }
+});
+
+
+test('远程附件路径只开放全局会话，不开放任务、其他会话或伪造内容路径', () => {
+  const base = `/api/sessions/${sessionId}/attachment-drafts/${randomUUID()}/attachments`;
+  const id = randomUUID();
+  assert.equal(remoteRouteAllowed('PUT', `${base}/${id}`), true);
+  assert.equal(remoteRouteAllowed('GET', `${base}/${id}/content`), true);
+  assert.equal(remoteRouteAllowed('DELETE', `${base}/${id}`), true);
+  assert.equal(remoteRouteAllowed('POST', base), false);
+  assert.equal(remoteRouteAllowed('GET', `${base}/${id}/content/extra`), false);
+  assert.equal(remoteRouteAllowed('GET', base.replace(sessionId, 'other-session')), false);
+  assert.equal(remoteRouteAllowed('GET', `/api/tasks/${randomUUID()}/attachments`), false);
 });

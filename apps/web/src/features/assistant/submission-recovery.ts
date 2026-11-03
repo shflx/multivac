@@ -20,6 +20,7 @@ const FailedSubmissionSchema = Type.Object({
   agentId: Type.Optional(AgentIdSchema),
   executor: Type.Optional(AssistantExecutorSchema),
   omitQuote: Type.Optional(Type.Boolean()),
+  attachmentDraftId: Type.Optional(Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' })),
   imageIds: Type.Optional(Type.Array(Type.String({ pattern: '^[a-f0-9]{64}$' }), { maxItems: 4 })),
   createdAt: Type.String(),
   quote: Type.Union([AssistantQuoteSchema, Type.Null()]),

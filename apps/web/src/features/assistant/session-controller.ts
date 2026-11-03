@@ -152,6 +152,13 @@ export interface ImageDraftPort {
   restore(ids: readonly string[], isCurrent?: () => boolean): Promise<void>;
 }
 
+export interface FileDraftPort {
+  id(): string | undefined;
+  readonly ready: boolean;
+  clear(id?: string): void;
+  restore(id?: string, isCurrent?: () => boolean): Promise<void>;
+}
+const NO_FILE_DRAFT: FileDraftPort = { id: () => undefined, ready: true, clear: () => {}, restore: async () => {} };
 const NO_IMAGE_DRAFT: ImageDraftPort = { ids: () => [], ready: true, clear: () => {}, restore: async () => {} };
 
 export interface SessionControllerOptions {
@@ -182,6 +189,7 @@ export class AssistantSessionController {
   readonly sessionId: string;
   /** 呈现层每次渲染时更新：图片草稿与选模状态由 React 控制器提供。 */
   imageDraft: ImageDraftPort = NO_IMAGE_DRAFT;
+  fileDraft: FileDraftPort = NO_FILE_DRAFT;
   model: SessionModelState = { available: false, busy: false, loaded: false };
 
   private state: SessionState;
@@ -456,7 +464,8 @@ export class AssistantSessionController {
       this.update({
         history: historyFromPage(this.state.history, page),
         localEcho: pending?.clearOnSubmit ? {
-          commandId: pending.commandId, generation: pending.generation, text: pending.text, quote: pending.quote,
+          commandId: pending.commandId, generation: pending.generation, text: pending.text,
+          ...(pending.attachmentDraftId ? { attachmentDraftId: pending.attachmentDraftId } : {}), quote: pending.quote,
           contextRefs: pending.contextRefs, omitQuote: pending.omitQuote ?? false,
           createdAt: pending.echoCreatedAt ?? this.now(), baseline: pending.echoBaseline ?? echoOccurrences(page.messages, pending),
         } : null,
@@ -509,11 +518,13 @@ export class AssistantSessionController {
       if (restoration.kind === 'clear') {
         restoredState = { ...state, draft: '', quote: null };
         this.imageDraft.clear(pending.imageIds ?? []);
+        this.fileDraft.clear(pending.attachmentDraftId);
         restoredPendingDraft = true;
       } else if (restoration.kind === 'restore') {
         restoredState = { ...state, draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote };
         const restoredVersion = this.saver.draftVersion;
         void this.imageDraft.restore(pending.imageIds ?? [], () => this.saver.draftVersion === restoredVersion);
+        void this.fileDraft.restore(pending.attachmentDraftId, () => this.saver.draftVersion === restoredVersion);
         restoredPendingDraft = true;
       }
     } else {
@@ -685,6 +696,7 @@ export class AssistantSessionController {
     if (pending.clearOnSubmit) this.updateReadingQuote(null);
     this.markLocalChange({ ...this.saver.page, draft: '', quote: null }, 'command-settlement');
     this.imageDraft.clear(pending.imageIds ?? []);
+    this.fileDraft.clear(pending.attachmentDraftId);
     this.setPendingCommand({ ...pending, draftVersion: this.saver.draftVersion, cleared: true });
     void this.saver.enqueue(false, false, { draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote });
   }
@@ -699,6 +711,7 @@ export class AssistantSessionController {
     this.markLocalChange({ ...this.saver.page, draft: pending.text, agentId: pending.agentId ?? null, quote: pending.quote }, 'command-settlement');
     const restoredVersion = this.saver.draftVersion;
     void this.imageDraft.restore(pending.imageIds ?? [], () => this.saver.draftVersion === restoredVersion);
+    void this.fileDraft.restore(pending.attachmentDraftId, () => this.saver.draftVersion === restoredVersion);
     return true;
   }
 
@@ -711,6 +724,7 @@ export class AssistantSessionController {
     const restored = received || pending.confirmed ? false : this.restoreUnsentCommandDraft(owner);
     if (pending.clearOnSubmit) this.updateFailedSubmissions((current) => [...current.filter((item) => item.commandId !== pending.commandId).slice(-19), {
       commandId: pending.commandId, text: pending.text, ...(pending.agentId ? { agentId: pending.agentId } : {}), omitQuote: pending.omitQuote ?? false,
+      ...(pending.attachmentDraftId ? { attachmentDraftId: pending.attachmentDraftId } : {}),
       ...(pending.imageIds ? { imageIds: pending.imageIds } : {}), quote: pending.quote, readingQuote: pending.readingQuote ?? null, contextRefs: pending.contextRefs,
       createdAt: pending.echoCreatedAt ?? this.now(), restoredDraftVersion: restored ? this.saver.draftVersion : null, error,
     }]);
@@ -760,6 +774,7 @@ export class AssistantSessionController {
       // 命令成功只清理已发送内容，保留智能体选择，也不能覆盖冲突或下一条草稿。
       this.markLocalChange({ ...this.saver.page, draft: '', quote: null }, 'command-settlement');
       this.imageDraft.clear(submitted.imageIds ?? []);
+      this.fileDraft.clear(submitted.attachmentDraftId);
       await this.saver.enqueue(false, false, { draft: submitted.text, agentId: submitted.agentId ?? null, quote: submitted.quote });
     }
     return true;
@@ -1051,16 +1066,17 @@ export class AssistantSessionController {
       await this.reconcilePendingCommand(reusable, lifecycle);
       return;
     }
+    const attachmentDraftId = resendUnknown ? reusable?.attachmentDraftId : recovery ? recovery.attachmentDraftId : this.fileDraft.id();
     const imageIds = resendUnknown ? reusable?.imageIds ?? [] : recovery ? recovery.imageIds ?? [] : this.imageDraft.ids();
     // 引用与上下文都是命令指纹的一部分；任一变化就不再是同一条命令，必须新建 commandId。
     const retryingUnknown = Boolean(
-      reusable?.unknown && reusable.text === text && reusable.agentId === agentId &&
+      reusable?.unknown && reusable.text === text && reusable.agentId === agentId && reusable.attachmentDraftId === attachmentDraftId &&
       JSON.stringify(reusable.imageIds ?? []) === JSON.stringify(imageIds) && sameQuote(reusable.quote, quote) &&
       sameContextRefs(reusable.contextRefs, contextRefs) && (reusable.streamingBehavior === null || running),
     );
     if (
       (!agentId && !(active && executors[active.commandId]) && !this.model.available) || this.model.busy || this.state.submitting ||
-      (!text.trim() && !imageIds.length) || !this.imageDraft.ready ||
+      (!text.trim() && !imageIds.length && !attachmentDraftId) || !this.imageDraft.ready || !this.fileDraft.ready ||
       (reusable?.clearOnSubmit && !retryingUnknown) ||
       draftSizeBytes(text) > ASSISTANT_DRAFT_MAX_UTF8_BYTES ||
       (running && !ownedBehaviorSelection && !retryingUnknown)
@@ -1076,6 +1092,7 @@ export class AssistantSessionController {
           generation: this.nextCommandGeneration(),
           text,
           imageIds,
+          ...(attachmentDraftId ? { attachmentDraftId } : {}),
           ...(agentId ? { agentId } : {}),
           quote,
           contextRefs,
@@ -1088,7 +1105,7 @@ export class AssistantSessionController {
           readingQuote: recovery ? recovery.readingQuote : this.state.readingQuote,
           confirmed: false,
           echoCreatedAt: this.now(),
-          echoBaseline: echoOccurrences(this.state.history.messages, { text, quote, contextRefs, omitQuote: hooks.omitQuote ?? false }),
+          echoBaseline: echoOccurrences(this.state.history.messages, { text, quote, contextRefs, imageIds, ...(attachmentDraftId ? { attachmentDraftId } : {}), omitQuote: hooks.omitQuote ?? false }),
         };
     this.rememberCommand(submitted);
     this.update({
@@ -1096,6 +1113,7 @@ export class AssistantSessionController {
         commandId: submitted.commandId,
         generation: submitted.generation,
         text: submitted.text,
+        ...(submitted.attachmentDraftId ? { attachmentDraftId: submitted.attachmentDraftId } : {}),
         imageIds: submitted.imageIds ?? [],
         quote: submitted.quote,
         contextRefs: submitted.contextRefs,
@@ -1126,6 +1144,7 @@ export class AssistantSessionController {
         assistantSessionId: this.sessionId,
         text: submitted.text,
         ...(submitted.agentId ? { agentId: submitted.agentId } : {}),
+        ...(submitted.attachmentDraftId ? { attachmentDraftId: submitted.attachmentDraftId } : {}),
         imageIds: submitted.imageIds ?? [],
         contextRefs: submitted.contextRefs,
         ...(hooks.view ? { view: hooks.view } : {}),
@@ -1171,6 +1190,7 @@ export class AssistantSessionController {
     this.markLocalChange({ ...page, draft: failed.text, agentId: failed.agentId ?? null, quote: failed.quote }, 'draft-intent');
     const version = this.saver.draftVersion;
     void this.imageDraft.restore(failed.imageIds ?? [], () => version === this.saver.draftVersion);
+    void this.fileDraft.restore(failed.attachmentDraftId, () => version === this.saver.draftVersion);
     this.updateFailedSubmissions((current) => current.map((item) => item.commandId === commandId ? { ...item, restoredDraftVersion: this.saver.draftVersion } : item));
     return true;
   }

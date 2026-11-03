@@ -1,3 +1,4 @@
+import { useFileDraft } from './file-draft.js';
 import { onNoteAccessChange, protectedNote, unlockedNote, sessionNoteOwner } from '../../data/note-access.js';
 import { useSessionContextController, type SessionContext } from './session-context.js';
 import {
@@ -48,6 +49,7 @@ export type { AuthorizationDecisionState, SubmitHooks } from './session-controll
  * 首页与侧栏等呈现实例都通过它读写同一会话。
  */
 export interface AssistantSession {
+  fileDraft: ReturnType<typeof useFileDraft>;
   imageDraft: ReturnType<typeof useImageDraft>;
   sessionId: string;
   status: 'loading' | 'ready' | 'error';
@@ -123,6 +125,8 @@ export interface AssistantSession {
 function useAssistantSessionController(sessionId: string, modelState: SessionModelState): AssistantSession {
   const globalEvents = useGlobalEvents();
   const [controller] = useState(() => new AssistantSessionController({ sessionId, events: globalEvents.router }));
+  const fileDraft = useFileDraft(sessionId, () => controller.imageDraftChanged());
+  controller.fileDraft = fileDraft;
   const imageDraft = useImageDraft(sessionId, () => controller.imageDraftChanged());
   // 图片草稿与选模状态由各自的 React 控制器维护；控制器在操作时读取最近一次渲染的值。
   controller.imageDraft = imageDraft;
@@ -150,7 +154,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     };
   }, [controller]);
 
-  const view = deriveSessionView(state, modelState, imageDraft);
+  const view = deriveSessionView(state, modelState, imageDraft, fileDraft);
   return {
     ...view,
     sessionId,
@@ -171,6 +175,7 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     loadEarlier: () => controller.loadEarlier(),
     pageState: state.page,
     imageDraft,
+    fileDraft,
     saveFeedback: state.saveFeedback,
     updateDraft: (draft) => controller.updateDraft(draft),
     setAgentId: (agentId) => controller.setAgentId(agentId),

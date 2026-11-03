@@ -13,6 +13,7 @@ import type { VisibleAssistantMessage } from './streaming-messages.js';
  * 也不会进入消息状态或流式对账。
  */
 export interface LocalEcho extends CommandIdentity {
+  attachmentDraftId?: string;
   imageIds?: string[];
   text: string;
   quote: AssistantQuote | null;
@@ -39,13 +40,13 @@ function echoView(text: string): { text: string; skill?: AssistantMessageSkill }
 /** 历史中与回显内容相同的用户消息条数。 */
 export function echoOccurrences(
   messages: readonly VisibleAssistantMessage[],
-  echo: Pick<LocalEcho, 'text' | 'quote' | 'contextRefs' | 'omitQuote' | 'imageIds'>,
+  echo: Pick<LocalEcho, 'text' | 'quote' | 'contextRefs' | 'omitQuote' | 'imageIds' | 'attachmentDraftId'>,
 ): number {
   const reading = echo.omitQuote ? echo.contextRefs?.find(ref => ref.kind === 'book') : undefined;
   const note = echo.contextRefs?.find(ref => ref.kind === 'note');
   const text = echoView(echo.text).text;
   return messages.filter((message) => message.role === 'user' &&
-    message.streamCursor === undefined && message.text === text &&
+    message.streamCursor === undefined && message.text === text && message.attachments?.draftId === echo.attachmentDraftId &&
     (note?.kind !== 'note' || message.noteContext?.id === note.snapshotId) &&
     (reading?.kind === 'book' ? JSON.stringify(message.readingReference) === JSON.stringify(reading.reference)
       : sameQuote(message.quote ?? null, echo.quote)) && JSON.stringify(message.imageIds ?? []) === JSON.stringify(echo.imageIds ?? [])).length;

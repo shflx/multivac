@@ -25,6 +25,7 @@ export interface CommandIdentity {
 
 export interface PendingCommand extends CommandIdentity {
   agentId?: string;
+  attachmentDraftId?: string;
   imageIds?: string[];
   text: string;
   quote: AssistantQuote | null;
@@ -46,6 +47,7 @@ export interface PendingCommand extends CommandIdentity {
 /** 旧版本只保存了命令身份或缺少正文与草稿版本，需在读取会话后迁移。 */
 export interface LegacyPendingCommand extends CommandIdentity {
   agentId?: string;
+  attachmentDraftId?: string;
   imageIds?: string[];
   text: string | null;
   quote: AssistantQuote | null;
@@ -94,6 +96,7 @@ export function parsePendingCommand(stored: string): StoredPendingCommand | null
     typeof value !== 'object' || value === null ||
     !('commandId' in value) || !isCommandId(value.commandId) ||
     ('text' in value && typeof value.text !== 'string') ||
+    ('attachmentDraftId' in value && !isCommandId(value.attachmentDraftId)) ||
     ('agentId' in value && !Check(AgentIdSchema, value.agentId)) ||
     ('draftVersion' in value && !Number.isSafeInteger(value.draftVersion)) ||
     ('cleared' in value && typeof value.cleared !== 'boolean') ||
@@ -106,6 +109,7 @@ export function parsePendingCommand(stored: string): StoredPendingCommand | null
     ...('agentId' in value ? { agentId: value.agentId as string } : {}),
     generation: 'generation' in value ? value.generation as number : 0,
     text: 'text' in value ? value.text as string : null,
+    ...('attachmentDraftId' in value ? { attachmentDraftId: value.attachmentDraftId as string } : {}),
     imageIds: 'imageIds' in value && Array.isArray(value.imageIds) && value.imageIds.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/u.test(id)) ? value.imageIds.slice(0, 4) : [],
     quote: 'quote' in value && Check(AssistantQuoteSchema, value.quote) ? value.quote as AssistantQuote : null,
     // 旧版本没有该字段即为不带上下文；内容同样按契约重新校验。

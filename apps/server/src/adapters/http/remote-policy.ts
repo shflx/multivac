@@ -31,6 +31,8 @@ export function remoteRouteAllowed(method: string, path: string): boolean {
   if (method === 'PUT' && path === '/api/assistant/page-state') return true;
   if (method === 'POST' && ['/api/assistant/turns', '/api/assistant/turns/current/cancel'].includes(path)) return true;
   if (method === 'POST' && /^\/api\/assistant\/(?:authorizations|proposals)\/[^/%]+\/decision$/u.test(path)) return true;
+  const files = /^\/api\/sessions\/global-coordinator\/attachment-drafts\/[A-Za-z0-9._:-]{1,128}\/attachments(?:\/([a-f0-9-]{36})(?:\/(content))?)?$/.exec(path);
+  if (files) return method === 'GET' && (!files[1] || files[2] === 'content') || !!files[1] && !files[2] && ['PUT', 'DELETE'].includes(method);
   if (method === 'POST' && path === `/api/sessions/${GLOBAL_SESSION}/images`) return true;
   if (method === 'GET' && /^\/api\/sessions\/global-coordinator\/images\/[a-f0-9]{64}(?:\/content)?$/u.test(path)) return true;
   return method === 'DELETE' && /^\/api\/sessions\/global-coordinator\/images\/[a-f0-9]{64}$/u.test(path);

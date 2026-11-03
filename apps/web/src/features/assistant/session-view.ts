@@ -29,6 +29,7 @@ export function deriveSessionView(
   state: SessionState,
   model: SessionModelState,
   imageDraft: { ids(): readonly string[]; ready: boolean },
+  fileDraft: { id(): string | undefined; ready: boolean } = { id: () => undefined, ready: true },
 ): SessionView {
   const { history, page, activePrompt, pendingCommand } = state;
   const { messages, echoId } = messagesWithEcho(history.messages, state.localEcho);
@@ -47,7 +48,7 @@ export function deriveSessionView(
   const pendingReconciliation = !runActive && state.reconcilingCommandId !== null && pendingCommand?.commandId === state.reconcilingCommandId;
   const canRetryUnknown = pendingCommand?.unknown === true && pendingCommand.text === page.draft && pendingCommand.agentId === (page.agentId ?? undefined);
   const hasExecutor = Boolean(page.agentId) || Boolean(activePrompt && history.executors[activePrompt.commandId]) || model.available;
-  const canSubmit = hasExecutor && !model.busy && (Boolean(page.draft.trim()) || imageDraft.ids().length > 0) && imageDraft.ready &&
+  const canSubmit = hasExecutor && !model.busy && (Boolean(page.draft.trim()) || imageDraft.ids().length > 0 || Boolean(fileDraft.id())) && imageDraft.ready && fileDraft.ready &&
     draftSizeBytes(page.draft) <= ASSISTANT_DRAFT_MAX_UTF8_BYTES && !state.submitting &&
     !pendingReconciliation && !pendingCommand?.clearOnSubmit && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
 

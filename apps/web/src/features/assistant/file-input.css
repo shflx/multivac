@@ -1,0 +1,7 @@
+.conversation-files { display: grid; gap: 6px; min-width: 0; max-width: 100%; margin-block: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font-size: var(--t-sm); }
+.conversation-files > small { color: var(--muted); overflow-wrap: anywhere; }
+.conversation-files .task-attachment-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; }
+.conversation-files .task-attachment-row > span { min-width: 0; overflow-wrap: anywhere; }
+.conversation-files .task-attachment-preview { flex-basis: 100%; min-width: 0; max-width: 100%; }
+.conversation-files pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+.conversation-files img { max-width: 100%; }
