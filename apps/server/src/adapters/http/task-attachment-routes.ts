@@ -45,7 +45,7 @@ export function createTaskAttachmentHandler(service: TaskAttachmentService) {
         if (url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '附件读取不接受查询参数。');
         if (request.method === 'GET' && !route[3]) result = { attachments: service.list(owner) };
         else if (request.method === 'GET' && route[3] && route[4]) {
-          download(await service.read(owner, route[3])); return true;
+          download(session ? await service.readMessageAttachment(session[1]!, session[2]!, route[3]) : await service.read(owner, route[3])); return true;
         } else if (request.method === 'DELETE' && route[3] && !route[4]) { service.remove(owner, route[3]); result = { ok: true }; }
         else throw new TaskServiceError('NOT_FOUND', '附件接口不存在。');
       }

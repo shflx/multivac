@@ -9,12 +9,12 @@ import { taskToolFailure } from './task-tool-errors.js';
 export const createTaskTool = defineInternalTool({
   name: 'create_task', effect: 'manage', requires: ['taskManagement'],
   parameters: Type.Object({ ...Type.Omit(TaskProposalPayloadSchema, ['budget']).properties, userConfirmation: Type.Optional(Type.String({ minLength: 1, maxLength: 1000 })) }, { additionalProperties: false }),
-  description: '用户要求创建任务或将已梳理的需求落地为一组任务时直接创建，无需再次确认或逐项确认。返回真实任务 ID、revision 与关系，可继续创建子任务和后续任务。先创建父任务与前置任务，再用返回的 ID 建立关系；只讨论方案时不创建。创建不启动执行，不挂载目录或扩大权限，使用默认预算。默认是 Agent 任务；humanOnly=true 仅在用户明确表示我来处理或确认后设置，并在 userConfirmation 引用该表达，不根据标题推断。',
-  async execute(params, { services, commandId, origin }) {
+  description: '用户要求创建任务或将已梳理的需求落地为一组任务时直接创建，无需再次确认或逐项确认。返回真实任务 ID、revision 与关系，可继续创建子任务和后续任务。先创建父任务与前置任务，再用返回的 ID 建立关系；只讨论方案时不创建。附文件时用本会话已发送且未领用的 attachmentDraftId，一次性绑定输入附件；不可伪造其他草稿或把工作目录文件变为附件。创建不启动执行，不挂载目录或扩大权限，使用默认预算。默认是 Agent 任务；humanOnly=true 仅在用户明确表示我来处理或确认后设置，并在 userConfirmation 引用该表达，不根据标题推断。',
+  async execute(params, { services, sessionId, commandId, origin }) {
     try {
       const { userConfirmation, ...input } = params;
       if (input.humanOnly && !userConfirmation?.trim()) throw new InternalToolError('标记“我来处理”需要用户明确表达或确认，请在 userConfirmation 引用原意。');
-      const { task } = services.taskManagement.create({ ...input, commandId }, origin);
+      const { task } = services.taskManagement.create({ ...input, commandId }, origin, sessionId);
       return {
         content: `已创建 ${taskLink(task)}（id: ${task.taskId}），revision ${task.revision}，状态 ${task.status}，尚未启动。父任务：${task.parentTaskId ?? '无'}；前置任务：${task.dependencyIds.join('、') || '无'}。`,
         result: { summary: summaryOf(`任务「${task.title}」已创建，尚未启动`), refs: [taskRef(task)] },
@@ -27,7 +27,7 @@ export const createTaskTool = defineInternalTool({
 
 export const proposeCreateTaskTool = defineInternalTool({
   name: 'propose_create_task', effect: 'propose', parameters: TaskProposalPayloadSchema,
-  description: '仅当用户明确要求先看创建预览、确认后再创建时使用，展示目标、项目、范围、优先级与验收。用户已要求创建时使用 create_task，不重复索要确认。此工具确认前不创建或启动。项目、父任务和依赖使用真实已有 ID；不能挂载目录、扩大工具权限或代替用户验收。',
+  description: '仅当用户明确要求先看创建预览、确认后再创建时使用，展示目标、项目、范围、优先级、验收及附件清单；attachmentDraftId 仅可使用本会话已发送未领用草稿，确认时复核。用户已要求创建时使用 create_task，不重复索要确认。此工具确认前不创建或启动。项目、父任务和依赖使用真实已有 ID；不能挂载目录、扩大工具权限或代替用户验收。',
   async execute(params, context) { return proposedToolResult(await context.propose({ kind: 'task.create', payload: params })); },
 });
 export const updateTaskTool = defineInternalTool({

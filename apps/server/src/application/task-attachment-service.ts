@@ -16,7 +16,7 @@ export type AttachmentOwner = { taskId: string } | { draftId: string; sessionId?
 export class TaskAttachmentService {
   private tail: Promise<unknown> = Promise.resolve();
   private pending = new Map<string, number>();
-  constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService, private readonly runs: import('../modules/tasks/task.js').TaskRunRepository, private readonly changed?: (taskId: string) => void) {}
+  constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService, private readonly runs: import('../modules/tasks/task.js').TaskRunRepository, private readonly changed?: (taskId: string) => void, private readonly messageSent?: (sessionId: string, commandId: string) => boolean) {}
 
   private key(owner: AttachmentOwner): string { return 'taskId' in owner ? `task:${owner.taskId}` : `draft:${owner.draftId}`; }
   private check(owner: AttachmentOwner, editing = false): void {
@@ -119,9 +119,10 @@ export class TaskAttachmentService {
     return { draftId, attachments };
   }
   /** 由消息受理仓储在同一短事务内调用。 */
-  sendMessageDraft(sessionId: string, draftId: string, commandId: string): void {
-    this.messageDraft(sessionId, draftId, commandId);
+  sendMessageDraft(sessionId: string, draftId: string, commandId: string): MessageAttachments {
+    const files = this.messageDraft(sessionId, draftId, commandId);
     this.repository.sendSessionDraft(draftId, commandId);
+    return files;
   }
   projectMessageAttachments(sessionId: string, files: MessageAttachments): MessageAttachments {
     const draft = this.repository.sessionDraft(files.draftId);
@@ -129,9 +130,29 @@ export class TaskAttachmentService {
     const taskId = this.repository.draftOwner(files.draftId);
     return { draftId: files.draftId, attachments: files.attachments, ...(taskId ? { taskId } : {}) };
   }
+  sentDraft(sessionId: string, draftId: string): MessageAttachments {
+    const draft = this.repository.sessionDraft(draftId);
+    if (!draft || draft.sessionId !== sessionId || !draft.commandId || !this.messageSent?.(sessionId, draft.commandId)) return invalid('附件草稿必须已随本会话用户消息发送且未领用。');
+    return this.messageDraft(sessionId, draftId, draft.commandId);
+  }
+  async readMessageAttachment(sessionId: string, draftId: string, id: string) {
+    const draft = this.repository.sessionDraft(draftId);
+    if (!draft || draft.sessionId !== sessionId) invalid('附件草稿不属于当前会话或已过期。');
+    const taskId = this.repository.draftOwner(draftId);
+    if (!taskId) return this.read({ draftId, sessionId }, id);
+    if (!this.repository.draft(draftId).some(item => item.id === id)) invalid('附件不属于该消息。');
+    const attachment = this.repository.get(id)!;
+    return { attachment, data: await this.readFixed(attachment) };
+  }
   /** 在创建任务的同一 SQLite 事务内调用；失败不消费暂存身份。 */
-  claim(draftId: string, taskId: string): void {
-    const owner = { draftId };
+  claim(draftId: string, taskId: string, sessionId?: string): void {
+    const draft = this.repository.sessionDraft(draftId);
+    if (sessionId && !draft) invalid('附件草稿必须已随本会话用户消息发送且未领用。');
+    if (draft) {
+      if (!sessionId) return invalid('会话草稿只能由所属会话创建任务时领用。');
+      this.sentDraft(sessionId, draftId);
+    }
+    const owner = { draftId, ...(sessionId ? { sessionId } : {}) };
     this.check(owner);
     if (this.pending.has(this.key(owner))) invalid('附件仍在上传，请等待上传结束后创建任务。');
     this.repository.claim(draftId, taskId);

@@ -64,3 +64,54 @@ test('请求正文未接收完成时拒绝发送，失败释放上传占用', as
     assert.equal(f.app.taskAttachments.messageDraft(sessionId, owner.draftId).attachments.length, 1);
   } finally { await f.close(); }
 });
+
+
+test('全局工具读取真实草稿并一次性领用；未发送、跨会话、重复领用和确认竞争均拒绝', async () => {
+  const f = await fixture();
+  try {
+    await f.request('/api/assistant/session');
+    const call = f.adapter.calls.find(call => (call.method === 'createSession' || call.method === 'continueRecentSession') && call.input.assistantSessionId === sessionId);
+    assert.ok(call?.method === 'createSession' || call?.method === 'continueRecentSession');
+    const tools = call.input.internalTools!;
+    const invoke = (name: string, args: unknown, toolCallId = randomUUID()) => tools.invoke({ assistantSessionId: sessionId, toolName: name, toolCallId, args }, new AbortController().signal);
+    const draftId = randomUUID(), id = randomUUID(), text = '# 需求\n上传原文=7391';
+    await f.app.taskAttachments.upload({ draftId, sessionId }, id, '需求.md', Buffer.from(text));
+    const input = { title: '附带需求', goal: '读取上传原件', attachmentDraftId: draftId };
+    assert.equal((await invoke('create_task', input)).ok, false);
+    assert.equal((await invoke('create_task', { ...input, attachmentDraftId: randomUUID() })).ok, false);
+    const dialogDraftId = randomUUID();
+    await f.app.taskAttachments.upload({ draftId: dialogDraftId }, randomUUID(), 'dialog.txt', Buffer.from('任务表单草稿不可被模型领用'));
+    assert.equal((await invoke('create_task', { ...input, attachmentDraftId: dialogDraftId })).ok, false);
+    assert.equal((await invoke('list_task_attachments', { attachmentDraftId: draftId })).ok, false);
+    const foreign = randomUUID();
+    await f.app.taskAttachments.upload({ draftId: foreign, sessionId: 'other-session' }, randomUUID(), 'other.md', Buffer.from('别的会话'));
+    assert.equal((await invoke('create_task', { ...input, attachmentDraftId: foreign })).ok, false);
+    await f.request('/api/assistant/turns', { commandId: randomUUID(), assistantSessionId: sessionId, text: '请创建任务', contextRefs: [], attachmentDraftId: draftId });
+    const list = await invoke('list_task_attachments', { attachmentDraftId: draftId });
+    assert.ok(list.ok); assert.equal(JSON.parse(list.content).attachments[0].id, id);
+    const read = await invoke('read_task_attachment', { attachmentDraftId: draftId, attachmentId: id });
+    assert.ok(read.ok); assert.equal(JSON.parse(read.content).text, text);
+    const proposed = await invoke('propose_create_task', input);
+    assert.ok(proposed.ok, proposed.content);
+    const cards = (await f.request('/api/assistant/proposals')).value.proposals;
+    const card = cards.find((item: any) => item.payload.attachmentDraftId === draftId);
+    assert.equal(card.preview.attachments[0].name, '需求.md');
+    assert.throws(() => f.app.tasks.create({ commandId: randomUUID(), ...input }), /只能由所属会话/);
+    const invocationId = randomUUID();
+    const created = await invoke('create_task', input, invocationId);
+    assert.ok(created.ok, created.content);
+    assert.equal((await invoke('create_task', input, invocationId)).content, created.content);
+    const task = f.app.tasks.list().tasks[0]!;
+    assert.equal((await f.app.taskAttachments.read({ taskId: task.taskId }, id)).data.toString(), text);
+    assert.equal((await invoke('create_task', input)).ok, false);
+    assert.equal((await invoke('read_task_attachment', { attachmentDraftId: draftId, attachmentId: id })).ok, false);
+    const taskRead = await invoke('read_task_attachment', { taskId: task.taskId, attachmentId: id });
+    assert.ok(taskRead.ok); assert.equal(JSON.parse(taskRead.content).text, text);
+    const confirmed = await f.request(`/api/assistant/proposals/${card.proposalId}/decision`, { decision: 'confirm', options: { agentId: 'general' } });
+    assert.equal(confirmed.value.proposal.status, 'expired', JSON.stringify(confirmed));
+    assert.equal(f.app.tasks.list().total, 1);
+    const page = (await f.request('/api/assistant/session')).value;
+    assert.equal(page.messages.find((item: any) => item.attachments?.draftId === draftId).attachments.taskId, task.taskId);
+    assert.equal((await f.app.taskAttachments.readMessageAttachment(sessionId, draftId, id)).data.toString(), text);
+  } finally { await f.close(); }
+});

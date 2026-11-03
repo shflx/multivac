@@ -30,7 +30,7 @@ export function fingerprint(value: unknown): string {
 }
 
 export interface TaskServiceOptions {
-  attachmentInputs?: { list(taskId: string): import('@multivac/contracts').TaskAttachment[]; claim(draftId: string, taskId: string): void };
+  attachmentInputs?: { list(taskId: string): import('@multivac/contracts').TaskAttachment[]; claim(draftId: string, taskId: string, sessionId?: string): void; preview(draftId: string, sessionId?: string): import('@multivac/contracts').TaskAttachment[] };
   validateSkill?: (ref: import('@multivac/contracts').SkillRef, projectId: string | null) => void;
   /** 任务、运行、请求与成果事实；删除、编辑与完成保护都依赖其中的运行和请求记录。 */
   facts: TaskFactsStore;
@@ -176,7 +176,7 @@ export class TaskService {
     return null;
   }
 
-  create(input: CreateTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
+  create(input: CreateTask, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, attachmentSessionId?: string): TaskReceipt {
     if (!Check(CreateTaskSchema, input)) invalid('任务创建参数无效。');
     const fields = {
       ...(input.skill ? { skill: input.skill } : {}),
@@ -205,7 +205,7 @@ export class TaskService {
       this.options.facts.tasks.save(task, null);
       if (input.attachmentDraftId) {
         if (!this.options.attachmentInputs) invalid('任务附件服务不可用。');
-        this.options.attachmentInputs.claim(input.attachmentDraftId, task.taskId);
+        this.options.attachmentInputs.claim(input.attachmentDraftId, task.taskId, attachmentSessionId);
       }
       this.record(input.commandId, key, task, 'created', '任务已创建，尚未执行。');
       changed = true;
@@ -214,7 +214,7 @@ export class TaskService {
     if (changed) this.committed(task, origin);
     return { commandId: input.commandId, task };
   }
-  preview(input: Omit<CreateTask, 'commandId'>) {
+  preview(input: Omit<CreateTask, 'commandId'>, attachmentSessionId?: string) {
     const at = this.now();
     const task: Task = { ...(input.skill ? { skill: input.skill } : {}), humanOnly: input.humanOnly ?? false, agentId: input.agentId ?? DEFAULT_AGENT_ID, taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
     this.validate(task);
@@ -224,6 +224,7 @@ export class TaskService {
     const dependencies = task.dependencyIds.length ? this.options.facts.tasks.list({ ids: task.dependencyIds, limit: 100 }).tasks : [];
     const byId = new Map(dependencies.map((item) => [item.taskId, item]));
     return {
+      ...(input.attachmentDraftId ? { attachments: this.options.attachmentInputs!.preview(input.attachmentDraftId, attachmentSessionId) } : {}),
       ...(task.skill ? { skill: task.skill } : {}),
       projectId: task.projectId, projectName: project?.name ?? (task.projectId ?? '日常'),
       sourceDirectory: project?.directories[0]?.path ?? null, constraints: project?.defaultConstraints ?? '',

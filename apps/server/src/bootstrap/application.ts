@@ -441,7 +441,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return managedProcesses.stopSession(sessionId).then(() => assertSessionProcessesStopped(sessionId));
     } },
     taskManagement: {
-      create: (input, origin) => tasks.create(input, origin),
+      create: (input, origin, sessionId) => tasks.create(input, origin, sessionId),
       update: (id, input, origin) => tasks.update(id, input, origin),
       remove: (id, input, origin) => tasks.remove(id, input, origin),
       createGroup: (input, origin) => tasks.createGroup(input, origin),
@@ -557,7 +557,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
           return managedProcesses.stopChecked(id, input, task);
         },
       }),
-      createTaskKind({ preview: (input) => tasks.preview(input), create: (input, origin) => tasks.create(input, origin) }, {
+      createTaskKind({ preview: (input) => tasks.preview(input, GLOBAL_ASSISTANT_SESSION_ID), create: (input, origin) => tasks.create(input, origin, GLOBAL_ASSISTANT_SESSION_ID) }, {
         check: (id) => agents.admit(id).then(() => null, (error: unknown) => error instanceof Error ? error.message : '执行智能体无法核对。'),
         name: (id) => agents.get(id).name,
       }),
@@ -984,7 +984,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (error instanceof AgentServiceError) throw new TaskServiceError(error.code, error.message);
     throw error;
   };
-  const tasks: TaskService = new TaskService({ attachmentInputs: { list: id => taskAttachments.list({ taskId: id }), claim: (draftId, taskId) => taskAttachments.claim(draftId, taskId) }, validateSkill: (ref,projectId) => {
+  const tasks: TaskService = new TaskService({ attachmentInputs: { list: id => taskAttachments.list({ taskId: id }), claim: (draftId, taskId, sessionId) => taskAttachments.claim(draftId, taskId, sessionId), preview: (draftId, sessionId) => sessionId ? taskAttachments.sentDraft(sessionId, draftId).attachments : taskAttachments.list({ draftId }) }, validateSkill: (ref,projectId) => {
     const record=skills.repository.get(ref.skillId);skills.repository.version(ref.skillId,ref.version);
     const available=skills.availability({...record,version:ref.version},{sessionId:null,projectId,host:'task',tools:['read','write','edit','bash',...WORK_SESSION_TASK_TOOLS.map(t=>t.name),...TASK_EXECUTION_TOOLS.map(t=>t.name)]});
     if(!available.available)throw new Error(available.reasons.join('；'));
@@ -996,7 +996,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (task.status === 'cancelled') gitPublish.invalidateTask(task.taskId);
     taskScheduler.wake();
   }, requireProject: (id) => projectService.getProject(id), describeProject: (id) => projectService.getProject(id), events: workbenchEvents, defaultBudget: () => preferencesService.defaultTaskBudget(), requireAgent: (id): unknown => { try { return agents.requireExecutable(id); } catch (error) { return toTaskError(error); } } });
-  const taskAttachments = new TaskAttachmentService(store.taskAttachments, join(paths.dataDir, 'task-inputs'), tasks, store.taskRuns, taskId => workbenchEvents.publish({ type: 'task-attachments.changed', taskId, origin: UNKNOWN_CHANGE_ORIGIN }));
+  const taskAttachments = new TaskAttachmentService(store.taskAttachments, join(paths.dataDir, 'task-inputs'), tasks, store.taskRuns, taskId => workbenchEvents.publish({ type: 'task-attachments.changed', taskId, origin: UNKNOWN_CHANGE_ORIGIN }), (sessionId, commandId) => {
+    const command = commandRepository.get(commandId);
+    return command?.assistantSessionId === sessionId && command.kind === 'send' && command.dispatchMode !== null && command.terminalOutcome !== 'rejected';
+  });
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
@@ -1059,6 +1062,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const taskAttachmentReader = new TaskAttachmentReader(taskAttachments, {
     context: id => {
       const record = sessionRegistry.get(id);
+      if (id === GLOBAL_ASSISTANT_SESSION_ID) return null;
       if (!record || record.kind !== 'work' || record.archivedAt || record.host || store.schedules.bySession(id)) throw new TaskServiceError('INVALID_REQUEST', '当前宿主不能读取任务附件。');
       const run = store.taskRuns.bySession(id);
       if (!run) return null;

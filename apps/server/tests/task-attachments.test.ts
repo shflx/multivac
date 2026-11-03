@@ -278,7 +278,7 @@ test('附件读取输出计入原 Run，共享预算不足时不交付正文并�
   } finally { await f.close(); }
 });
 
-test('普通工作会话按可见任务读取当前附件，不注入全局或其他宿主且不授予目录权限', async () => {
+test('普通工作会话按可见任务读取当前附件，全局新增受控入口且不开放其他宿主且不授予目录权限', async () => {
   const f = await fixture(); const { app, adapter } = f;
   try {
     await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
@@ -300,7 +300,7 @@ test('普通工作会话按可见任务读取当前附件，不注入全局或�
     const forgedHost = await tools.invoke({ assistantSessionId: 'global:multivac', toolName: 'list_task_attachments', toolCallId: 'forged-host', args: { taskId: task.taskId } }, new AbortController().signal);
     assert.equal(forgedHost.ok, false);
     const global = adapter.calls.find(call => call.method === 'createSession' && call.input.assistantSessionId !== 'attachment-work');
-    if (global?.method === 'createSession') assert.ok(!global.input.internalTools?.specs.some(tool => tool.name === 'read_task_attachment'));
+    if (global?.method === 'createSession') assert.ok(global.input.internalTools?.specs.some(tool => tool.name === 'read_task_attachment'));
   } finally { app.server.closeAllConnections(); await new Promise<void>(resolve => app.server.close(() => resolve())); await f.close(); }
 });
 

@@ -330,7 +330,10 @@ export class AssistantTurnCommandService {
       if (command.quote?.sourceKind === 'file' && command.quote.quoteKind === 'source') quote = await this.validateQuoteSource(command, binding.runtimeSessionId);
       signal?.throwIfAborted();
       const accepted = this.options.commandRepository.createAccepted({
-        ...(command.attachmentDraftId ? { onAccept: () => this.options.attachments!.sendMessageDraft(command.assistantSessionId, command.attachmentDraftId!, command.commandId) } : {}),
+        ...(command.attachmentDraftId ? { onAccept: () => {
+          const attachments = this.options.attachments!.sendMessageDraft(command.assistantSessionId, command.attachmentDraftId!, command.commandId);
+          context = { ...(context ?? { kind: 'attachments' as const, title: '用户附加的文件' }), attachments };
+        } } : {}),
         ...(agentExecution ? { agentExecution } : {}),
         commandId: command.commandId,
         assistantSessionId: command.assistantSessionId,
