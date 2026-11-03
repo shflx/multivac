@@ -3,6 +3,9 @@ export interface SessionAttachmentDraft {
   id: string; sessionId: string; createdAt: string; commandId: string | null;
 }
 export interface TaskAttachmentRepository {
+  expiredSessionDrafts(before: string): SessionAttachmentDraft[];
+  sessionDraftExpired(id: string): boolean;
+  purgeSessionDraft(id: string): void;
   sessionDraft(id: string): SessionAttachmentDraft | undefined;
   createSessionDraft(draft: SessionAttachmentDraft): void;
   sendSessionDraft(id: string, commandId: string): void;

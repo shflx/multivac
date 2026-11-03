@@ -8,6 +8,7 @@ import type { TaskService } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { validateImage } from './validate-image.js';
 
+export const SESSION_ATTACHMENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const digest = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 const invalid = (message: string): never => { throw new TaskServiceError('INVALID_REQUEST', message); };
 export type AttachmentOwner = { taskId: string } | { draftId: string; sessionId?: string };
@@ -15,16 +16,19 @@ export type AttachmentOwner = { taskId: string } | { draftId: string; sessionId?
 /** 原件只存私有输入目录。移除保留原件及元数据，历史运行仍可按固定身份读取。 */
 export class TaskAttachmentService {
   private tail: Promise<unknown> = Promise.resolve();
+  private cleaning = new Set<string>();
   private pending = new Map<string, number>();
-  constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService, private readonly runs: import('../modules/tasks/task.js').TaskRunRepository, private readonly changed?: (taskId: string) => void, private readonly messageSent?: (sessionId: string, commandId: string) => boolean) {}
+  constructor(readonly repository: TaskAttachmentRepository, private readonly directory: string, private readonly tasks: TaskService, private readonly runs: import('../modules/tasks/task.js').TaskRunRepository, private readonly changed?: (taskId: string) => void, private readonly messageSent?: (sessionId: string, commandId: string) => boolean, private readonly now: () => Date = () => new Date()) {}
 
   private key(owner: AttachmentOwner): string { return 'taskId' in owner ? `task:${owner.taskId}` : `draft:${owner.draftId}`; }
   private check(owner: AttachmentOwner, editing = false): void {
     const id = 'taskId' in owner ? owner.taskId : owner.draftId;
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) invalid('附件归属身份无效。');
     if ('draftId' in owner) {
+      if (this.repository.sessionDraftExpired(owner.draftId) || this.cleaning.has(owner.draftId)) invalid('会话附件已过期清理，请重新选择文件。');
       const draft = this.repository.sessionDraft(owner.draftId);
       if (owner.sessionId && (!draft || draft.sessionId !== owner.sessionId) || draft && draft.sessionId !== owner.sessionId) invalid('附件草稿不属于当前会话。');
+      if (draft && !this.repository.draftOwner(owner.draftId) && this.now().getTime() - Date.parse(draft.createdAt) >= SESSION_ATTACHMENT_RETENTION_MS) invalid('会话附件已过期，请重新选择文件。');
       if (editing && draft?.commandId) invalid('附件草稿已随消息发送，不能再增删。');
       if (this.repository.draftOwner(owner.draftId)) invalid('暂存材料已绑定任务，请在任务详情管理附件。');
       return;
@@ -58,8 +62,8 @@ export class TaskAttachmentService {
   }
   private async pendingUpload<T>(owner: AttachmentOwner, action: () => Promise<T>): Promise<T> {
     if ('draftId' in owner && owner.sessionId && !this.repository.sessionDraft(owner.draftId)) {
-      if (!/^[A-Za-z0-9._:-]{1,128}$/.test(owner.draftId) || this.repository.draftOwner(owner.draftId) || this.repository.draft(owner.draftId).length) invalid('附件草稿身份已使用。');
-      this.repository.createSessionDraft({ id: owner.draftId, sessionId: owner.sessionId, createdAt: new Date().toISOString(), commandId: null });
+      if (!/^[A-Za-z0-9._:-]{1,128}$/.test(owner.draftId) || this.repository.sessionDraftExpired(owner.draftId) || this.repository.draftOwner(owner.draftId) || this.repository.draft(owner.draftId).length) invalid('附件草稿身份已使用。');
+      this.repository.createSessionDraft({ id: owner.draftId, sessionId: owner.sessionId, createdAt: this.now().toISOString(), commandId: null });
     }
     this.check(owner, true);
     const key = this.key(owner);
@@ -169,6 +173,30 @@ export class TaskAttachmentService {
     const data = await this.readFixed(attachment);
     this.owned(owner, id);
     return { attachment, data };
+  }
+  /** 与上传串行，清理期间拒绝领用；中断后可从剩余元数据安全重做。 */
+  cleanupExpired(now = this.now()): Promise<number> {
+    const result = this.tail.then(async () => {
+      const drafts = this.repository.expiredSessionDrafts(new Date(now.getTime() - SESSION_ATTACHMENT_RETENTION_MS).toISOString());
+      let count = 0;
+      for (const draft of drafts) {
+        if (this.pending.has(this.key({ draftId: draft.id })) || this.repository.draftOwner(draft.id)) continue;
+        this.cleaning.add(draft.id);
+        try {
+          for (const item of this.repository.draft(draft.id)) {
+            const key = this.repository.storageKey(item.id);
+            if (!key || !/^[a-f0-9-]{36}$/.test(key)) invalid('附件存储引用无效，清理已停止。');
+            try { await unlink(join(this.directory, key!)); }
+            catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+          }
+          this.repository.purgeSessionDraft(draft.id);
+          count++;
+        } finally { this.cleaning.delete(draft.id); }
+      }
+      return count;
+    });
+    this.tail = result.catch(() => {});
+    return result;
   }
   assertOutputReference(value: string): void {
     const text = value.trim();

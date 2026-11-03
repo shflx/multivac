@@ -1,3 +1,4 @@
+import { runInTransaction } from './sqlite-transaction.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { TaskAttachment } from '@multivac/contracts';
 import type { SessionAttachmentDraft, TaskAttachmentRepository } from '../modules/tasks/task-attachment.js';
@@ -10,8 +11,24 @@ CREATE TABLE IF NOT EXISTS task_attachment_draft (id TEXT PRIMARY KEY, task_id T
 export const SESSION_ATTACHMENT_MIGRATION = `
 CREATE TABLE IF NOT EXISTS session_attachment_draft (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at TEXT NOT NULL, command_id TEXT) STRICT;
 `;
+export const SESSION_ATTACHMENT_CLEANUP_MIGRATION = `
+CREATE TABLE IF NOT EXISTS session_attachment_expiry (id TEXT PRIMARY KEY) STRICT;
+CREATE INDEX IF NOT EXISTS session_attachment_draft_age ON session_attachment_draft(created_at);
+`;
 export class SqliteTaskAttachmentRepository implements TaskAttachmentRepository {
   constructor(private readonly db: DatabaseSync) {}
+  expiredSessionDrafts(before: string): SessionAttachmentDraft[] {
+    return (this.db.prepare('SELECT id FROM session_attachment_draft WHERE created_at <= ? AND id NOT IN (SELECT id FROM task_attachment_draft) ORDER BY created_at LIMIT 100').all(before) as { id: string }[]).map(row => this.sessionDraft(row.id)!);
+  }
+  sessionDraftExpired(id: string) { return !!this.db.prepare('SELECT 1 FROM session_attachment_expiry WHERE id=?').get(id); }
+  purgeSessionDraft(id: string) {
+    runInTransaction(this.db, () => {
+      if (this.draftOwner(id)) throw new Error('已领用草稿不能清理。');
+      this.db.prepare('INSERT OR IGNORE INTO session_attachment_expiry VALUES (?)').run(id);
+      this.db.prepare('DELETE FROM task_attachment WHERE draft_id=? AND task_id IS NULL').run(id);
+      this.db.prepare('DELETE FROM session_attachment_draft WHERE id=?').run(id);
+    });
+  }
   sessionDraft(id: string): SessionAttachmentDraft | undefined {
     const row = this.db.prepare('SELECT * FROM session_attachment_draft WHERE id=?').get(id) as { id: string; session_id: string; created_at: string; command_id: string | null } | undefined;
     return row ? { id: row.id, sessionId: row.session_id, createdAt: row.created_at, commandId: row.command_id } : undefined;

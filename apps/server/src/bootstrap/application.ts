@@ -1000,6 +1000,16 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const command = commandRepository.get(commandId);
     return command?.assistantSessionId === sessionId && command.kind === 'send' && command.dispatchMode !== null && command.terminalOutcome !== 'rejected';
   });
+  let pendingAttachmentCleanup: Promise<unknown> | null = null;
+  const attachmentCleanup = () => {
+    const operation = taskAttachments.cleanupExpired().catch(() => { console.error('会话附件清理失败，将在下次维护时重试。'); });
+    pendingAttachmentCleanup = operation;
+    void operation.finally(() => { if (pendingAttachmentCleanup === operation) pendingAttachmentCleanup = null; });
+    return operation;
+  };
+  const initialAttachmentCleanup = attachmentCleanup();
+  const attachmentMaintenance = setInterval(() => { void attachmentCleanup(); }, 60 * 60 * 1000);
+  attachmentMaintenance.unref();
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
@@ -1377,7 +1387,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     remoteAccess,
     paths,
     workPaths,
-    ready: ready.then(async () => { await managedProcesses.recover(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
+    ready: ready.then(async () => { await initialAttachmentCleanup; await managedProcesses.recover(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
     close() {
       const schedulesStopped = scheduleScheduler.close();
       const hadNotifications = notificationDelivery.hasActivity || wechatNotifications.hasActivity || notificationChannels.hasActivity;
@@ -1386,6 +1396,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       images.dispose();
       noteImages.dispose();
       clearInterval(processObservation);
+      clearInterval(attachmentMaintenance);
       managedProcesses.stopObservation();
       artifacts.dispose();
       unsubscribeInbox();
@@ -1419,9 +1430,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
-      if (schedulesStopped || hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb || hadNotifications) {
+      if (pendingAttachmentCleanup || schedulesStopped || hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb || hadNotifications) {
         const processesStopped = managedProcesses.activeCount ? managedProcesses.close() : Promise.resolve();
-        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped, notificationsStopped, schedulesStopped]).then(results => {
+        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped, notificationsStopped, schedulesStopped, pendingAttachmentCleanup]).then(results => {
           // 无法核对终端停止时仍保留数据库和运行时，让迟到退出能够写回真实状态。
           if (results[0]?.status === 'rejected') throw results[0].reason;
           finish();

@@ -1,4 +1,4 @@
-import { SqliteTaskAttachmentRepository, TASK_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_MIGRATION } from './sqlite-task-attachment-repository.js';
+import { SqliteTaskAttachmentRepository, TASK_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_CLEANUP_MIGRATION } from './sqlite-task-attachment-repository.js';
 import { NoteRecordCodec, NOTE_PROTECTION_MIGRATION } from './note-record-codec.js';
 import { SqliteNoteSecurityRepository, NOTE_SECURITY_MIGRATION, NOTE_KEYPAIR_MIGRATION } from './sqlite-note-security-repository.js';
 import { CONTEXT_COMPACTION_MIGRATION, SqliteContextCompactionRepository } from './sqlite-context-compaction-repository.js';
@@ -346,6 +346,7 @@ const MIGRATIONS = [
   SCHEDULE_EXECUTION_MIGRATION,
   TASK_ATTACHMENT_MIGRATION,
   SESSION_ATTACHMENT_MIGRATION,
+  SESSION_ATTACHMENT_CLEANUP_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */

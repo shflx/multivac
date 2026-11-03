@@ -129,3 +129,51 @@ test('远程附件路径只开放全局会话，不开放任务、其他会话�
   assert.equal(remoteRouteAllowed('GET', base.replace(sessionId, 'other-session')), false);
   assert.equal(remoteRouteAllowed('GET', `/api/tasks/${randomUUID()}/attachments`), false);
 });
+
+test('七天清理删除未领用原件和记录，保留新草稿、已领用附件及消息名称大小，过期身份不能复活', async () => {
+  const f = await fixture();
+  const { DatabaseSync } = await import('node:sqlite');
+  const { access } = await import('node:fs/promises');
+  try {
+    const expired = randomUUID(), recent = randomUUID(), claimed = randomUUID();
+    const expiredFile = await f.app.taskAttachments.upload({ draftId: expired, sessionId }, randomUUID(), '需求.md', Buffer.from('过期材料'));
+    await f.app.taskAttachments.upload({ draftId: recent, sessionId }, randomUUID(), '新材料.md', Buffer.from('仍保留'));
+    const claimedFile = await f.app.taskAttachments.upload({ draftId: claimed, sessionId }, randomUUID(), '已领用.md', Buffer.from('永久任务输入'));
+    for (const draftId of [expired, claimed]) await f.request('/api/assistant/turns', { commandId: randomUUID(), assistantSessionId: sessionId, text: '保留文件', contextRefs: [], attachmentDraftId: draftId });
+    const task = f.app.tasks.create({ commandId: randomUUID(), attachmentDraftId: claimed, title: '保留已领用', goal: '核对' }, undefined, sessionId).task;
+    const before = (await f.request('/api/assistant/session')).value.messages.find((item: any) => item.attachments?.draftId === expired).attachments;
+    const key = f.app.taskAttachments.repository.storageKey(expiredFile.id)!;
+    const database = new DatabaseSync(f.app.paths.databasePath);
+    const age = (days: number) => new Date(Date.now() - days * 86400000).toISOString();
+    database.prepare('UPDATE session_attachment_draft SET created_at=? WHERE id IN (?,?)').run(age(8), expired, claimed);
+    database.prepare('UPDATE session_attachment_draft SET created_at=? WHERE id=?').run(age(6), recent);
+    database.close();
+    assert.equal(await f.app.taskAttachments.cleanupExpired(), 1);
+    assert.equal(await f.app.taskAttachments.cleanupExpired(), 0);
+    assert.equal(f.app.taskAttachments.repository.sessionDraft(expired), undefined);
+    assert.equal(f.app.taskAttachments.repository.get(expiredFile.id), undefined);
+    await assert.rejects(access(join(f.app.paths.dataDir, 'task-inputs', key)), /ENOENT/);
+    assert.equal(f.app.taskAttachments.list({ draftId: recent, sessionId }).length, 1);
+    assert.equal((await f.app.taskAttachments.read({ taskId: task.taskId }, claimedFile.id)).data.toString(), '永久任务输入');
+    const after = (await f.request('/api/assistant/session')).value.messages.find((item: any) => item.attachments?.draftId === expired).attachments;
+    assert.equal(after.expired, true);
+    assert.deepEqual(after.attachments, before.attachments);
+    await assert.rejects(f.app.taskAttachments.readMessageAttachment(sessionId, expired, expiredFile.id), /过期/);
+    await assert.rejects(f.app.taskAttachments.upload({ draftId: expired, sessionId }, randomUUID(), '复活.md', Buffer.from('禁止复活')), /身份已使用/);
+    assert.throws(() => f.app.tasks.create({ commandId: randomUUID(), attachmentDraftId: expired, title: '过期', goal: '拒绝' }, undefined, sessionId), /已随本会话/);
+  } finally { await f.close(); }
+});
+
+test('清理跳过上传中的草稿，正文结束后清理可重放', async () => {
+  const f = await fixture();
+  try {
+    const owner = { draftId: randomUUID(), sessionId };
+    let finish!: (data: Buffer) => void;
+    const receiving = f.app.taskAttachments.receive(owner, randomUUID(), 'slow.md', () => new Promise(resolve => { finish = resolve; }));
+    const future = new Date(Date.now() + 8 * 86400000);
+    assert.equal(await f.app.taskAttachments.cleanupExpired(future), 0);
+    finish(Buffer.from('完整文件')); await receiving;
+    assert.equal(await f.app.taskAttachments.cleanupExpired(future), 1);
+    assert.equal(await f.app.taskAttachments.cleanupExpired(future), 0);
+  } finally { await f.close(); }
+});
