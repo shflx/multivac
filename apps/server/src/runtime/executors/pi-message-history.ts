@@ -1,3 +1,4 @@
+import { MessageAttachmentsSchema, type MessageAttachments } from '@multivac/contracts';
 import { NoteSnapshotSchema, type NoteSnapshot, BookReferenceSchema, ReadingReferenceKindSchema, type ReadingReferenceKind, type BookReference, type AssistantMessageSkill, type AssistantMessageView } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { createHash } from 'node:crypto';
@@ -58,6 +59,7 @@ export function mapPiActiveBranch(
   // 引用 entry 是其所属用户消息的父节点；按 entry id 索引即可还原归属，无需解析正文。
   const quotesByEntryId = new Map<string, PiQuoteDetails | PiFileQuoteDetails | PiBookQuoteDetails | PiMcpQuoteDetails>();
   // Skill entry 可能与用户消息之间隔着引用 entry；归属紧随其后的第一条用户消息。
+  let pendingAttachments: MessageAttachments | undefined;
   let pendingSkill: AssistantMessageSkill | undefined;
   let noteContext: NoteSnapshot | undefined;
   let readingReference: BookReference | undefined;
@@ -71,6 +73,8 @@ export function mapPiActiveBranch(
     seen.add(entry.id);
     if (entry.type === 'custom_message' && entry.customType === ASSISTANT_CONTEXT_CUSTOM_TYPE) {
       // appendContext 将来源直接写入 details；新上下文无有效来源时也不能沿用上一轮。
+      const files = (entry.details as { attachments?: unknown } | undefined)?.attachments;
+      pendingAttachments = Check(MessageAttachmentsSchema, files) ? files : undefined;
       const details = entry.details as { kind?: string; snapshot?: unknown; reference?: unknown; currentPage?: unknown; referenceKind?: unknown } | undefined;
       noteContext = details?.kind === 'note' && Check(NoteSnapshotSchema, details.snapshot) ? details.snapshot : undefined;
       readingReference = details?.kind === 'reading' && Check(BookReferenceSchema, details.reference)
@@ -99,7 +103,7 @@ export function mapPiActiveBranch(
     const text = textFromMessage(entry);
     const imageIds = assistantSessionId && ['user', 'assistant', 'toolResult'].includes(entry.message.role) && 'content' in entry.message && Array.isArray(entry.message.content)
       ? entry.message.content.filter(block => block.type === 'image').slice(0, 4).map(block => blockImageIdentity(assistantSessionId, block)) : [];
-    if ((!text && !imageIds.length) || (entry.message.role !== 'user' && entry.message.role !== 'assistant' && !(entry.message.role === 'toolResult' && imageIds.length))) {
+    if ((!text && !imageIds.length && !(entry.message.role === 'user' && pendingAttachments)) || (entry.message.role !== 'user' && entry.message.role !== 'assistant' && !(entry.message.role === 'toolResult' && imageIds.length))) {
       continue;
     }
 
@@ -116,6 +120,7 @@ export function mapPiActiveBranch(
       role: entry.message.role === 'user' ? 'user' : 'assistant',
       ...(entry.message.role === 'toolResult' ? { toolName: entry.message.toolName } : {}),
       text: text ?? '',
+      ...(entry.message.role === 'user' && pendingAttachments ? { attachments: pendingAttachments } : {}),
       ...(imageIds.length ? { imageIds } : {}),
       createdAt: entry.timestamp,
       ...(noteContext ? { noteContext } : {}),
@@ -138,6 +143,7 @@ export function mapPiActiveBranch(
           }
         : {}),
     });
+    if (entry.message.role === 'user') pendingAttachments = undefined;
   }
 
   return messages;

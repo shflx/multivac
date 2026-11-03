@@ -67,6 +67,7 @@ export const SendAssistantMessageCommandSchema = Type.Object(
     text: Type.String({ maxLength: 12 * 1024 }),
     /** 仅显式稳定身份选择本轮执行者，正文中的 @ 是普通数据。 */
     agentId: Type.Optional(AgentIdSchema),
+    attachmentDraftId: Type.Optional(ContextRefId),
     imageIds: Type.Optional(Type.Array(Type.String({ pattern: '^[a-f0-9]{64}$' }), { maxItems: 4, uniqueItems: true })),
     contextRefs: ContextRefs,
     /** 引用是本次追问的用户数据，与正文一同交给 Pi；缺省表示没有引用。 */
@@ -78,7 +79,7 @@ export const SendAssistantMessageCommandSchema = Type.Object(
      */
     view: Type.Optional(CurrentViewSnapshotSchema),
   },
-  { additionalProperties: false, anyOf: [{ properties: { text: { minLength: 1 } } }, { required: ['imageIds'], properties: { imageIds: { minItems: 1 } } }] },
+  { additionalProperties: false, anyOf: [{ properties: { text: { minLength: 1 } } }, { required: ['imageIds'], properties: { imageIds: { minItems: 1 } } }, { required: ['attachmentDraftId'] }] },
 );
 export type SendAssistantMessageCommand =Type.Static<typeof SendAssistantMessageCommandSchema>;
 

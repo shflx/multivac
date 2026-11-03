@@ -606,7 +606,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const selectionRepository = store.selections;
   const noteImages = new NoteImagesService(store.noteImages, notesService);
   const images = new ImageService(store.images, join(paths.dataDir, 'images'), (id) => { store.noteCodec.assertSession(id); if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id); }, protectedFiles);
+  // 附件服务在下方装配，运行时只在启动完成后使用。
+  const attachmentAccess = {
+    messageDraft: (...args: Parameters<TaskAttachmentService['messageDraft']>) => taskAttachments.messageDraft(...args),
+    sendMessageDraft: (...args: Parameters<TaskAttachmentService['sendMessageDraft']>) => taskAttachments.sendMessageDraft(...args),
+    projectMessageAttachments: (...args: Parameters<TaskAttachmentService['projectMessageAttachments']>) => taskAttachments.projectMessageAttachments(...args),
+  };
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
+    attachments: attachmentAccess,
     images,
     stopExecution: (id, commandId) => managedProcesses.bash.stopExecution(id, commandId),
     fileSources: new MessageFileSources(store.messageFileSources),

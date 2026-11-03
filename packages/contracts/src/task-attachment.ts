@@ -15,3 +15,12 @@ export const TaskInputSnapshotSchema = Type.Object({
   attachments: Type.Array(TaskAttachmentSchema, { maxItems: 200 }),
 }, { additionalProperties: false });
 export type TaskInputSnapshot = Type.Static<typeof TaskInputSnapshotSchema>;
+
+/** 消息保留上传时的清单；清理原件后仍可显示名称和大小。 */
+export const MessageAttachmentsSchema = Type.Object({
+  draftId: Type.String({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }),
+  attachments: Type.Array(TaskAttachmentSchema, { maxItems: 20 }),
+  taskId: Type.Optional(Type.String()),
+  expired: Type.Optional(Type.Boolean()),
+}, { additionalProperties: false });
+export type MessageAttachments = Type.Static<typeof MessageAttachmentsSchema>;

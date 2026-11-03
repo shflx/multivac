@@ -589,6 +589,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     if (context?.kind === 'note') session.noteContext = structuredClone(context);
     else delete session.noteContext;
     this.appendHistory(session, 'user', text, `prompt-${promptNumber}-user`, quote, skill);
+    if (context?.attachments) session.history[session.history.length - 1]!.attachments = structuredClone(context.attachments);
     if (images?.length) session.history[session.history.length - 1]!.imageIds = images.map(image => image.id);
     if (scenario === 'outsideWrite' || scenario === 'outsideRead') {
       return this.runOutsideAccess(session, promptNumber, generation, scenario === 'outsideRead' ? 'read' : 'write');

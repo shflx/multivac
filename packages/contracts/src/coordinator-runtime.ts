@@ -87,7 +87,8 @@ export interface CoordinatorSkill {
  * - parent-session：栈式深入时承接的父会话背景与选中内容，只在子会话首轮附带；
  * - focused-project：Multivac 侧栏正在看的项目（设置 · 项目页选中的项目），用于理解“这个”。
  */
-export type CoordinatorSessionContext =
+export type CoordinatorSessionContext = (
+  | { kind: 'attachments'; title: string }
   | { kind: 'note'; title: string; body: string; snapshot: import('./note-assistant.js').NoteSnapshot; topic: import('./note-assistant.js').NoteDiscussion['topic'] }
   | { kind: 'reading'; title: string; reference: import('./reading.js').BookReference; excerpt: string; boundary: import('./reading.js').BookPosition | null; truncated: boolean; discussionExcerpt?: string; referenceKind?: import('./reading.js').ReadingReferenceKind; pageTools?: { contextId: string; previousAvailable: boolean; nextAvailable: boolean }; currentPage?: import('./reading.js').BookReference }
   | { kind: 'focused-task'; taskId: string; title: string; excerpt: string }
@@ -105,7 +106,7 @@ export type CoordinatorSessionContext =
     title: string;
     /** 项目的目录与默认约束摘要。 */
     excerpt: string;
-  };
+  }) & { attachments?: import('./task-attachment.js').MessageAttachments };
 
 export interface CoordinatorAuthorizedContext {
   referenceId: string;

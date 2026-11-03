@@ -1,3 +1,4 @@
+import { MessageAttachmentsSchema } from './task-attachment.js';
 import { AgentIdSchema, AssistantExecutorSchema } from './agent.js';
 import { NoteSnapshotSchema } from './note-assistant.js';
 import { McpResourceReferenceSchema } from './mcp-resources.js';
@@ -100,6 +101,7 @@ export const AssistantMessageViewSchema = Type.Object(
     runtimeEntryId: EntryId,
     role: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
     text: Type.String(),
+    attachments: Type.Optional(MessageAttachmentsSchema),
     imageIds: Type.Optional(Type.Array(Type.String(), { maxItems: 4 })),
     imageReferences: Type.Optional(Type.Array(MessageImageReferenceSchema, { maxItems: 20 })),
     toolName: Type.Optional(Type.String()),

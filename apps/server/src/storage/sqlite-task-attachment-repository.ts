@@ -1,14 +1,23 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { TaskAttachment } from '@multivac/contracts';
-import type { TaskAttachmentRepository } from '../modules/tasks/task-attachment.js';
+import type { SessionAttachmentDraft, TaskAttachmentRepository } from '../modules/tasks/task-attachment.js';
 export const TASK_ATTACHMENT_MIGRATION = `
 CREATE TABLE IF NOT EXISTS task_attachment (id TEXT PRIMARY KEY, task_id TEXT, draft_id TEXT, metadata TEXT NOT NULL, storage_key TEXT NOT NULL UNIQUE, bytes INTEGER NOT NULL) STRICT;
 CREATE INDEX IF NOT EXISTS task_attachment_task ON task_attachment(task_id);
 CREATE INDEX IF NOT EXISTS task_attachment_draft_idx ON task_attachment(draft_id);
 CREATE TABLE IF NOT EXISTS task_attachment_draft (id TEXT PRIMARY KEY, task_id TEXT NOT NULL) STRICT;
 `;
+export const SESSION_ATTACHMENT_MIGRATION = `
+CREATE TABLE IF NOT EXISTS session_attachment_draft (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, created_at TEXT NOT NULL, command_id TEXT) STRICT;
+`;
 export class SqliteTaskAttachmentRepository implements TaskAttachmentRepository {
   constructor(private readonly db: DatabaseSync) {}
+  sessionDraft(id: string): SessionAttachmentDraft | undefined {
+    const row = this.db.prepare('SELECT * FROM session_attachment_draft WHERE id=?').get(id) as { id: string; session_id: string; created_at: string; command_id: string | null } | undefined;
+    return row ? { id: row.id, sessionId: row.session_id, createdAt: row.created_at, commandId: row.command_id } : undefined;
+  }
+  createSessionDraft(draft: SessionAttachmentDraft) { this.db.prepare('INSERT INTO session_attachment_draft VALUES (?,?,?,NULL)').run(draft.id, draft.sessionId, draft.createdAt); }
+  sendSessionDraft(id: string, commandId: string) { this.db.prepare('UPDATE session_attachment_draft SET command_id=? WHERE id=?').run(commandId, id); }
   isStorageKey(key: string) { return !!this.db.prepare('SELECT 1 FROM task_attachment WHERE storage_key=?').get(key); }
   storageKey(id: string) { return (this.db.prepare('SELECT storage_key FROM task_attachment WHERE id=?').get(id) as { storage_key: string } | undefined)?.storage_key; }
   get(id: string): TaskAttachment | undefined {

@@ -65,6 +65,7 @@ export class SqliteAssistantCommandRepository implements AssistantCommandReposit
     return runInTransaction(this.database, () => {
       const existing = readCommand(this.database, input.commandId);
       if (existing) return { receipt: existing, event: null };
+      input.onAccept?.();
       const now = this.now();
       this.database.prepare(`
         INSERT INTO assistant_command_receipt (

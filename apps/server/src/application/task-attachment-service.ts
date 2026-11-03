@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, open, unlink } from 'node:fs/promises';
 import { join, basename, resolve } from 'node:path';
-import { TASK_ATTACHMENT_LIMITS as LIMITS, type TaskAttachment, type TaskInputSnapshot } from '@multivac/contracts';
+import { TASK_ATTACHMENT_LIMITS as LIMITS, type TaskAttachment, type TaskInputSnapshot, type MessageAttachments } from '@multivac/contracts';
 import type { TaskAttachmentRepository } from '../modules/tasks/task-attachment.js';
 import type { TaskService } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
@@ -10,7 +10,7 @@ import { validateImage } from './validate-image.js';
 
 const digest = (data: Buffer) => createHash('sha256').update(data).digest('hex');
 const invalid = (message: string): never => { throw new TaskServiceError('INVALID_REQUEST', message); };
-export type AttachmentOwner = { taskId: string } | { draftId: string };
+export type AttachmentOwner = { taskId: string } | { draftId: string; sessionId?: string };
 
 /** 原件只存私有输入目录。移除保留原件及元数据，历史运行仍可按固定身份读取。 */
 export class TaskAttachmentService {
@@ -23,6 +23,9 @@ export class TaskAttachmentService {
     const id = 'taskId' in owner ? owner.taskId : owner.draftId;
     if (!/^[A-Za-z0-9._:-]{1,128}$/.test(id)) invalid('附件归属身份无效。');
     if ('draftId' in owner) {
+      const draft = this.repository.sessionDraft(owner.draftId);
+      if (owner.sessionId && (!draft || draft.sessionId !== owner.sessionId) || draft && draft.sessionId !== owner.sessionId) invalid('附件草稿不属于当前会话。');
+      if (editing && draft?.commandId) invalid('附件草稿已随消息发送，不能再增删。');
       if (this.repository.draftOwner(owner.draftId)) invalid('暂存材料已绑定任务，请在任务详情管理附件。');
       return;
     }
@@ -54,6 +57,10 @@ export class TaskAttachmentService {
     });
   }
   private async pendingUpload<T>(owner: AttachmentOwner, action: () => Promise<T>): Promise<T> {
+    if ('draftId' in owner && owner.sessionId && !this.repository.sessionDraft(owner.draftId)) {
+      if (!/^[A-Za-z0-9._:-]{1,128}$/.test(owner.draftId) || this.repository.draftOwner(owner.draftId) || this.repository.draft(owner.draftId).length) invalid('附件草稿身份已使用。');
+      this.repository.createSessionDraft({ id: owner.draftId, sessionId: owner.sessionId, createdAt: new Date().toISOString(), commandId: null });
+    }
     this.check(owner, true);
     const key = this.key(owner);
     this.pending.set(key, (this.pending.get(key) ?? 0) + 1);
@@ -101,6 +108,26 @@ export class TaskAttachmentService {
     catch (error) { await unlink(path); throw error; }
     if ('taskId' in owner) this.changed?.(owner.taskId);
     return item;
+  }
+  messageDraft(sessionId: string, draftId: string, commandId?: string): MessageAttachments {
+    const draft = this.repository.sessionDraft(draftId);
+    this.check({ draftId, sessionId });
+    if (!draft || draft.commandId && draft.commandId !== commandId) invalid('附件草稿已发送或不存在。');
+    if (this.pending.has(this.key({ draftId }))) invalid('附件仍在上传，请等待上传完成后发送。');
+    const attachments = this.list({ draftId, sessionId });
+    if (!attachments.length) invalid('附件草稿没有已完成上传的文件。');
+    return { draftId, attachments };
+  }
+  /** 由消息受理仓储在同一短事务内调用。 */
+  sendMessageDraft(sessionId: string, draftId: string, commandId: string): void {
+    this.messageDraft(sessionId, draftId, commandId);
+    this.repository.sendSessionDraft(draftId, commandId);
+  }
+  projectMessageAttachments(sessionId: string, files: MessageAttachments): MessageAttachments {
+    const draft = this.repository.sessionDraft(files.draftId);
+    if (!draft || draft.sessionId !== sessionId) return { ...files, expired: true };
+    const taskId = this.repository.draftOwner(files.draftId);
+    return { draftId: files.draftId, attachments: files.attachments, ...(taskId ? { taskId } : {}) };
   }
   /** 在创建任务的同一 SQLite 事务内调用；失败不消费暂存身份。 */
   claim(draftId: string, taskId: string): void {

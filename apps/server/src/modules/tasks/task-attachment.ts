@@ -1,5 +1,11 @@
 import type { TaskAttachment } from '@multivac/contracts';
+export interface SessionAttachmentDraft {
+  id: string; sessionId: string; createdAt: string; commandId: string | null;
+}
 export interface TaskAttachmentRepository {
+  sessionDraft(id: string): SessionAttachmentDraft | undefined;
+  createSessionDraft(draft: SessionAttachmentDraft): void;
+  sendSessionDraft(id: string, commandId: string): void;
   isStorageKey(key: string): boolean;
   storageKey(id: string): string | undefined;
   get(id: string): TaskAttachment | undefined;

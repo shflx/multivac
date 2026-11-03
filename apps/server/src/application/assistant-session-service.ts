@@ -72,6 +72,7 @@ export interface AssistantSessionServiceOptions {
   kind?: 'coordinator' | 'work';
   fileSources?: MessageFileSources;
   images?: ImageService;
+  attachments?: Pick<import('./task-attachment-service.js').TaskAttachmentService, 'messageDraft' | 'sendMessageDraft' | 'projectMessageAttachments'>;
   /** Pi session 文件目录；缺省使用适配器的默认目录。 */
   sessionDir?: string;
   /** 服务端内部工具：按会话种类注入对应集合。每次创建与恢复 Pi 会话都注入同一组。 */
@@ -186,6 +187,7 @@ export class AssistantSessionService {
     const start = Math.max(0, end - limit);
     // 文件来源只投影本页消息：逐条读取来源记录，不能随整条历史增长。
     const page = await Promise.all(messages.slice(start, end).map(message => this.options.fileSources?.project(this.assistantSessionId, message) ?? message).map(message => this.options.images?.projectMessage(this.assistantSessionId, message, () => this.options.adapter.readImageContents(this.assistantSessionId, message.runtimeEntryId)) ?? message));
+    for (const message of page) if (message.attachments && this.options.attachments) message.attachments = this.options.attachments.projectMessageAttachments(this.assistantSessionId, message.attachments);
     // 工具执行记录由已落库的事件投影派生；快照只带摘要，与正文同一事件循环窗口读取。
     const toolExecutions = (this.options.eventRepository?.toolExecutionProjections?.(
       this.assistantSessionId,

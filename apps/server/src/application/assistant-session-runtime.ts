@@ -35,6 +35,7 @@ export interface AssistantSessionRuntimeDependencies {
   contextCompactions?: ContextCompactionRepository;
   stopExecution?: (sessionId: string, executionId: string) => Promise<void>;
   images?: ImageService;
+  attachments?: Pick<import('./task-attachment-service.js').TaskAttachmentService, 'messageDraft' | 'sendMessageDraft' | 'projectMessageAttachments'>;
   onModelSelectionChanged?: (sessionId: string) => void;
   adapter: CoordinatorAdapter;
   bindingRepository: AssistantSessionBindingRepository;
@@ -104,6 +105,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
     const lock = this.lock;
     this.session = new AssistantSessionService({
       ...(dependencies.images ? { images: dependencies.images } : {}),
+      ...(dependencies.attachments ? { attachments: dependencies.attachments } : {}),
       adapter: dependencies.adapter,
       bindingRepository: dependencies.bindingRepository,
       pageStateRepository: dependencies.pageStateRepository,
@@ -138,6 +140,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
     this.commands = new AssistantTurnCommandService({
       ...(options.resolveBookQuote ? { resolveBookQuote: options.resolveBookQuote } : {}),
       ...(dependencies.images ? { images: dependencies.images } : {}),
+      ...(dependencies.attachments ? { attachments: dependencies.attachments } : {}),
       authorizeSend: (command) => {
         this.context?.settleRecoveredOperation();
         if (this.context?.blocksExecution()) throw new AssistantSessionServiceError('COMMAND_STATE_MISMATCH', '上下文压缩正在执行或待核对，暂不能发送。');

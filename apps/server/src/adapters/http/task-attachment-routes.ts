@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { TASK_ATTACHMENT_LIMITS } from '@multivac/contracts';
+import { GLOBAL_ASSISTANT_SESSION_ID, TASK_ATTACHMENT_LIMITS } from '@multivac/contracts';
 import type { AttachmentOwner, TaskAttachmentService } from '../../application/task-attachment-service.js';
 import { TaskServiceError } from '../../modules/tasks/task-error.js';
 import { ImageError } from '../../application/validate-image.js';
@@ -10,8 +10,13 @@ export function createTaskAttachmentHandler(service: TaskAttachmentService) {
     const url = new URL(request.url ?? '/', 'http://localhost');
     const history = /^\/api\/tasks\/([A-Za-z0-9._:-]+)\/input-snapshots\/([A-Za-z0-9._:-]+)\/attachments\/([a-f0-9-]{36})\/content$/.exec(url.pathname);
     const match = /^\/api\/(tasks|task-attachment-drafts)\/([A-Za-z0-9._:-]+)\/attachments(?:\/([a-f0-9-]{36})(?:\/(content))?)?$/.exec(url.pathname);
-    if (!match && !history) return false;
-    const owner: AttachmentOwner = match?.[1] === 'tasks' ? { taskId: match[2]! } : { draftId: match?.[2] ?? '' };
+    const session = /^\/api\/sessions\/([A-Za-z0-9._:-]+)\/attachment-drafts\/([A-Za-z0-9._:-]+)\/attachments(?:\/([a-f0-9-]{36})(?:\/(content))?)?$/.exec(url.pathname);
+    if (!match && !history && !session) return false;
+    if (session && session[1] !== GLOBAL_ASSISTANT_SESSION_ID) {
+      response.writeHead(403, { 'content-type': 'application/json' }); response.end(JSON.stringify({ error: { message: '文件附件仅支持全局 Multivac 对话。' } })); return true;
+    }
+    const route = session ?? match;
+    const owner: AttachmentOwner = session ? { draftId: session[2]!, sessionId: session[1]! } : match?.[1] === 'tasks' ? { taskId: match[2]! } : { draftId: match?.[2] ?? '' };
     const json = (status: number, result: unknown) => { response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); response.end(JSON.stringify(result)); };
     const download = ({ attachment, data }: Awaited<ReturnType<TaskAttachmentService['read']>>) => {
       response.writeHead(200, { 'content-type': attachment.mimeType, 'content-length': data.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(attachment.name)}` });
@@ -22,12 +27,12 @@ export function createTaskAttachmentHandler(service: TaskAttachmentService) {
         if (request.method !== 'GET' || url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '历史输入仅支持下载。');
         download(await service.readHistory(history[1]!, history[2]!, history[3]!)); return true;
       }
-      if (!match) return false;
+      if (!route) return false;
       let result: unknown;
-      if (request.method === 'PUT' && match[3] && !match[4]) {
+      if (request.method === 'PUT' && route[3] && !route[4]) {
         if ([...url.searchParams.keys()].some(key => key !== 'name') || url.searchParams.getAll('name').length !== 1) throw new TaskServiceError('INVALID_REQUEST', '上传必须指定原文件名。');
         if (Number(request.headers['content-length']) > TASK_ATTACHMENT_LIMITS.bytes) throw new ImageError(413, '单文件上限 10 MiB。');
-        result = await service.receive(owner, match[3], url.searchParams.get('name')!, async () => {
+        result = await service.receive(owner, route[3], url.searchParams.get('name')!, async () => {
           const chunks: Buffer[] = []; let bytes = 0;
           for await (const chunk of request) {
             bytes += chunk.length;
@@ -38,10 +43,10 @@ export function createTaskAttachmentHandler(service: TaskAttachmentService) {
         });
       } else {
         if (url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '附件读取不接受查询参数。');
-        if (request.method === 'GET' && !match[3]) result = { attachments: service.list(owner) };
-        else if (request.method === 'GET' && match[3] && match[4]) {
-          download(await service.read(owner, match[3])); return true;
-        } else if (request.method === 'DELETE' && match[3] && !match[4]) { service.remove(owner, match[3]); result = { ok: true }; }
+        if (request.method === 'GET' && !route[3]) result = { attachments: service.list(owner) };
+        else if (request.method === 'GET' && route[3] && route[4]) {
+          download(await service.read(owner, route[3])); return true;
+        } else if (request.method === 'DELETE' && route[3] && !route[4]) { service.remove(owner, route[3]); result = { ok: true }; }
         else throw new TaskServiceError('NOT_FOUND', '附件接口不存在。');
       }
       json(200, result);

@@ -1,3 +1,4 @@
+import type { TaskAttachmentService } from './task-attachment-service.js';
 import { SkillError } from '../modules/skills/skill-package.js';
 import type {
   AssistantCommandReceipt,
@@ -51,6 +52,7 @@ export interface AssistantTurnCommandServiceOptions {
   resolveMcpQuote?: (quote: import('@multivac/contracts').AssistantMcpQuote) => import('@multivac/contracts').CoordinatorMcpQuote;
   assertMcpQuoteForDispatch?: (quote: import('@multivac/contracts').AssistantMcpQuote, commandId: string) => void;
   images?: ImageService;
+  attachments?: Pick<TaskAttachmentService, 'messageDraft' | 'sendMessageDraft'>;
   authorizeSend?: (command: SendAssistantMessageCommand) => void;
   /** 仅普通工作会话注入；在会话互斥区内解析并冻结服务端执行配置。 */
   resolveAgentExecution?: (agentId: string) => Promise<AssistantAgentExecution>;
@@ -108,6 +110,7 @@ function sendFingerprint(command: SendAssistantMessageCommand): string {
     commandId: command.commandId,
     assistantSessionId: command.assistantSessionId,
     text: command.text,
+    ...(command.attachmentDraftId ? { attachmentDraftId: command.attachmentDraftId } : {}),
     imageIds: command.imageIds ?? [],
     ...(command.agentId ? { agentId: command.agentId } : {}),
     contextRefs: command.contextRefs,
@@ -274,9 +277,15 @@ export class AssistantTurnCommandService {
     const checkImages = () => {
       if (images.length && !(this.options.adapter.capabilities.imageInput && this.options.adapter.supportsImageInput(command.assistantSessionId))) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前模型不支持图片输入或能力未确定，请核对模型配置；图片未发送。');
     };
-    const context = command.contextRefs.length > 0
+    let context = command.contextRefs.length > 0
       ? await this.options.resolveContext!(command.contextRefs)
       : await this.initialContext(command);
+
+    if (command.attachmentDraftId) {
+      if (command.assistantSessionId !== GLOBAL_ASSISTANT_SESSION_ID || !this.options.attachments) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '文件附件仅支持全局 Multivac 对话。');
+      const attachments = this.options.attachments.messageDraft(command.assistantSessionId, command.attachmentDraftId, command.commandId);
+      context = { ...(context ?? { kind: 'attachments' as const, title: '用户附加的文件' }), attachments };
+    }
 
     let promptBaseline: string | null | undefined;
     let stopAnchorTracking: (() => void) | undefined;
@@ -321,6 +330,7 @@ export class AssistantTurnCommandService {
       if (command.quote?.sourceKind === 'file' && command.quote.quoteKind === 'source') quote = await this.validateQuoteSource(command, binding.runtimeSessionId);
       signal?.throwIfAborted();
       const accepted = this.options.commandRepository.createAccepted({
+        ...(command.attachmentDraftId ? { onAccept: () => this.options.attachments!.sendMessageDraft(command.assistantSessionId, command.attachmentDraftId!, command.commandId) } : {}),
         ...(agentExecution ? { agentExecution } : {}),
         commandId: command.commandId,
         assistantSessionId: command.assistantSessionId,
@@ -627,7 +637,7 @@ export class AssistantTurnCommandService {
   private validateSend(command: SendAssistantMessageCommand): void {
     this.validateSession(command.assistantSessionId);
     if (command.agentId && !this.options.resolveAgentExecution) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前会话不支持指定本轮智能体。');
-    if (!command.text.trim() && !command.imageIds?.length) {
+    if (!command.text.trim() && !command.imageIds?.length && !command.attachmentDraftId) {
       throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '消息正文不能为空。');
     }
     if ((command.imageIds?.length ?? 0) > IMAGE_LIMITS.count || new Set(command.imageIds).size !== (command.imageIds?.length ?? 0)) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '图片最多四张且不能重复。');

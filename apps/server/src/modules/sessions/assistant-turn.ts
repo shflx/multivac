@@ -27,6 +27,7 @@ export interface StoredAssistantCommandReceipt extends AssistantCommandReceipt {
 }
 
 export interface CreateAssistantCommandInput {
+  onAccept?: () => void;
   commandId: string;
   assistantSessionId: string;
   kind: AssistantCommandKind;
