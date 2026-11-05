@@ -73,12 +73,13 @@ test('任务详情及时同步其他窗口上传与移除，其他格式准确�
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
   await page.getByRole('button', { name: `查看任务：${task.title}`, exact: true }).click();
   const inputs = page.getByRole('region', { name: '输入附件', exact: true });
-  await expect(inputs).toContainText('暂无附件');
+  // 可编辑时空列表只显示上传区，不再单列“暂无附件”。
+  await expect(inputs.locator('.task-attachment-row')).toHaveCount(0);
   const id = crypto.randomUUID(), url = `${fakeApiRoot}/api/tasks/${task.taskId}/attachments/${id}`;
   expect((await request.put(`${url}?name=source.pdf`, { data: Buffer.from('%PDF-1.7\n') })).ok()).toBeTruthy();
-  await expect(inputs).toContainText('仅保存与下载，不能解析');
+  await expect(inputs).toContainText('仅保存与下载');
   expect((await request.delete(url)).ok()).toBeTruthy();
-  await expect(inputs).toContainText('暂无附件');
+  await expect(inputs.locator('.task-attachment-row')).toHaveCount(0);
 });
 
 test('详情附件上传中与失败时阻止启动，重试或取消后按完整清单启动', async ({ page, request }, info) => {
