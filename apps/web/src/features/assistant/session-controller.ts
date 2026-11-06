@@ -324,6 +324,11 @@ export class AssistantSessionController {
     void this.load(this.lifecycle);
   }
 
+  /** 外部确认改变消息附件归属时，仅补读历史，不重置草稿或正在进行的命令。 */
+  refreshMessages(): void {
+    void this.refreshLatestMessages(this.lifecycle);
+  }
+
   /** 页面隐藏或离开。 */
   flushOnExit(): void {
     this.saver.flushOnExit();

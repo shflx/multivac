@@ -24,6 +24,7 @@ import {
   type ToolAuthorizationRequest,
 } from '@multivac/contracts';
 import { useGlobalEvents } from '../events/global-events-provider.js';
+import { useOptionalWorkbenchEvents } from '../workbench/workbench-sync-provider.js';
 import type { RunFeedback } from './command-feedback.js';
 import { useImageDraft } from './image-draft.js';
 import type { SaveFeedback } from './page-state-saver.js';
@@ -132,6 +133,13 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
   controller.imageDraft = imageDraft;
   controller.model = modelState;
   const state = useSyncExternalStore(controller.subscribe, controller.getState);
+
+  useOptionalWorkbenchEvents(event => {
+    if (sessionId !== GLOBAL_ASSISTANT_SESSION_ID || controller.getState().status !== 'ready') return;
+    // 确认发生在模型轮次之外；重连时也补读，避免消息仍显示旧的领用状态。
+    if (event.type === 'workbench.connected' || event.type === 'proposal.changed' &&
+      event.proposal.kind === 'task.create' && event.proposal.status === 'executed') controller.refreshMessages();
+  });
 
   useEffect(() => {
     controller.start();
