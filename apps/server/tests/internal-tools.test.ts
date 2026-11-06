@@ -122,6 +122,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     currentTurn: () => null,
   });
   assert.deepEqual(service.specs.map((spec) => [spec.name, spec.effect]), [
+    ['list_task_attachments', 'query'], ['read_task_attachment', 'query'],
     ['list_skills', 'query'], ['propose_skill', 'propose'],
     ['query_mcp_management', 'query'], ['propose_mcp_management', 'propose'],
     ['list_mcp_tools', 'query'], ['call_mcp_tool', 'manage'],

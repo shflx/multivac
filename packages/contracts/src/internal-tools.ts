@@ -172,7 +172,7 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
     tools: [
       'list_tasks', 'get_task', 'list_task_groups', 'create_task', 'propose_create_task', 'update_task', 'control_task',
       'delete_task', 'create_task_group', 'confirm_human_task', 'set_parallel_count',
-      'list_task_requests', 'get_task_request', 'respond_task_request',
+      'list_task_requests', 'get_task_request', 'respond_task_request', 'list_task_attachments', 'read_task_attachment',
     ],
   },
   {
