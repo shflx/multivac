@@ -173,3 +173,32 @@ test('真实 Pi 模型目录参与校验：已认证的目录模型可保存，�
     assert.equal((await service.modelState({ modelProfileId: 'anthropic-unauthenticated', thinkingLevel: null })).status, 'review');
   } finally { store.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+test('委派默认关闭，开启必须有用途；协调者不能开启；可关闭后清空用途', async () => {
+  await withService(async service => {
+    assert.ok((await service.list()).agents.every(a => !a.delegable));
+    await assert.rejects(service.create({ commandId: 'no-description', name: '空', delegable: true }), /用途/);
+    await assert.rejects(service.update('coordinator', { commandId: 'fixed', revision: 1, patch: { delegable: true } }), /固定/);
+    const { agent } = await service.create({ commandId: 'delegate', name: '检索', description: '适合检索，不适合写入', delegable: true });
+    await assert.rejects(service.update(agent.agentId, { commandId: 'empty', revision: 1, patch: { description: '  ' } }), /用途/);
+    const next = await service.update(agent.agentId, { commandId: 'disable', revision: 1, patch: { description: '', delegable: false } });
+    assert.equal(next.agent.delegable, false);
+  });
+});
+
+test('升级迁移为既有记录及命令回执补 delegable=false，重复执行保持字段与版本', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { AGENT_MIGRATION, AGENT_DELEGABLE_MIGRATION, SqliteAgentRepository } = await import('../src/storage/sqlite-agent-repository.js');
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec(AGENT_MIGRATION);
+    const old = { agentId: 'old', name: '旧配置', description: '', modelProfileId: null, thinkingLevel: null, instructions: '', fixed: false, revision: 3, createdAt: 'before', updatedAt: 'before' };
+    db.prepare('INSERT INTO agent VALUES (?, ?, ?, ?, ?)').run('old', '旧配置', 3, 'before', JSON.stringify(old));
+    db.prepare('INSERT INTO agent_command VALUES (?, ?, ?)').run('old-create', 'fingerprint', JSON.stringify(old));
+    db.exec(AGENT_DELEGABLE_MIGRATION);
+    db.exec(AGENT_DELEGABLE_MIGRATION);
+    const repository = new SqliteAgentRepository(db);
+    assert.deepEqual(repository.get('old'), { ...old, delegable: false });
+    assert.deepEqual(repository.command('old-create')!.result, { ...old, delegable: false });
+  } finally { db.close(); }
+});

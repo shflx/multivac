@@ -110,7 +110,7 @@ export class AgentService {
   async create(input: CreateAgent, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): Promise<AgentReceipt> {
     if (!Check(CreateAgentSchema, input)) invalid('智能体参数无效。');
     const fields = {
-      name: input.name.trim(), description: input.description?.trim() ?? '',
+      name: input.name.trim(), description: input.description?.trim() ?? '', delegable: input.delegable ?? false,
       modelProfileId: input.modelProfileId ?? null, thinkingLevel: input.thinkingLevel ?? null,
       instructions: input.instructions?.trim() ?? '',
     };
@@ -220,7 +220,8 @@ export class AgentService {
   }
 }
 
-function validateFields(fields: Pick<Agent, 'name' | 'modelProfileId' | 'thinkingLevel'>): void {
+function validateFields(fields: Pick<Agent, 'name' | 'description' | 'delegable' | 'modelProfileId' | 'thinkingLevel'>): void {
   if (!fields.name) invalid('智能体名称不能为空。');
+  if (fields.delegable && !fields.description.trim()) invalid('可委派智能体必须填写用途，说明适合与不适合的工作。');
   if (fields.thinkingLevel !== null && fields.modelProfileId === null) invalid('指定推理等级时需要同时选择模型；跟随默认模型时使用模型的默认等级。');
 }

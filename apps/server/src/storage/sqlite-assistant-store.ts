@@ -23,7 +23,7 @@ import { SqliteNoteImagesRepository, NOTE_IMAGES_MIGRATION } from './sqlite-note
 import { SqliteProjectResourceRepository, PROJECT_RESOURCE_MIGRATION } from './sqlite-project-resource-repository.js';
 import { SqliteImageRepository } from './sqlite-image-repository.js';
 import { SqliteTaskRepository, TASK_MIGRATION } from './sqlite-task-repository.js';
-import { AGENT_MIGRATION, SqliteAgentRepository } from './sqlite-agent-repository.js';
+import { AGENT_DELEGABLE_MIGRATION, AGENT_MIGRATION, SqliteAgentRepository } from './sqlite-agent-repository.js';
 import { SqliteTaskRunRepository, TASK_RUN_MIGRATION, TASK_RUN_OVERVIEW_MIGRATION } from './sqlite-task-run-repository.js';
 import { SqliteTaskRuntimeRepository, TASK_RUNTIME_MIGRATION } from './sqlite-task-runtime-repository.js';
 import { SqliteTaskFacts } from './sqlite-task-facts.js';
@@ -347,6 +347,7 @@ const MIGRATIONS = [
   TASK_ATTACHMENT_MIGRATION,
   SESSION_ATTACHMENT_MIGRATION,
   SESSION_ATTACHMENT_CLEANUP_MIGRATION,
+  AGENT_DELEGABLE_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */

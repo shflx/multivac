@@ -30,6 +30,7 @@ export const AgentSchema = Type.Object({
   agentId: AgentIdSchema,
   name: Name,
   description: Description,
+  delegable: Type.Boolean(),
   modelProfileId: ModelProfileRef,
   thinkingLevel: ThinkingLevel,
   instructions: Instructions,
@@ -84,6 +85,7 @@ export type AgentList = Type.Static<typeof AgentListSchema>;
 const AgentFields = {
   name: Name,
   description: Type.Optional(Description),
+  delegable: Type.Optional(Type.Boolean()),
   modelProfileId: Type.Optional(ModelProfileRef),
   thinkingLevel: Type.Optional(ThinkingLevel),
   instructions: Type.Optional(Instructions),
@@ -100,7 +102,7 @@ export const UpdateAgentSchema = Type.Object({
   commandId: CommandId,
   revision: Type.Integer({ minimum: 1 }),
   patch: Type.Partial(Type.Object({
-    name: Name, description: Description, modelProfileId: ModelProfileRef, thinkingLevel: ThinkingLevel, instructions: Instructions,
+    name: Name, description: Description, delegable: Type.Boolean(), modelProfileId: ModelProfileRef, thinkingLevel: ThinkingLevel, instructions: Instructions,
   }), { additionalProperties: false, minProperties: 1 }),
 }, { additionalProperties: false });
 export type UpdateAgent = Type.Static<typeof UpdateAgentSchema>;
@@ -127,6 +129,7 @@ export type CreateAgentProposalPayload = AgentDraft;
 export const CreateAgentProposalPreviewSchema = Type.Object({
   name: Name,
   description: Description,
+  delegable: Type.Boolean(),
   modelProfileId: ModelProfileRef,
   /** 跟随全局默认模型时为 null。 */
   modelName: Type.Union([Type.String(), Type.Null()]),

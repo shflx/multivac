@@ -339,6 +339,12 @@ function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, 
         {editing && editError && <p id={`${titleId}-edit-error`} className="form-error agent-identity-error" role="alert">{editError}</p>}
       </form>
 
+      <section className="detail-section">
+        <label><input type="checkbox" checked={agent.delegable} disabled={busy}
+          onChange={(event) => void run({ delegable: event.target.checked }, '委派设置保存失败。', setEditError)} />允许作为子智能体</label>
+        <p className="section-hint">用途须从调用方视角说明适合与不适合的简单工作。委派不增加工具或权限。</p>
+        {!editing && editError && <p className="form-error" role="alert">{editError}</p>}
+      </section>
       <section className="detail-section agent-model-section" aria-labelledby={`${titleId}-model`}>
         <div className="section-title"><h3 id={`${titleId}-model`}>模型与推理</h3><SavedMark saved={saved} target="model" /></div>
         <AgentModelField snapshot={snapshot} disabled={busy}
@@ -379,6 +385,7 @@ function NewAgentForm({ snapshot, modelSettingsError, onCreated, onCancel, onMan
   const titleId = useId();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [delegable, setDelegable] = useState(false);
   const [model, setModel] = useState<AgentModelValue>({ modelProfileId: null, thinkingLevel: null });
   const [instructions, setInstructions] = useState('');
   const [error, setError] = useState('');
@@ -393,7 +400,7 @@ function NewAgentForm({ snapshot, modelSettingsError, onCreated, onCancel, onMan
     setBusy(true);
     setError('');
     try {
-      const receipt = await createAgent({ commandId: commandId.current, name, description, instructions, ...model });
+      const receipt = await createAgent({ commandId: commandId.current, name, description, delegable, instructions, ...model });
       onCreated(receipt.agent);
     } catch (cause) {
       setError(errorText(cause, '创建失败，请重试。'));
@@ -421,6 +428,8 @@ function NewAgentForm({ snapshot, modelSettingsError, onCreated, onCancel, onMan
               onChange={(event) => setDescription(event.target.value)} />
           </label>
         </div>
+        <label><input type="checkbox" checked={delegable} onChange={(event) => setDelegable(event.target.checked)} />允许作为子智能体</label>
+        <p className="section-hint">开启后，用途必须说明适合与不适合委派的工作。</p>
         <div className="agent-model-section">
           <AgentModelField snapshot={snapshot} disabled={busy} value={model} onChange={setModel} />
           {modelSettingsError && <p className="form-error" role="alert">{modelSettingsError}</p>}

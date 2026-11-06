@@ -17,6 +17,14 @@ export const AGENT_MIGRATION = `
   ) STRICT;
 `;
 
+/** 旧记录及幂等回执统一补默认值，迁移不改变版本。 */
+export const AGENT_DELEGABLE_MIGRATION = `
+  UPDATE agent SET record_json = json_set(record_json, '$.delegable', json('false'))
+    WHERE json_type(record_json, '$.delegable') IS NULL;
+  UPDATE agent_command SET result_json = json_set(result_json, '$.delegable', json('false'))
+    WHERE json_type(result_json, '$.delegable') IS NULL;
+`;
+
 function agentFromRow(row: unknown): Agent {
   const agent: unknown = JSON.parse((row as { record_json: string }).record_json);
   if (!Check(AgentSchema, agent)) throw new Error('智能体存储记录不符合契约，需要核对迁移或数据。');

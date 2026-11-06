@@ -146,7 +146,7 @@ test('新建智能体：卡上写全配置与模型名，确认前不登记；�
     assert.match(outcome.content, /等待用户在对话中的确认卡上确认；确认之前没有执行任何操作/u);
     assert.equal(proposal.title, '新建智能体「研究」');
     assert.deepEqual(proposal.preview, {
-      name: '研究', description: '调研与资料整理', modelProfileId: 'ready', modelName: '可用模型',
+      delegable: false, name: '研究', description: '调研与资料整理', modelProfileId: 'ready', modelName: '可用模型',
       thinkingLevel: 'high', instructions: '保留来源。',
     });
     assert.equal(Check(CreateAgentProposalPreviewSchema, proposal.preview), true);
@@ -183,7 +183,7 @@ test('跟随默认模型：不给模型与推理等级时卡上写明默认模�
   await withWorld(async ({ propose, decide, agents }) => {
     const { proposal } = await propose({ name: '随手记' });
     assert.deepEqual(proposal.preview, {
-      name: '随手记', description: '', modelProfileId: null, modelName: null, thinkingLevel: null, instructions: '',
+      delegable: false, name: '随手记', description: '', modelProfileId: null, modelName: null, thinkingLevel: null, instructions: '',
     });
     assert.equal(proposal.problem, null);
 
@@ -283,5 +283,15 @@ test('取消与冲突：取消后不能再确认；已执行不能再取消；�
     assert.equal(cards.length, 1);
     assert.equal(cards[0]!.status, 'pending');
     assert.deepEqual(await names(), ['Multivac（协调）', '通用执行', '乙']);
+  });
+});
+
+test('可委派配置在提议确认时保持一致；缺少用途不能确认', async () => {
+  await withWorld(async ({ propose, decide, agents }) => {
+    const invalid = await propose({ name: '无说明', delegable: true });
+    assert.match(invalid.proposal.problem!, /用途/);
+    const valid = await propose({ name: '检索', delegable: true, description: '适合检索；不适合写入' });
+    assert.equal((await decide(valid.proposal.proposalId, 'confirm')).status, 'executed');
+    assert.equal((await agents.list()).agents.find(a => a.name === '检索')!.delegable, true);
   });
 });

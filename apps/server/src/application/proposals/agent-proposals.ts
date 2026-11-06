@@ -50,6 +50,7 @@ function normalize(payload: CreateAgentProposalPayload): Omit<CreateAgentProposa
   return {
     name: payload.name.trim(),
     description: payload.description?.trim() ?? '',
+    delegable: payload.delegable ?? false,
     modelProfileId: payload.modelProfileId ?? null,
     thinkingLevel: payload.thinkingLevel ?? null,
     instructions: payload.instructions?.trim() ?? '',
@@ -74,6 +75,7 @@ export function createAgentKind(dependencies: AgentProposalDependencies): Propos
     const state = await agents.modelState(fields);
     const preview = { ...fields, modelName: state.status === 'default' ? null : state.modelName };
     if (!fields.name) return { preview, problem: '智能体名称不能为空。' };
+    if (fields.delegable && !fields.description) return { preview, problem: '可委派智能体必须填写用途，说明适合与不适合的工作。' };
     if (fields.thinkingLevel !== null && fields.modelProfileId === null) {
       return { preview, problem: '指定推理等级时需要同时选择模型；跟随默认模型时使用模型的默认等级。' };
     }

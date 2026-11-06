@@ -38,13 +38,13 @@ export function presetAgents(at: string): Agent[] {
     {
       agentId: COORDINATOR_AGENT_ID, name: 'Multivac（协调）',
       description: '只带内部工具与只读查询；有副作用的操作转交任务会话执行。',
-      modelProfileId: null, thinkingLevel: null, instructions: '', fixed: true,
+      delegable: false, modelProfileId: null, thinkingLevel: null, instructions: '', fixed: true,
       revision: 1, createdAt: at, updatedAt: at,
     },
     {
       agentId: DEFAULT_AGENT_ID, name: '通用执行',
       description: '编码、文档与日常执行，适合大多数任务。',
-      modelProfileId: null, thinkingLevel: null, instructions: '', fixed: false,
+      delegable: false, modelProfileId: null, thinkingLevel: null, instructions: '', fixed: false,
       revision: 1, createdAt: at, updatedAt: at,
     },
   ];

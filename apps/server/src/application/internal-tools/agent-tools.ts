@@ -14,7 +14,7 @@ export const proposeCreateAgentTool = defineInternalTool({
   effect: 'propose',
   description: `提议新建一个智能体（命名的执行配置：模型、推理等级与指令），供新建任务时选用。${PROPOSAL_GUIDE}` +
     'name 为智能体名称；modelProfileId 与 thinkingLevel 不给时跟随全局默认模型，指定推理等级时必须同时指定模型；' +
-    'instructions 为执行任务时附带的指令。智能体只是执行配置，不扩大目录或工具权限。' +
+    'delegable 默认关闭；开启时 description 必须从调用方视角说明适合与不适合的简单工作。instructions 为执行任务时附带的指令。智能体只是执行配置，不扩大目录或工具权限。' +
     '名称重名或模型不可用时卡上写明原因、不能确认。修改或删除智能体请引导用户到设置 · 智能体。',
   parameters: CreateAgentProposalPayloadSchema,
   async execute(params, { propose }) {

@@ -107,6 +107,7 @@ function CreateAgentBody({ proposal }: ProposalBodyProps) {
   return (
     <>
       <div><dt>名称</dt><dd>{preview.name}</dd></div>
+      <div><dt>允许委派</dt><dd>{preview.delegable ? '开启' : '关闭'}</dd></div>
       {preview.description ? <div><dt>说明</dt><dd>{preview.description}</dd></div> : null}
       <div><dt>模型</dt><dd>{model}</dd></div>
       {preview.instructions ? <div><dt>指令</dt><dd className="proposal-agent-instructions">{preview.instructions}</dd></div> : null}
