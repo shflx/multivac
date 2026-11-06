@@ -92,3 +92,38 @@ test('全局文件拖放使用附件通道，图片选择继续使用 imageIds',
   await files.getByRole('button', { name: '读取', exact: true }).click();
   await expect(files.getByRole('img', { name: 'picture.png' })).toBeVisible();
 });
+
+test('附件菜单键盘导航、大量文件与跨窗口旧草稿清空', async ({ page, context, request }, info) => {
+  await resetE2eState(request); await page.goto('/');
+  const home = page.locator('.work-surface').first();
+  const trigger = home.getByRole('button', { name: '添加图片或文件', exact: true });
+  await expect(trigger).toBeVisible(); await trigger.focus(); await trigger.press('Enter');
+  await expect(home.getByRole('menuitem', { name: /添加图片/ })).toBeFocused();
+  await page.keyboard.press('ArrowDown'); await expect(home.getByRole('menuitem', { name: /添加文件/ })).toBeFocused();
+  await page.screenshot({ path: info.outputPath('keyboard-file-menu.png') });
+  await page.keyboard.press('Escape'); await expect(home.getByRole('menu')).toHaveCount(0); await expect(trigger).toBeFocused();
+  await home.getByLabel('选择附件文件').setInputFiles(Array.from({ length: 20 }, (_, i) => ({ name: `第${i + 1}份-${'长文件名'.repeat(10)}.txt`, mimeType: 'text/plain', buffer: Buffer.from('文件内容') })));
+  const pending = home.getByLabel('待发送文件');
+  await expect(pending.getByText(/已上传/)).toHaveCount(20);
+  const input = await home.getByLabel('Multivac 草稿').boundingBox();
+  const button = await home.getByRole('button', { name: '发送消息', exact: true }).boundingBox();
+  expect(input!.y).toBeGreaterThanOrEqual(0); expect(button!.y + button!.height).toBeLessThanOrEqual(page.viewportSize()!.height);
+  await page.screenshot({ path: info.outputPath('many-files-contained.png') });
+  await pending.getByRole('button', { name: '清空附件', exact: true }).click(); await expect(pending).toHaveCount(0);
+  await home.getByLabel('选择附件文件').setInputFiles({ name: '共享草稿.txt', mimeType: 'text/plain', buffer: Buffer.from('原消息必须保留') });
+  await expect(pending).toContainText('已上传');
+  const peer = await context.newPage(); await peer.goto('/'); const other = peer.locator('.work-surface').first();
+  await expect(other.getByLabel('待发送文件')).toContainText('已上传');
+  await home.getByLabel('Multivac 草稿').fill('保留材料，不创建任务。');
+  await home.getByRole('button', { name: '发送消息', exact: true }).click();
+  const sent = home.getByLabel('消息附件').filter({ hasText: '共享草稿.txt' }); await expect(sent).toBeVisible();
+  await other.getByRole('button', { name: '移除附件 共享草稿.txt' }).click();
+  await expect(other.getByLabel('待发送文件')).toContainText('已随消息发送');
+  await other.getByRole('button', { name: '清空附件', exact: true }).click();
+  await expect(other.getByLabel('待发送文件')).toHaveCount(0);
+  await other.getByLabel('Multivac 草稿').fill('下一条不附带旧文件');
+  await expect(other.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+  await peer.screenshot({ path: info.outputPath('peer-draft-cleared.png') });
+  await sent.getByRole('button', { name: '读取', exact: true }).click(); await expect(sent.locator('pre')).toHaveText('原消息必须保留');
+  await peer.close();
+});

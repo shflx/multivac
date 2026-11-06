@@ -86,6 +86,8 @@ export function useFileDraft(sessionId: string, changed: () => void) {
     } catch (cause) { if (alive.current && isCurrent()) setError(`附件无法恢复：${(cause as Error).message}`); }
   }
   return { items: state.items, error, add, remove, clear, restore,
+    // 用户清空是新的草稿意图；旧消息的原件和另一窗口的发送结果保持不变。
+    discard: () => { clear(current.current.draftId); changed(); },
     retry: (id: string) => { const item = current.current.items.find(item => item.id === id); if (item) void upload(item, current.current.draftId); },
     id: () => current.current.items.length ? current.current.draftId : undefined,
     ready: state.items.every(item => item.status === 'ready'),

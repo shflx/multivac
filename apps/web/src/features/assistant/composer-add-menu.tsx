@@ -19,8 +19,10 @@ export function ComposerAddMenu({ draft, files, mcpResources }: { draft: ImageDr
   const [open, setOpen] = useState(false), [picking, setPicking] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const input = useRef<HTMLInputElement>(null), root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
+    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
     const close = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
@@ -30,8 +32,17 @@ export function ComposerAddMenu({ draft, files, mcpResources }: { draft: ImageDr
   return <div className="composer-add" ref={root}>
     {files && <input ref={fileInput} type="file" multiple hidden aria-label="选择附件文件" disabled={files.disabled} onChange={event => { files.add(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />}
     <input ref={input} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label="选择图片文件" onChange={event => { draft.add(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
-    <button type="button" className="icon-button composer-image-add" title={files ? "添加图片或文件" : "添加图片或引用资源"} aria-label={files ? "添加图片或文件" : "添加图片或引用资源"} aria-expanded={open} onClick={() => setOpen(value => !value)}><Plus aria-hidden="true" /></button>
-    {open && <div className="composer-add-menu" role="menu" aria-label="添加材料" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}>
+    <button ref={trigger} type="button" className="icon-button composer-image-add" title={files ? "添加图片或文件" : "添加图片或引用资源"} aria-label={files ? "添加图片或文件" : "添加图片或引用资源"} aria-expanded={open} onClick={() => setOpen(value => !value)}><Plus aria-hidden="true" /></button>
+    {open && <div className="composer-add-menu" role="menu" aria-label="添加材料" onKeyDown={event => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
+      if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+        const index = items.findIndex(item => item === document.activeElement);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+        items[next]?.focus();
+      }
+    }}>
       <button type="button" role="menuitem" onClick={() => { setOpen(false); input.current?.click(); }}><ImageIcon aria-hidden="true" /><span><strong>添加图片</strong><small>PNG、JPEG、WebP、GIF</small></span></button>
       {files && <button type="button" role="menuitem" disabled={files.disabled} onClick={() => { setOpen(false); fileInput.current?.click(); }}><FilePlus aria-hidden="true" /><span><strong>添加文件</strong><small>作为任务输入附件</small></span></button>}
       {mcpResources && <button type="button" role="menuitem" disabled={mcpResources.disabled} onClick={() => { setOpen(false); setPicking(true); }}><Plug aria-hidden="true" /><span><strong>引用 MCP 资源</strong><small>从已连接的服务中选取一段内容</small></span></button>}
