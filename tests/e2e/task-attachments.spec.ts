@@ -106,7 +106,7 @@ test('详情附件上传中与失败时阻止启动，重试或取消后按完�
   });
   try {
     await inputs.getByLabel('添加任务附件').setInputFiles({ name: 'chosen.txt', mimeType: 'text/plain', buffer: Buffer.from('本轮需要读取的材料') });
-    await expect(inputs).toContainText('上传中…'); await expect(start).toBeDisabled();
+    await expect(inputs).toContainText('上传中 · 27 B'); await expect(start).toBeDisabled();
     await page.screenshot({ path: info.outputPath('upload-pending.png') });
     release();
     await expect(inputs).toContainText('上传暂不可用'); await expect(start).toBeDisabled();
