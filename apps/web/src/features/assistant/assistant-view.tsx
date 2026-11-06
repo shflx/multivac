@@ -868,7 +868,7 @@ function AssistantSessionView({
                 <div className="send-error" role="alert">
                   <CircleAlert aria-hidden="true" />
                   <span>{contentSendError}</span>
-                  {(pageState.draft.trim() || session.imageDraft.items.length > 0 || session.fileDraft.items.length > 0) && (
+                  {!(isCoordinator && session.pendingSubmission?.unknown) && (pageState.draft.trim() || session.imageDraft.items.length > 0 || session.fileDraft.items.length > 0) && (
                     <button type="button" onClick={() => void submitDraft()} disabled={submitting}>
                       <RefreshCw aria-hidden="true" />
                       {canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '重试发送'}
@@ -985,7 +985,7 @@ function AssistantSessionView({
               )}
               {skillPicker.view}
               {compactNotice && sessionContext.operation && <CompactFeedback operation={sessionContext.operation} onDismiss={() => setCompactNotice(false)} />}
-              {allowAgentSelection && session.pendingSubmission?.agentId && session.pendingSubmission.unknown && (
+              {(isCoordinator || allowAgentSelection && session.pendingSubmission?.agentId) && session.pendingSubmission?.unknown && (
                 <div className="send-error" role="status">
                   <span>发送结果尚未确认，原选择已保留。</span>
                   <button type="button" disabled={submitting || session.pendingSubmission.checking} onClick={() => void session.checkPendingSubmission()}>核对发送结果</button>

@@ -775,11 +775,12 @@ export class AssistantSessionController {
 
     const currentPending = this.state.pendingCommand!;
     this.setPendingCommand(null);
+    // 附件按独立草稿身份结算；输入新正文不应保留已经发送的旧附件。
+    this.fileDraft.clear(submitted.attachmentDraftId);
     if (canClearSettledDraft(currentPending, submitted, { ...this.draftContext(), conflictBlocked: this.saver.blocked })) {
       // 命令成功只清理已发送内容，保留智能体选择，也不能覆盖冲突或下一条草稿。
       this.markLocalChange({ ...this.saver.page, draft: '', quote: null }, 'command-settlement');
       this.imageDraft.clear(submitted.imageIds ?? []);
-      this.fileDraft.clear(submitted.attachmentDraftId);
       await this.saver.enqueue(false, false, { draft: submitted.text, agentId: submitted.agentId ?? null, quote: submitted.quote });
     }
     return true;
@@ -1067,7 +1068,7 @@ export class AssistantSessionController {
       ? currentBehaviorSelection
       : null;
     // 普通发送入口只核对智能体的未知命令；显式重试才允许按原快照和幂等身份再次提交。
-    if (reusable?.unknown && reusable.agentId && (!resendUnknown || reusable.confirmed)) {
+    if (reusable?.unknown && (reusable.confirmed || reusable.agentId && !resendUnknown)) {
       await this.reconcilePendingCommand(reusable, lifecycle);
       return;
     }
@@ -1211,9 +1212,7 @@ export class AssistantSessionController {
     const pending = this.state.pendingCommand;
     if (!pending?.unknown) return;
     // 显式重试沿用完整快照与幂等身份；已确认受理的命令仍只读核对。
-    if (pending.agentId || pending.clearOnSubmit) {
-      await this.submitDraft({ clearOnSubmit: pending.clearOnSubmit ?? false, omitQuote: pending.omitQuote ?? false }, undefined, true);
-    }
+    await this.submitDraft({ clearOnSubmit: pending.clearOnSubmit ?? false, omitQuote: pending.omitQuote ?? false }, undefined, true);
   }
 
   async checkPendingSubmission(): Promise<void> {

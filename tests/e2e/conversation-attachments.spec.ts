@@ -190,3 +190,27 @@ test('通过确认卡领用长名称材料，完整下载并在刷新后从消�
   await expect(inspector.getByRole('button', { name: `启动任务：${title}`, exact: true })).toBeEnabled();
   await screenshot(page, info.outputPath('task-created.png')); expect(errors).toEqual([]);
 });
+
+test('文件独立发送的未知结果按原身份重试，保留新正文', async ({ page, request }, info) => {
+  await resetE2eState(request);
+  await open(page); const view = home(page), body = view.getByLabel('Multivac 草稿');
+  await view.getByLabel('选择附件文件').setInputFiles({ name: '只发送文件.txt', mimeType: 'text/plain', buffer: Buffer.from('本轮原件') });
+  await expect(view.getByLabel('待发送文件')).toContainText('已上传'); await expect(body).toHaveValue('');
+  let dispatch = false; const commands: Record<string, unknown>[] = [];
+  await page.route('**/api/assistant/turns', async route => { commands.push(route.request().postDataJSON()); if (dispatch) await route.continue(); else await route.abort('failed'); });
+  await page.clock.install(); await view.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(view.getByText('正在确认消息是否已接受', { exact: true })).toBeVisible();
+  await page.clock.runFor(13000); await expect(view.getByRole('button', { name: '按原命令重试', exact: true })).toBeEnabled();
+  await screenshot(page, info.outputPath('unknown-original.png'));
+  await page.reload(); await expect(view.getByLabel('待发送文件')).toContainText('只发送文件.txt');
+  await page.clock.runFor(13000); await expect(view.getByRole('button', { name: '按原命令重试', exact: true })).toBeEnabled();
+  await body.fill('下一条正文保持不变'); dispatch = true;
+  await view.getByRole('button', { name: '按原命令重试', exact: true }).click();
+  await expect(view.getByLabel('消息附件').filter({ hasText: '只发送文件.txt' })).toBeVisible();
+  expect(commands).toHaveLength(2);
+  // 视图仅为本次窗口的临时来源，不属于持久命令指纹；重试保留全部命令内容。
+  const { view: _view, ...original } = commands[0]!; expect(commands[1]).toEqual(original);
+  await expect(body).toHaveValue('下一条正文保持不变');
+  await expect(view.getByLabel('待发送文件')).toHaveCount(0);
+  await screenshot(page, info.outputPath('unknown-recovered.png'));
+});
