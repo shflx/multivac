@@ -1,9 +1,36 @@
-.conversation-files { display: grid; gap: 6px; min-width: 0; max-width: 100%; margin-block: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; font-size: var(--t-sm); }
-.conversation-files > small { color: var(--muted); overflow-wrap: anywhere; }
-.conversation-file-list { display: grid; gap: 6px; max-height: min(240px, 30dvh); overflow: auto; overscroll-behavior: contain; }
-.conversation-file-draft > .inline-link { justify-self: start; }
-.conversation-files .task-attachment-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; min-width: 0; padding: 6px 8px; }
-.conversation-files .task-attachment-row > span { min-width: 0; overflow-wrap: anywhere; }
-.conversation-files .task-attachment-preview { flex-basis: 100%; min-width: 0; max-width: 100%; }
+/* 会话文件：输入框上方的待发送文件与消息中的文件共用卡片样式。 */
+.conversation-files { display: grid; gap: 6px; min-width: 0; max-width: 100%; font-size: var(--t-sm); }
+.conversation-file-draft { margin: 0 0 8px; }
+.conversation-message-files { margin-block: 8px; }
+.conversation-file-list { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-height: min(200px, 30dvh); overflow: auto; overscroll-behavior: contain; }
+
+/* 文件卡片：图标 | 名称与大小 | 操作；名称过长省略，完整名称见悬停提示。 */
+.conversation-files .conversation-file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: auto; max-width: min(280px, 100%); min-width: 0; padding: 5px 4px 5px 5px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.conversation-files .conversation-file:hover { border-color: var(--line-strong); }
+.conversation-files .conversation-file.error { border-color: var(--danger-line); background: var(--danger-soft); }
+.conversation-files .conversation-file.expired { opacity: .6; }
+.conversation-file-icon { display: grid; flex: 0 0 30px; place-items: center; height: 30px; border-radius: var(--r-sm); background: var(--surface-strong); color: var(--muted); }
+.conversation-file-icon.image { background: var(--info-soft); color: var(--info); }
+.conversation-file.error .conversation-file-icon { background: var(--surface); color: var(--danger); }
+.conversation-file-icon svg { width: 15px; height: 15px; }
+.conversation-file-copy { display: grid; flex: 1; gap: 1px; min-width: 0; line-height: 1.35; }
+.conversation-file-copy strong { overflow: hidden; color: var(--ink); font-size: var(--t-sm); font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-file-copy small { overflow: hidden; color: var(--muted); font-size: var(--t-xs); text-overflow: ellipsis; white-space: nowrap; }
+.conversation-file.error .conversation-file-copy small { color: var(--danger); }
+.conversation-file-action { display: inline-grid; flex: 0 0 24px; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--faint); cursor: pointer; }
+.conversation-file-action:hover:not(:disabled) { background: var(--surface-strong); color: var(--ink); }
+.conversation-file-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.conversation-file-action:disabled { cursor: default; opacity: .4; }
+.conversation-file-action svg { width: 14px; height: 14px; }
+.conversation-file-clear { padding: 4px 6px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: var(--t-xs); cursor: pointer; }
+.conversation-file-clear:hover:not(:disabled) { color: var(--ink); text-decoration: underline; }
+.conversation-file-clear:disabled { cursor: default; opacity: .5; }
+.conversation-file-error { margin: 0; color: var(--danger); font-size: var(--t-xs); }
+
+/* 消息中的归属说明与展开的预览。 */
+.conversation-file-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: var(--t-xs); }
+.conversation-file-status .attached { color: var(--success); font-weight: 550; }
+.conversation-files .conversation-file.previewing { flex-basis: 100%; max-width: 100%; }
+.conversation-files .conversation-file .task-attachment-preview { flex-basis: 100%; min-width: 0; max-width: 100%; margin: 0 4px 4px 0; }
 .conversation-files pre { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
 .conversation-files img { max-width: 100%; }
