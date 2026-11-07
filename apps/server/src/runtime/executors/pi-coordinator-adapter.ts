@@ -1,3 +1,4 @@
+import { piExecutionProcess } from './pi-execution-process.js';
 import type { ProtectedTranscriptStore } from '../../modules/notes/protected-transcript.js';
 import { reconcilePiCompaction, unknownCompaction } from './pi-context-compaction.js';
 import { readPiContext } from './pi-context-snapshot.js';
@@ -401,6 +402,18 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       branchEntryIds: branch.map(entry => entry.id),
       messages: mapPiActiveBranch(active.session.sessionId, branch, assistantSessionId),
     });
+  }
+
+  readExecutionProcess(sessionId: string, identity: CoordinatorSessionRecoveryIdentity, cwd: string): CoordinatorResult<import('@multivac/contracts').SubagentProcessEntry[]> {
+    if (identity.harness !== this.harness) return failure(FOREIGN_HARNESS);
+    const active = this.sessions.get(sessionId);
+    if (active && active.session.sessionId === identity.runtimeSessionId) return ok(piExecutionProcess(active.session.getActiveBranch()));
+    try {
+      const text = this.protectedTranscripts?.has(identity.runtimeSessionRef) ? this.protectedTranscripts.read(identity.runtimeSessionRef) : readFileSync(identity.runtimeSessionRef, 'utf8');
+      const manager = SessionManager.inMemory(cwd, undefined, parseSessionEntries(text));
+      if (manager.getSessionId() !== identity.runtimeSessionId) return failure(FOREIGN_HARNESS);
+      return ok(piExecutionProcess(manager.getBranch()));
+    } catch { return failure({ code: 'SESSION_OPEN_FAILED' as const, message: '独立过程暂时不可读。' }); }
   }
 
   readPersistedHistory(

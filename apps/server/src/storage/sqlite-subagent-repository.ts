@@ -38,6 +38,24 @@ export class SqliteSubagentRepository implements SubagentRepository {
       : this.database.prepare('SELECT record_json FROM subagent_run WHERE stop_confirmed=0').all();
     return rows.map(row => decode(row)!);
   }
+  resetForTest(): void {
+    if (this.unsettled().length) throw new Error('子智能体停止未确认，不能清理测试记录。');
+    this.database.exec('DELETE FROM subagent_run; DELETE FROM subagent_parent_budget;');
+  }
+  counts(): { subagentsRunning: number; subagentsRecovery: number } {
+    const row = this.database.prepare(`SELECT count(*) AS total, coalesce(sum(CASE WHEN json_extract(record_json, '$.run.status') IN ('interrupted','reconcile') THEN 1 ELSE 0 END), 0) AS recovery FROM subagent_run WHERE stop_confirmed=0`).get() as { total: number; recovery: number };
+    return { subagentsRunning: row.total - row.recovery, subagentsRecovery: row.recovery };
+  }
+  listPage(query: { parentSessionId?: string; taskId?: string; activeOnly?: boolean; offset: number; limit: number }) {
+    const filters: string[] = [], values: (string | number)[] = [];
+    if (query.parentSessionId) { filters.push('parent_session_id=?'); values.push(query.parentSessionId); }
+    if (query.taskId) { filters.push("json_extract(record_json, '$.run.taskId')=?"); values.push(query.taskId); }
+    if (query.activeOnly) filters.push('stop_confirmed=0');
+    const where = filters.length ? ` WHERE ${filters.join(' AND ')}` : '';
+    const total = (this.database.prepare(`SELECT count(*) AS n FROM subagent_run${where}`).get(...values) as { n: number }).n;
+    const items = this.database.prepare(`SELECT record_json FROM subagent_run${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`).all(...values, query.limit, query.offset).map(row => decode(row)!);
+    return { items, total };
+  }
   save(record: SubagentRecord): void {
     const run = record.run;
     this.database.prepare(`INSERT INTO subagent_run VALUES (?, ?, ?, ?, ?, ?, ?)

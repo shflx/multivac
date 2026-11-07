@@ -1,3 +1,5 @@
+import { createSubagentRequestHandler } from '../adapters/http/subagent-routes.js';
+import type { SubagentQueries } from '../application/subagent-queries.js';
 import { createTaskAttachmentHandler } from '../adapters/http/task-attachment-routes.js';
 import type { TaskAttachmentService } from '../application/task-attachment-service.js';
 import { createScheduleRequestHandler } from '../adapters/http/schedule-routes.js';
@@ -114,6 +116,7 @@ function reject(response: ServerResponse, code: 'HOST_NOT_ALLOWED' | 'ORIGIN_NOT
 }
 
 export interface MultivacHttpServerOptions {
+  subagentQueries?: SubagentQueries;
   terminals?: TerminalService;
   webSettings?: WebSettingsService;
   schedules?: ScheduleService;
@@ -199,6 +202,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const skillRoutes = options.skills ? createSkillRequestHandler(options.skills) : undefined;
   const readingRoutes = options.reading ? createReadingRequestHandler(options.reading) : undefined;
   const usageRoutes = options.usage ? createUsageRequestHandler(options.usage) : undefined;
+  const subagentRoutes = options.subagentQueries ? createSubagentRequestHandler(options.subagentQueries) : undefined;
   const processRoutes = options.managedProcesses && options.tasks ? createProcessRequestHandler(options.managedProcesses, options.tasks, options.workspaceSessionService, options.stopSessionProcesses) : undefined;
   const agentRoutes = options.agents ? createAgentRequestHandler(options.agents) : undefined;
   const taskAttachmentRoutes = options.taskAttachments ? createTaskAttachmentHandler(options.taskAttachments) : undefined;
@@ -299,6 +303,7 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
       if (noteAssistantRoutes && await noteAssistantRoutes(request, response)) return;
       if (noteSuggestionRoutes && await noteSuggestionRoutes(request, response)) return;
       if (taskAttachmentRoutes && await taskAttachmentRoutes(request, response)) return;
+      if (subagentRoutes && await subagentRoutes(request, response)) return;
       if (taskRoutes && await taskRoutes(request, response)) return;
       if (agentRoutes && await agentRoutes(request, response)) return;
       if (conversationConfirmations && await conversationConfirmations(request, response)) return;

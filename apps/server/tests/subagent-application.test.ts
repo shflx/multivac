@@ -97,3 +97,23 @@ test('任务 Run 实际委派多个只读子级，输出归入父任务额度', 
     assert.ok(run.outputBytes! >= children.reduce((n, r) => n + r.run.outputBytes, 0));
   } finally { await f.close(); }
 });
+
+test('只读过程接口返回完整工具输入输出、分页及真实身份，不提供发送入口', async () => {
+  const f = await fixture();
+  try {
+    await f.send(script({ ...input, mode: 'execute', writeScope: ['output.txt'], context: 'bash执行：' + JSON.stringify({ command: "printf '独立完整输出'", timeout: 5 }) } as any));
+    const record = f.app.subagents.repository.page('parent', 0, 20).items[0]!;
+    assert.equal(record.run.status, 'succeeded');
+    const listing = await f.http('/api/subagents?parentSessionId=parent');
+    assert.equal(listing.status, 200); assert.equal(listing.body.items[0].parentTitle, '父级');
+    assert.ok(listing.body.items[0].toolCalls > 0);
+    const endpoint = `/api/subagents/${record.run.id}/process`;
+    const page = await f.http(endpoint + '?limit=2');
+    assert.equal(page.body.available, true); assert.equal(page.body.items.length, 2); assert.equal(page.body.nextOffset, 2);
+    const full = await f.http(endpoint + '?limit=100');
+    assert.ok(full.body.items.some((entry: any) => entry.role === 'tool' && entry.phase === 'input' && entry.text.includes('printf')));
+    assert.ok(full.body.items.some((entry: any) => entry.role === 'tool' && entry.phase === 'output' && entry.text.includes('独立完整输出')));
+    assert.equal((await f.http(endpoint, {})).status, 405);
+    assert.equal((await f.http(`/api/sessions/${record.run.sessionId}/turns`, { commandId: 'bad', assistantSessionId: record.run.sessionId, text: '重新运行', contextRefs: [] })).status, 404);
+  } finally { await f.close(); }
+});

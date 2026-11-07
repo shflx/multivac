@@ -256,6 +256,8 @@ export interface CoordinatorAdapter {
    */
   continueRecentSession(input: CreateCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
   continueSession(input: ContinueCoordinatorSessionInput): Promise<CoordinatorResult<CoordinatorSessionReady>>;
+  /** 独立子智能体过程：含工具输入输出，只用于本机只读抽屉，不进入父级上下文。 */
+  readExecutionProcess?(sessionId: string, identity: CoordinatorSessionRecoveryIdentity, cwd: string): CoordinatorResult<import('@multivac/contracts').SubagentProcessEntry[]>;
   readActiveBranch(assistantSessionId: string): CoordinatorResult<CoordinatorHistorySnapshot>;
   /**
    * 只读 Pi transcript 中 active branch 的可见消息（与 readActiveBranch 同一投影：只有用户与助手正文），

@@ -7,7 +7,7 @@ export class RunsService {
   constructor(
     private readonly read: (activeOnly?: boolean) => RunOverview,
     private readonly now: () => number = Date.now,
-    private readonly processCounts?: (activeOnly?: boolean) => { processesRunning: number; processesRecovery: number },
+    private readonly processCounts?: (activeOnly?: boolean) => { processesRunning: number; processesRecovery: number; subagentsRunning?: number; subagentsRecovery?: number },
   ) {}
 
   list(query: RunsQuery = {}): RunsSnapshot {

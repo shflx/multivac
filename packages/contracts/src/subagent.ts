@@ -25,7 +25,7 @@ export type SubagentStatus = Type.Static<typeof SubagentStatusSchema>;
 /** 公共运行事实；模型配置和完整上下文保存在私有执行记录，不进入父级工具回执。 */
 export const SubagentRunSchema = Type.Object({
   id: Type.String(), sessionId: Type.String(), parentSessionId: Type.String(), parentCommandId: Type.String(),
-  parentToolCallId: Type.String(), taskId: Type.Union([Type.String(), Type.Null()]), taskRunId: Type.Union([Type.String(), Type.Null()]),
+  parentToolCallId: Type.String(), batchId: Type.Optional(Type.String()), taskId: Type.Union([Type.String(), Type.Null()]), taskRunId: Type.Union([Type.String(), Type.Null()]),
   agent: AgentSchema, executor: Type.Union([AssistantExecutorSchema, Type.Null()]),
   mode: SubagentModeSchema, goal: Type.String(), deliverable: Type.String(), reason: Type.String(),
   writeScope: Type.Array(Type.String()), status: SubagentStatusSchema,
@@ -38,3 +38,20 @@ export const SubagentRunSchema = Type.Object({
   endedAt: Type.Union([Type.String(), Type.Null()]),
 }, { additionalProperties: false });
 export type SubagentRun = Type.Static<typeof SubagentRunSchema>;
+
+export const SubagentProcessEntrySchema = Type.Object({
+  id: Type.String(), role: Type.Union([Type.Literal('user'), Type.Literal('assistant'), Type.Literal('thinking'), Type.Literal('tool')]),
+  text: Type.String(), toolName: Type.Optional(Type.String()), toolCallId: Type.Optional(Type.String()),
+  phase: Type.Optional(Type.Union([Type.Literal('input'), Type.Literal('output')])),
+}, { additionalProperties: false });
+export type SubagentProcessEntry = Type.Static<typeof SubagentProcessEntrySchema>;
+export const SubagentListItemSchema = Type.Object({ ...SubagentRunSchema.properties, parentTitle: Type.String() }, { additionalProperties: false });
+export type SubagentListItem = Type.Static<typeof SubagentListItemSchema>;
+export const SubagentPageSchema = Type.Object({ items: Type.Array(SubagentListItemSchema), total: Type.Integer({ minimum: 0 }),
+  nextOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]),
+}, { additionalProperties: false });
+export type SubagentPage = Type.Static<typeof SubagentPageSchema>;
+export const SubagentProcessPageSchema = Type.Object({ items: Type.Array(SubagentProcessEntrySchema), total: Type.Integer({ minimum: 0 }),
+  nextOffset: Type.Union([Type.Integer({ minimum: 0 }), Type.Null()]), available: Type.Boolean(),
+}, { additionalProperties: false });
+export type SubagentProcessPage = Type.Static<typeof SubagentProcessPageSchema>;

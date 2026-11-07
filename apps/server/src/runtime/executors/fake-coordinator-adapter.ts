@@ -201,7 +201,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   readonly capabilities = { turnExecution: true, imageInput: true, steering: true, toolStopProof: true, skills: false } as const;
   /** 夹具不持有内部目录；装配方仍保护数据目录。 */
   readonly protectedPaths: readonly string[] = [];
-  /** 夹具不执行任务工具，不使用额度租约。 */
+  /** 独立过程持久化仅用于验证只读抽屉与重启读取。 */
+  private readonly executionProcess = new Map<string, import('@multivac/contracts').SubagentProcessEntry[]>();
   private toolGuard: import('../../modules/sessions/coordinator-adapter.js').CoordinatorToolGuard | undefined;
   bindToolGuard(guard: import('../../modules/sessions/coordinator-adapter.js').CoordinatorToolGuard): void { this.toolGuard = guard; }
   bindTaskLease(): void {}
@@ -389,7 +390,26 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     });
   }
 
-  /** Fake 的 transcript 在内存中：按 Pi session id 找到打开中或已释放的会话，读出它的历史（只读）。 */
+  /** 子级过程按已有身份读取，跨重启只读私有记录。 */
+  readExecutionProcess(sessionId: string, identity: CoordinatorSessionRecoveryIdentity) {
+    if (identity.harness !== this.harness) return FOREIGN_HARNESS;
+    const live = this.executionProcess.get(sessionId);
+    if (live) return ok(structuredClone(live));
+    try {
+      const persisted = JSON.parse(readFileSync(identity.runtimeSessionRef, 'utf8'));
+      if (persisted.runtimeSessionId !== identity.runtimeSessionId || !Array.isArray(persisted.executionProcess)) return this.sessionNotActive<import('@multivac/contracts').SubagentProcessEntry[]>();
+      return ok(persisted.executionProcess as import('@multivac/contracts').SubagentProcessEntry[]);
+    } catch { return this.sessionNotActive<import('@multivac/contracts').SubagentProcessEntry[]>(); }
+  }
+
+  private recordProcess(session: FakeSessionState, entry: Omit<import('@multivac/contracts').SubagentProcessEntry, 'id'>) {
+    if (!session.config.subagent) return;
+    const id = session.binding.assistantSessionId;
+    const entries = this.executionProcess.get(id) ?? [];
+    entries.push({ ...entry, id: String(entries.length) }); this.executionProcess.set(id, entries);
+    this.persistSessionModel(session);
+  }
+
   readPersistedHistory(identity: CoordinatorSessionRecoveryIdentity): CoordinatorResult<CoordinatorHistorySnapshot> {
     if (identity.harness !== this.harness) return FOREIGN_HARNESS;
     const session = [...this.sessions.values(), ...this.releasedSessions.values()]
@@ -1001,6 +1021,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
           inputText: toolInputText(call.toolName, call.args),
           inputTruncated: false,
         }]);
+        this.recordProcess(session, { role: 'tool', toolName: call.toolName, toolCallId, phase: 'input', text: JSON.stringify(call.args) });
         const outcome = await this.callInternalTool(session, call.toolName, toolCallId, call.args, controller.signal);
         if (controller.signal.aborted || session.aborted || session.generation !== generation) {
           return ok({ status: 'cancelled' });
@@ -1009,6 +1030,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
           ...base[0]!, type: 'coordinator.tool.ended', toolCallId, toolName: call.toolName, isError: !outcome.ok,
           ...(outcome.ok ? { result: outcome.result } : {}),
         }]);
+        this.recordProcess(session, { role: 'tool', toolName: call.toolName, toolCallId, phase: 'output', text: outcome.ok ? outcome.content : outcome.reason });
         replies.push(outcome.ok ? outcome.content : `${call.toolName} 没有完成：${outcome.reason}`);
       };
       if (calls.every(call => call.toolName === 'delegate_to_subagent')) await Promise.all(calls.map(execute));
@@ -1032,8 +1054,10 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
       const args = JSON.parse(text.split('bash执行：')[1]!.split('\n')[0]!);
       if (!Check(tool.parameters, args)) throw new Error('bash 参数无效。');
       this.emitEvents(session, [{ ...COORDINATOR_EVENT_FIXTURES.success[0]!, type: 'coordinator.tool.started', toolCallId, toolName: 'bash', argumentKeys: Object.keys(args), inputText: args.command, inputTruncated: false }]);
+      this.recordProcess(session, { role: 'tool', toolName: 'bash', toolCallId, phase: 'input', text: JSON.stringify(args) });
       const result = await tool.execute(toolCallId, args, controller.signal, undefined, undefined as never);
       answer = result.content.flatMap(item => item.type === 'text' ? [item.text] : []).join('\n');
+      this.recordProcess(session, { role: 'tool', toolName: 'bash', toolCallId, phase: 'output', text: answer });
       this.emitEvents(session, [{ ...COORDINATOR_EVENT_FIXTURES.success[0]!, type: 'coordinator.tool.ended', toolCallId, toolName: 'bash', isError: false }]);
     } catch (error) { answer = error instanceof Error ? error.message : 'bash 执行失败。'; }
     finally { if (session.authorizationAbort === controller) session.authorizationAbort = undefined; }
@@ -1220,7 +1244,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   /** 模型选择随会话写入 runtimeSessionRef（Fake 的 transcript 替身），供重启后对账。 */
   private persistSessionModel(session: FakeSessionState): void {
     if (!this.persistSessionModels) return;
-    const path = session.binding.runtimeSessionRef, content = JSON.stringify(this.modelState(session));
+    const path = session.binding.runtimeSessionRef, content = JSON.stringify({ ...this.modelState(session), ...(session.config.subagent ? { runtimeSessionId: session.binding.runtimeSessionId, executionProcess: this.executionProcess.get(session.binding.assistantSessionId) ?? [] } : {}) });
     if (this.protectedTranscripts?.has(path)) this.protectedTranscripts.write(path, content);
     else if (this.protectedTranscripts?.forSession(session.binding.assistantSessionId)) this.protectedTranscripts.create(session.binding.assistantSessionId, path, content);
     else writeFileSync(path, content);
@@ -1290,6 +1314,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     skill?: CoordinatorSkill,
   ): void {
     // 测试重置保留旧命令事件；新历史不能复用旧 entry，否则旧锚点会误认成当前回复。
+    this.recordProcess(session, { role, text });
     const runtimeEntryId = `entry-${suffix}${this.generation ? `:fixture-${this.generation}` : ''}`;
     session.history.push({
       id: `${session.binding.runtimeSessionId}:${runtimeEntryId}`,

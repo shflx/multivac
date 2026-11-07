@@ -25,6 +25,7 @@ export interface E2eControlParts {
   tasks: TaskService;
   taskExecution: TaskExecutionService;
   managedProcesses: ManagedProcessService;
+  subagents?: import('../application/subagent-execution.js').SubagentExecution;
   agents: AgentService;
   toolAuthorization: ToolAuthorizationService;
   proposals: ProposalService;
@@ -67,6 +68,9 @@ export function createE2eControls(parts: E2eControlParts) {
       }
       await parts.taskExecution.idle();
       await Promise.all(parts.managedProcesses.list().map((item) => parts.managedProcesses.stop(item.processId)));
+      for (const record of parts.store.subagents.unsettled()) await parts.subagents?.stop(record.run.id, '测试重置。');
+      parts.subagents?.reconcileStops();
+      parts.store.subagents.resetForTest();
       parts.store.resetTasksForTest();
       parts.agents.resetForTest();
       parts.failedFakePrompts.clear();

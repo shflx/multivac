@@ -19,6 +19,6 @@ export function runIndicatorView(runs: RunsState, processes: ProcessesState) {
   return {
     counts, state, label, summary, error, checking, refreshing, confirmed,
     activeProcesses: processes.overview?.processes.filter(isActiveManagedProcess) ?? [],
-    empty: confirmed && !error && !counts.running && !counts.processesRunning && !counts.processesRecovery,
+    empty: confirmed && !error && !counts.running && !counts.processesRunning && !counts.processesRecovery && !counts.subagentsRunning && !counts.subagentsRecovery,
   };
 }

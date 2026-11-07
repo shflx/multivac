@@ -1,3 +1,4 @@
+import { SubagentQueries } from '../application/subagent-queries.js';
 import { resolveTaskAgentModel } from '../application/task-agent-runtime.js';
 import { SubagentExecution } from '../application/subagent-execution.js';
 import { SubagentSessionRuntimes } from '../application/subagent-session-runtime.js';
@@ -1052,7 +1053,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
     usage: (id): string | null => store.subagents.unsettled().some(record => record.run.agent.agentId === id) ? '仍有未确认停止的子智能体引用此配置。' : tasks.list({ agentId: id, viewStatus: 'unfinished', limit: 1 }).total ? '仍有未完成的任务使用这个智能体，请先更换这些任务的智能体或等它们结束。' : null });
-  const runs = new RunsService((activeOnly) => store.taskRuns.overview(activeOnly), Date.now, (activeOnly) => store.managedProcesses.counts(activeOnly));
+  const runs = new RunsService((activeOnly) => store.taskRuns.overview(activeOnly), Date.now, (activeOnly) => ({ ...store.managedProcesses.counts(activeOnly), ...store.subagents.counts() }));
   const managedProcesses = new ManagedProcessService(store.managedProcesses, join(paths.dataDir, 'managed-processes'), [paths.dataDir], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors }, () => {
     workbenchEvents.publish({ type: 'process.changed', origin: { windowId: null, commandId: null } });
   }, (boundary) => {
@@ -1182,7 +1183,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       if (record.run.taskId && store.taskRuns.get(record.run.taskRunId!)?.nativePendingIds?.includes(`subagent:${record.run.id}`)) taskExecution.nativeLease(record.run.parentSessionId, 'settled', `subagent:${record.run.id}`, 0);
       subagentRuntimes.release(id);
     },
-    changed: run => workbenchEvents.publish({ type: 'model-selection.changed', sessionId: run.parentSessionId }),
+    changed: run => workbenchEvents.publish({ type: 'subagent.changed', parentSessionId: run.parentSessionId, taskId: run.taskId }),
   });
   subagents.recover();
   function delegationTools(base: import('../modules/sessions/coordinator-adapter.js').CoordinatorInternalTools, id: string) {
@@ -1452,7 +1453,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const testRequestHandler = environment.MULTIVAC_E2E_CONTROL === '1' && fakeHarness && adapter === fakeHarness.adapter
     ? createFakeAssistantTestRequestHandler({
         ...createE2eControls({
-          terminals, store, tasks, taskExecution, managedProcesses, agents, toolAuthorization, proposals,
+          terminals, store, tasks, taskExecution, managedProcesses, subagents, agents, toolAuthorization, proposals,
           workspaceSessions: workspaceSessionService, projects: projectService, workingDirectories, tempDirectoryCleaner,
           preferences: preferencesService, modelAccess: modelAccessService, modelSettings: modelSettingsService,
           fakeAccessBackend: fakeHarness.accessBackend, failedFakePrompts: fakeHarness.failedPrompts,
@@ -1471,6 +1472,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       })
     : undefined;
   const notificationChannels = new NotificationChannelManagementService(store.notificationChannels, wechatNotifications);
+  const subagentQueries = new SubagentQueries(store.subagents, store.bindings, adapter, id => store.sessions.get(id)?.title ?? id, store.usage);
   const server = createMultivacHttpServer({
     terminals,
     schedules,
@@ -1478,6 +1480,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     skills,
     webSettings,
     usage: usageStatistics,
+    subagentQueries,
     remoteAccess,
     webRoot: fileURLToPath(new URL('../../../web/dist/', import.meta.url)),
     reading: readingService,
@@ -1524,6 +1527,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     subagents, subagentRuntimes,
     taskAttachments, terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, schedules, mcp, mcpAccounts, mcpManagement, mcpResources,
     server,
+    subagentQueries,
     remoteAccess,
     paths,
     workPaths,

@@ -7,7 +7,7 @@ export const activeRunStates = new Set<RunSnapshot['state']>(['preparing', 'runn
 export function runSummary(counts: RunsSnapshot['counts']): string {
   const parts = [
     [counts.running, '个执行中'], [counts.anomalies, '个异常'],
-    [counts.processesRunning ?? 0, '个进程'],
+    [counts.processesRunning ?? 0, '个进程'], [counts.subagentsRunning ?? 0, '个子智能体'], [counts.subagentsRecovery ?? 0, '个子智能体待核对'],
   ] as const;
   return parts.filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}`).join(' · ') || '没有运行中的任务会话或进程';
 }

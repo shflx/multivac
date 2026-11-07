@@ -42,6 +42,7 @@ export function boundedSubagentSummary(text: string): { summary: string; summary
 
 /** 子智能体只拥有一轮独立上下文；持久意图先于模型和工具执行，未知结果不重放。 */
 export class SubagentExecution {
+  private readonly parentTurns = new Map<string, string>();
   private readonly active = new Map<string, Active>();
   constructor(readonly repository: SubagentRepository, private readonly ports: SubagentExecutionPorts, private readonly now = () => Date.now()) {}
 
@@ -88,7 +89,7 @@ export class SubagentExecution {
     const record: SubagentRecord = {
       fingerprint: key, context: input.context, workingDirectory: parent.workingDirectory, execution: null, runtimeConfig: null, markers: {},
       run: { id, sessionId: randomUUID(), parentSessionId, parentCommandId: parent.commandId, parentToolCallId: toolCallId,
-        taskId: parent.taskId, taskRunId: parent.taskRunId, agent, executor: null, mode: input.mode, goal: input.goal,
+        batchId: this.parentTurns.get(parentSessionId) ?? parent.commandId, taskId: parent.taskId, taskRunId: parent.taskRunId, agent, executor: null, mode: input.mode, goal: input.goal,
         deliverable: input.deliverable, reason: input.reason, writeScope: input.writeScope ?? [], status: 'preparing',
         summary: '', summaryTruncated: false, outputBytes: 0, elapsedMs: 0, toolCalls: 0, totalTokens: null, currentStep: null,
         changedFiles: [], commitHashes: [], maxMillis: Math.floor(parent.remainingMillis), maxOutputBytes: Math.floor(parent.remainingBytes),
@@ -124,7 +125,7 @@ export class SubagentExecution {
       const record = this.requireSession(sessionId);
       const meter = { outputBytes: record.run.outputBytes, toolCalls: record.run.toolCalls, markers: record.markers };
       meterExecution(meter, phase, marker, bytes);
-      record.run.outputBytes = meter.outputBytes; record.run.toolCalls = meter.toolCalls;
+      record.run.outputBytes = meter.outputBytes;
       record.markers = meter.markers;
       record.run.elapsedMs = Math.max(0, this.now() - Date.parse(record.run.createdAt));
       let parentRemaining = 0;
@@ -139,8 +140,13 @@ export class SubagentExecution {
   }
 
   event(event: AssistantPublicEvent): void {
+    if (event.type === 'assistant.turn.started' && event.data.turnRef) this.parentTurns.set(event.assistantSessionId, event.data.turnRef);
+    if (event.type === 'assistant.turn.ended') this.parentTurns.delete(event.assistantSessionId);
     const record = this.repository.bySession(event.assistantSessionId);
     if (!record || record.run.stopConfirmed) return;
+    if (event.type === 'assistant.tool.started' && !record.markers[`event:${event.data.toolCallId}`]) {
+      record.markers[`event:${event.data.toolCallId}`] = true; record.run.toolCalls++; this.repository.save(record);
+    }
     if (event.type === 'assistant.tool.started') this.patch(record.run.id, { currentStep: `${event.data.toolName} ${event.data.inputText ?? ''}`.slice(0, 300) });
     if (event.type === 'assistant.tool.ended') this.patch(record.run.id, { currentStep: null });
     if (['assistant.message.delta', 'assistant.thinking.delta'].includes(event.type)) {

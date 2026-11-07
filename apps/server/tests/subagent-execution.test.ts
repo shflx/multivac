@@ -125,3 +125,17 @@ test('模型准入失败明确失败且不换模型；子级不能再次委派',
     await assert.rejects(async () => world.execution.delegate(run.sessionId, 'nested', input, new AbortController().signal), /不能再次委派/);
   } finally { world.db.close(); }
 });
+
+test('取消异步准备不会提前释放并发占用，准备落定后不启动模型', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  const world = fixture({ prepare: async () => { await gate; throw new Error('准备已取消'); } });
+  try {
+    const pending = world.execution.delegate('parent', 'prepare-cancel', input, new AbortController().signal);
+    await tick(); const record = world.repository.byCall('parent', 'prepare-cancel')!;
+    assert.equal(await world.execution.stop(record.run.id, '父级取消。'), false);
+    assert.equal(world.execution.occupies('parent'), true);
+    release(); const run = await pending;
+    assert.equal(run.status, 'cancelled'); assert.equal(run.stopConfirmed, true); assert.equal(world.sends(), 0);
+  } finally { release(); world.db.close(); }
+});

@@ -1,3 +1,4 @@
+import { SubagentActivity } from '../subagents/subagent-activity.js';
 import { useEffect, useRef, useState } from 'react';
 import { Activity, CircleAlert, LoaderCircle, MessageSquare, Pause, Terminal } from 'lucide-react';
 import { type RunSnapshot } from '@multivac/contracts';
@@ -62,6 +63,7 @@ export function RunsPage({ active, onOpenTask, onOpenSession, children }: {
         <button className="secondary-button compact" disabled={loading || data.nextOffset === null} onClick={() => void store.refresh(data.nextOffset!)}>下一页</button>
       </div>}
     </section>
+    <section className="run-section" aria-label="子智能体运行"><div className="run-section-heading"><h2>子智能体运行</h2></div><SubagentActivity active={active} showParent /></section>
     {children}
   </div>;
 }

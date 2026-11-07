@@ -1,3 +1,4 @@
+import { useSubagents, SubagentGroups } from '../subagents/subagent-activity.js';
 import { FileDraftPreview, MessageFiles } from './file-input.js';
 import { CompactFeedback, ContextPanel } from './context-panel.js';
 import { MessageActions } from './message-copy.js';
@@ -203,6 +204,7 @@ function AssistantSessionView({
   const writesAnchor = variant !== 'sidebar';
   // 对话内的确认卡只属于全局 Multivac（首页与侧栏共用同一份提议）。
   const isCoordinator = session.sessionId === GLOBAL_ASSISTANT_SESSION_ID;
+  const subagents = useSubagents({ parentSessionId: session.sessionId, active: active && !remote && !isCoordinator });
   const proposalState = useProposals(isCoordinator);
   const proposals = isCoordinator ? proposalState.proposals ?? [] : [];
   const panelMenuId = useId();
@@ -780,6 +782,7 @@ function AssistantSessionView({
                           ? { feedbackStatus: runTraceStatus(runFeedback, runBusy) }
                           : {})}
                       />
+                      {timeline.findIndex(candidate => candidate.kind === 'trace' && candidate.commandId === item.commandId) === index && <SubagentGroups items={subagents.page?.items.filter(child => child.parentCommandId === item.commandId) ?? []} />}
                       {!item.superseded && authorizationCardsAfter(item.commandId)}
                       {!item.superseded && proposalCardsAfter(item.commandId)}
                       {/* Multivac 直接执行的管理动作（新建、改名、归档、恢复会话）的回执：跟在这一轮之后，轨迹收起后仍可见。 */}
@@ -852,6 +855,9 @@ function AssistantSessionView({
                       </div>
                     </article>
                   )])}
+                  {subagents.error && <p role="alert">{subagents.error}</p>}
+                  {subagents.offset > 0 && <button className="inline-link" onClick={() => void subagents.refresh(0)}>最近委派</button>}
+                  {subagents.page?.nextOffset !== null && subagents.page?.nextOffset !== undefined && <button className="inline-link" onClick={() => void subagents.refresh(subagents.page!.nextOffset!)}>读取更早委派</button>}
                   {taskReplies?.tail.map((request) => <TaskRequestReply key={`request:${request.requestId}`} request={request} />)}
                   {session.authorizations
                     .filter((request) => request.status === 'pending' &&

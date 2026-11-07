@@ -1,3 +1,4 @@
+import { SubagentActivity } from '../subagents/subagent-activity.js';
 import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { AlertCircle, LoaderCircle, RefreshCw } from 'lucide-react';
 import type { UsageDaily, UsageDays, UsageTotals } from '@multivac/contracts';
@@ -92,6 +93,7 @@ export function UsagePage({ active }: { active: boolean }) {
         {summary.requests === 0 && <p className="usage-empty">近 {days} 天没有模型用量。</p>}
         <DailyChart daily={data.daily} />
       </SettingsCard>
+      <SettingsCard title="子智能体用量" description="消耗归入父会话或任务；token 仅显示模型实际提供的用量。"><SubagentActivity active={active} showParent /></SettingsCard>
       <div className="usage-details">
         <SettingsCard title="用量分布" description="按模型、项目或来源查看用量占比。">
           <div className="usage-card-toolbar"><div className="segmented" role="radiogroup" aria-label="用量分布维度" onKeyDown={moveRadio}>

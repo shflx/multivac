@@ -7,7 +7,10 @@ const readline = require('node:readline');
 const input = readline.createInterface({input:process.stdin});
 ${PROCESS_TREE_TRACKER}
 let child, tree, config, timer, poll, killTimer, rootExited=false, commandFinished=false, code=null, stopping=false, finished=false, timedOut=false, bytes=0, overflow=false, killRequested=false, anchorReleased=false;
-const send = value => process.stdout.write(JSON.stringify(value)+'\n');
+let outputClosed=false;
+// 宿主退出会关闭协议管道；监护器仍须完成进程树清理并写入停止凭据。
+process.stdout.on('error',error=>{if(error.code==='EPIPE'){outputClosed=true;stop();}else throw error;});
+const send = value => { if(!outputClosed) process.stdout.write(JSON.stringify(value)+'\n'); };
 function observeTree() {
   const members=tree?.observe();
   // 组内保留本次启动的根作为归属锚点，直到命令及所有后代退出；不靠已消失的根 PID 认领组。
@@ -31,7 +34,8 @@ function finish(spawnError=false) {
   const receipt={token:config.token,pid:child?.pid ?? null,code,stopping,spawnError,timedOut,timeoutMillis:config.timeoutMillis,groupStopped:true,treeStopped:true,tracked:tree?.identities() ?? [],bytes,overflow,endedAt:new Date().toISOString()};
   fs.writeFileSync(config.receipt+'.pending',JSON.stringify(receipt),{mode:0o600});
   fs.renameSync(config.receipt+'.pending',config.receipt);
-  process.stdout.write(JSON.stringify({done:true})+'\n',()=>process.exit(0));
+  if(outputClosed) process.exit(0);
+  else process.stdout.write(JSON.stringify({done:true})+'\n',()=>process.exit(0));
 }
 input.once('line',line=>{
   config=JSON.parse(line);
