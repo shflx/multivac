@@ -8,7 +8,7 @@ import { SubagentDelegationTools, SUBAGENT_QUERY_TOOLS } from '../application/su
 import { SUBAGENT_GIT_TOOLS } from '../application/internal-tools/subagent-git-tools.js';
 import { subagentBashExecution } from '../application/subagent-bash-execution.js';
 import { projectBashScope } from '../application/project-bash-scope.js';
-import { judgeToolCall } from '../runtime/executors/pi-tool-boundary.js';
+import { isTargetInProjectDirectories } from '../modules/sessions/tool-path.js';
 import { agentModelState } from '../application/agent-service.js';
 import { createNewSessionRuntimeConfigResolver as resolveSubagentDefaults } from '../application/new-session-runtime-config.js';
 import { TaskAttachmentReader } from '../application/task-attachment-reader.js';
@@ -33,6 +33,7 @@ import { WEB_TOOLS } from '../application/internal-tools/web-tools.js';
 import { subscribeModelSelectionLifecycle } from '../application/model-selection-events.js';
 import { resolveRuntimeConfig, runtimePathsOverlap } from '../runtime-config.js';
 import { mkdirSync, realpathSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { McpExecutionService, type McpExecutionHost } from '../application/mcp-execution-service.js';
 import { McpAccountService } from '../application/mcp-account-service.js';
 import { McpManagementService } from '../application/mcp-management-service.js';
@@ -346,8 +347,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const writeCoordinator = new SubagentWriteCoordinator(store.subagents, async (id, path) => {
     const record = store.sessions.get(id);
     if (!record?.workingDirectory || record.archivedAt || record.host) return false;
-    const verdict = await judgeToolCall('write', { path }, record.workingDirectory.path, {}, () => projectFiles(id, record.workingDirectory!));
-    return verdict.type === 'allow' || verdict.type === 'outside' && rememberedAccess(id, verdict.targetPath, 'write');
+    try {
+      const root = await realpath(record.workingDirectory.path);
+      return isPathWithin(root, path) || await isTargetInProjectDirectories(path, () => projectFiles(id, record.workingDirectory!)) || rememberedAccess(id, path, 'write');
+    } catch { return false; }
   }, id => managedProcesses.list(true).some(p => p.sessionId === id && !['exited', 'failed'].includes(p.state)));
   const parentBashProcesses: BashExecutionPort = sessionBashExecution({
     toolGuard: writeCoordinator,

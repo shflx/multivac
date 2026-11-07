@@ -1,9 +1,8 @@
+import { isTargetInProjectDirectories, resolveRealTargetPath, resolveToolInputPath } from '../../modules/sessions/tool-path.js';
+export { resolveRealTargetPath, resolveToolInputPath } from '../../modules/sessions/tool-path.js';
 import { READING_PAGE_TOOL_NAMES, type CoordinatorRuntimeConfig } from '@multivac/contracts';
-import { access, lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   createSyntheticSourceInfo,
   type Extension,
@@ -76,26 +75,8 @@ export type ToolBoundaryVerdict =
   | ({ type: 'outside' } & Omit<OutsideWorkingDirectoryAccess, 'toolCallId'>)
   | { type: 'block'; reason: string };
 
-const UNICODE_SPACES = /[  -   　]/gu;
-const MAX_SYMBOLIC_LINKS = 40;
 const TOOL_BOUNDARY_EXTENSION_PATH = '<inline:multivac-tool-boundary>';
 const CANCELLED_REASON = '本轮已取消，操作未执行。';
-
-/**
- * 与 Pi 文件工具（resolveToCwd）一致地把参数中的路径解析为绝对路径：统一 Unicode 空格、
- * 去掉开头的 `@`、展开 `~` 与 `file://`，相对路径相对会话工作目录，并按字面消去 `..`。
- * 判定的路径必须与工具实际访问的路径同源，否则边界可以被写法差异绕开。
- */
-export function resolveToolInputPath(input: string, cwd: string): string {
-  let path = input.replace(UNICODE_SPACES, ' ');
-  if (path.startsWith('@')) path = path.slice(1);
-
-  if (path === '~') path = homedir();
-  else if (path.startsWith('~/')) path = join(homedir(), path.slice(2));
-  else if (/^file:\/\//u.test(path)) path = fileURLToPath(path);
-
-  return resolve(cwd, path);
-}
 
 /**
  * read 在路径不存在时会依次尝试 macOS 截图文件名的几种写法（AM/PM 前的窄空格、NFD、弯引号），
@@ -119,57 +100,6 @@ async function resolveReadVariant(path: string): Promise<string> {
     }
   }
   return path;
-}
-
-function isMissingPath(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  return code === 'ENOENT' || code === 'ENOTDIR';
-}
-
-/**
- * 解析路径的真实位置：沿途跟随符号链接，包括指向尚不存在位置的悬空链接。
- * 目标尚不存在时，以最近的已存在祖先的真实路径为准，再接上尚不存在的部分。
- * 已存在部分取系统 realpath，大小写不敏感的文件系统上也得到与工作目录一致的写法。
- */
-export async function resolveRealTargetPath(path: string): Promise<string> {
-  try {
-    return await realpath(path);
-  } catch (error) {
-    if (!isMissingPath(error)) throw error;
-  }
-
-  const { root } = parse(path);
-  const pending = path.slice(root.length).split(sep).filter(Boolean);
-  let current = root;
-  let links = 0;
-  while (pending.length > 0) {
-    const name = pending.shift()!;
-    if (name === '.') continue;
-    if (name === '..') {
-      current = dirname(current);
-      continue;
-    }
-
-    const next = join(current, name);
-    let stats;
-    try {
-      stats = await lstat(next);
-    } catch (error) {
-      if (!isMissingPath(error)) throw error;
-      return join(await realpath(current), name, ...pending);
-    }
-
-    if (stats.isSymbolicLink()) {
-      links += 1;
-      if (links > MAX_SYMBOLIC_LINKS) throw new Error('符号链接层级过多。');
-      const target = await readlink(next);
-      pending.unshift(...target.split(sep).filter(Boolean));
-      if (isAbsolute(target)) current = parse(target).root;
-      continue;
-    }
-    current = next;
-  }
-  return realpath(current);
 }
 
 /**
@@ -235,18 +165,7 @@ export async function judgeToolCall(
 
   if (isPathWithin(workingDirectory, targetPath)) return { type: 'allow', targetPath };
 
-  for (const directory of projectDirectories()) {
-    try {
-      const root = await realpath(directory);
-      if (!(await stat(root)).isDirectory()) continue;
-      // 文件系统核对有异步等待，放行前再确认挂载仍属于当前项目。
-      if (isPathWithin(root, targetPath) && projectDirectories().includes(directory)) {
-        return { type: 'allow', targetPath };
-      }
-    } catch {
-      // 失效目录不提供项目权限，仍可走独立的目录外授权。
-    }
-  }
+  if (await isTargetInProjectDirectories(targetPath, projectDirectories)) return { type: 'allow', targetPath };
   return { type: 'outside', toolName: toolName as CoordinatorPathToolName, requestedPath, targetPath };
 }
 

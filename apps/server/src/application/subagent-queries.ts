@@ -1,5 +1,5 @@
 import type { SubagentPage, SubagentProcessPage } from '@multivac/contracts';
-import type { SqliteSubagentRepository } from '../storage/sqlite-subagent-repository.js';
+import type { SubagentRepository } from '../modules/agents/subagent-run.js';
 import type { CoordinatorAdapter } from '../modules/sessions/coordinator-adapter.js';
 import type { AssistantSessionBindingRepository } from '../modules/sessions/assistant-session.js';
 import type { UsageRepository } from '../modules/usage/model-usage.js';
@@ -7,7 +7,7 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 
 /** 过程查询只使用已存在的绑定；不创建运行时、不重发命令、不提供发送入口。 */
 export class SubagentQueries {
-  constructor(private readonly repository: SqliteSubagentRepository,
+  constructor(private readonly repository: SubagentRepository,
     private readonly bindings: AssistantSessionBindingRepository, private readonly adapter: CoordinatorAdapter,
     private readonly parentTitle: (id: string) => string, private readonly usage: UsageRepository) {}
   page(query: { parentSessionId?: string; taskId?: string; activeOnly?: boolean; offset: number; limit: number }): SubagentPage {

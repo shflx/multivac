@@ -1,7 +1,7 @@
 import { isPathWithin } from '../modules/sessions/working-directory.js';
 import type { SubagentRecord, SubagentRepository } from '../modules/agents/subagent-run.js';
 import type { CoordinatorToolGuard } from '../modules/sessions/coordinator-adapter.js';
-import { resolveRealTargetPath, resolveToolInputPath } from '../runtime/executors/pi-tool-boundary.js';
+import { resolveRealTargetPath, resolveToolInputPath } from '../modules/sessions/tool-path.js';
 
 const overlaps = (a: string, b: string) => isPathWithin(a, b) || isPathWithin(b, a);
 interface Writer { sessionId: string; parentSessionId: string; path: string | null }

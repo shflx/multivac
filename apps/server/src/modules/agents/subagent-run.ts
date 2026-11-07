@@ -18,6 +18,7 @@ export interface SubagentRepository {
   byCall(parentSessionId: string, toolCallId: string): SubagentRecord | null;
   page(parentSessionId: string, offset: number, limit: number): { items: SubagentRecord[]; total: number };
   unsettled(parentSessionId?: string): SubagentRecord[];
+  listPage(query: { parentSessionId?: string; taskId?: string; activeOnly?: boolean; offset: number; limit: number }): { items: SubagentRecord[]; total: number };
   save(record: SubagentRecord): void;
 }
 
