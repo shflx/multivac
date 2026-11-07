@@ -202,6 +202,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
   /** 夹具不持有内部目录；装配方仍保护数据目录。 */
   readonly protectedPaths: readonly string[] = [];
   /** 夹具不执行任务工具，不使用额度租约。 */
+  private toolGuard: import('../../modules/sessions/coordinator-adapter.js').CoordinatorToolGuard | undefined;
+  bindToolGuard(guard: import('../../modules/sessions/coordinator-adapter.js').CoordinatorToolGuard): void { this.toolGuard = guard; }
   bindTaskLease(): void {}
   /** 夹具不装载 Skill。 */
   bindSkills(): void {}
@@ -916,7 +918,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     let targetPath: string | undefined;
     try {
       const verdict = await judgeToolCall(toolName, input, session.workingDirectory.path, {},
-        () => this.projectFileScope?.(session.binding.assistantSessionId, session.workingDirectory) ?? []);
+        () => this.projectFileScope?.(session.binding.assistantSessionId, session.workingDirectory) ?? [], session.config.subagent);
       if (verdict.type === 'block') throw new Error(verdict.reason);
       if (!verdict.targetPath) throw new Error('无法确认文件目标。');
       targetPath = verdict.targetPath;
@@ -926,8 +928,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
             requestedPath, targetPath, workingDirectory: { ...session.workingDirectory },
           }, controller.signal)
         : { allowed: false, reason: `目标路径 ${targetPath} 位于会话工作目录之外，访问需要用户授权。` };
-    } catch {
-      decision = { allowed: false, reason: `授权请求没有完成，${toolName} 未执行。` };
+    } catch (error) {
+      decision = { allowed: false, reason: error instanceof Error ? error.message : `授权请求没有完成，${toolName} 未执行。` };
     } finally {
       if (session.authorizationAbort === controller) session.authorizationAbort = undefined;
     }
@@ -940,8 +942,8 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     let executed = decision.allowed && targetPath !== undefined;
     let readText: string | null = null;
     if (executed && toolName === 'write') {
-      await mkdir(dirname(targetPath!), { recursive: true });
-      await writeFile(targetPath!, content);
+      const release = this.toolGuard?.acquire(session.binding.assistantSessionId, 'write', targetPath!);
+      try { await mkdir(dirname(targetPath!), { recursive: true }); await writeFile(targetPath!, content); } finally { release?.(true); }
     } else if (executed) {
       readText = await readFile(targetPath!, 'utf8').catch(() => null);
       executed = readText !== null;
@@ -991,7 +993,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     session.authorizationAbort = controller;
     const replies: string[] = [];
     try {
-      for (const call of calls) {
+      const execute = async (call: ScriptedInternalToolCall) => {
         const toolCallId = call.toolCallId ?? `internal-${randomUUID()}`;
         this.emitEvents(session, [{
           ...base[0]!, type: 'coordinator.tool.started', toolCallId, toolName: call.toolName,
@@ -1008,7 +1010,9 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
           ...(outcome.ok ? { result: outcome.result } : {}),
         }]);
         replies.push(outcome.ok ? outcome.content : `${call.toolName} 没有完成：${outcome.reason}`);
-      }
+      };
+      if (calls.every(call => call.toolName === 'delegate_to_subagent')) await Promise.all(calls.map(execute));
+      else for (const call of calls) await execute(call);
     } finally {
       if (session.authorizationAbort === controller) session.authorizationAbort = undefined;
     }
@@ -1023,7 +1027,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     const toolCallId = `bash-${randomUUID()}`;
     let answer = '';
     try {
-      if (!this.bashProcesses || session.config.readingOnly) throw new Error('当前测试宿主没有 bash 执行能力。');
+      if (!this.bashProcesses || session.config.readingOnly || session.config.subagent && session.config.subagent.mode !== 'execute') throw new Error('当前测试宿主没有 bash 执行能力。');
       const tool = managedBashTool(session.binding.assistantSessionId, session.workingDirectory.path, this.bashProcesses);
       const args = JSON.parse(text.split('bash执行：')[1]!.split('\n')[0]!);
       if (!Check(tool.parameters, args)) throw new Error('bash 参数无效。');
@@ -1146,7 +1150,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
     if (!checked.ok) return checked;
     const verdict = await judgeToolCall(
       toolName, isPlainRecord(checked.value) ? checked.value : {}, session.workingDirectory.path,
-      internalToolBoundary(tools.specs),
+      internalToolBoundary(tools.specs), () => [], session.config.subagent,
     );
     if (verdict.type !== 'allow') {
       return { ok: false, reason: verdict.type === 'block' ? verdict.reason : `${toolName} 没有目录边界规则，调用未执行。` };
@@ -1205,7 +1209,7 @@ export class FakeCoordinatorAdapter implements CoordinatorAdapter {
 
     return ok({
       binding,
-      activeToolNames: [...COORDINATOR_TOOL_ALLOWLIST, ...(internalTools?.specs.map((spec) => spec.name) ?? [])],
+      activeToolNames: [...(config.subagent ? ['read', 'grep', 'find', 'ls', ...(config.subagent.mode !== 'read' ? ['write', 'edit'] : []), ...(config.subagent.mode === 'execute' ? ['bash'] : [])] : COORDINATOR_TOOL_ALLOWLIST), ...(internalTools?.specs.map((spec) => spec.name) ?? [])],
       model: this.modelState(session),
       modelConfig: { ...session.config.model },
       diagnostics: [],

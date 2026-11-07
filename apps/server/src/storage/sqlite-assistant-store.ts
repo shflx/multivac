@@ -1,3 +1,4 @@
+import { SUBAGENT_BUDGET_MIGRATION, SqliteSubagentBudget } from './sqlite-subagent-budget.js';
 import { SUBAGENT_MIGRATION, SqliteSubagentRepository } from './sqlite-subagent-repository.js';
 import { SqliteTaskAttachmentRepository, TASK_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_CLEANUP_MIGRATION } from './sqlite-task-attachment-repository.js';
 import { NoteRecordCodec, NOTE_PROTECTION_MIGRATION } from './note-record-codec.js';
@@ -350,6 +351,7 @@ const MIGRATIONS = [
   SESSION_ATTACHMENT_CLEANUP_MIGRATION,
   AGENT_DELEGABLE_MIGRATION,
   SUBAGENT_MIGRATION,
+  SUBAGENT_BUDGET_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -415,6 +417,11 @@ export class SqliteAssistantStore {
   readonly projectResources: SqliteProjectResourceRepository;
   readonly tasks: SqliteTaskRepository;
   readonly agents: SqliteAgentRepository;
+  /** 子级消耗和父级任务额度共享同一短事务，不依赖隐式嵌套事务。 */
+  accountSubagent<T>(operation: (facts: { subagents: SqliteSubagentRepository; tasks: import('../modules/tasks/task-facts.js').TaskFacts; budget: SqliteSubagentBudget }) => T): T {
+    return this.taskFacts.transaction(tasks => operation({ subagents: this.subagents, tasks, budget: this.subagentBudget }));
+  }
+  readonly subagentBudget: SqliteSubagentBudget;
   readonly subagents: SqliteSubagentRepository;
   readonly managedProcesses: SqliteManagedProcessRepository;
   readonly taskRuns: SqliteTaskRunRepository;
@@ -497,6 +504,7 @@ export class SqliteAssistantStore {
       this.images = new SqliteImageRepository(this.database);
       this.taskAttachments = new SqliteTaskAttachmentRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
+      this.subagentBudget = new SqliteSubagentBudget(this.database);
       this.subagents = new SqliteSubagentRepository(this.database);
       this.agents = new SqliteAgentRepository(this.database);
       this.managedProcesses = new SqliteManagedProcessRepository(this.database);

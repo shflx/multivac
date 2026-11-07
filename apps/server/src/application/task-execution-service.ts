@@ -122,33 +122,36 @@ export class TaskExecutionService {
     this.launch(runId);
   }
   nativeLease(sessionId: string, phase: 'starting' | 'settled' | 'check' | 'progress', marker: string, bytes: number): number {
+    return this.options.tasks.facts(facts => this.nativeLeaseWithin(facts, sessionId, phase, marker, bytes));
+  }
+  /** 委派与父任务额度由显式共用事实入口一次提交。 */
+  nativeLeaseWithin(facts: TaskFacts, sessionId: string, phase: 'starting' | 'settled' | 'check' | 'progress', marker: string, bytes: number): number {
     if (this.disposed) { if (phase === 'settled') return 0; throw new Error('任务执行器已停止。'); }
     if (this.closing && (phase === 'starting' || phase === 'check')) throw new Error('任务执行器正在关闭，不能启动新工具。');
     this.assertOwner?.();
     let remaining = 0;
-    this.options.tasks.facts((facts) => {
-      const run = facts.runs.bySession(sessionId);
-      if (!run || run.ownerId !== this.ownerId || run.stopConfirmed) throw new Error('任务执行租约已失效。');
-      const task = this.options.tasks.get(run.taskId);
-      const pending = run.nativePendingIds ?? [];
-      if (phase === 'starting' || phase === 'check') {
-        if (task.currentRunId !== run.runId || task.status !== 'running' || run.stopIntent) throw new Error('任务当前不能执行工具。');
-        const budget = this.budget(run.rootTaskId ?? run.taskId);
-        if (bytes > budget.remainingBytes || budget.remainingBytes < 1 || !(budget.remainingMillis > 0)) throw new Error('任务共享预算已耗尽。');
-        if (phase === 'starting') run.nativePendingIds = [...new Set([...pending, marker])];
-        remaining = budget.remainingBytes - bytes;
-      } else {
-        // 迟到回执只能结算原运行已登记的调用，不能给新 Run 记账或清除其停止标记。
-        if (!pending.includes(marker)) throw new Error('工具调用不属于当前任务运行。');
-        if (phase === 'settled') run.nativePendingIds = pending.filter((id) => id !== marker);
-        remaining = this.budget(run.rootTaskId ?? run.taskId).remainingBytes - bytes;
-      }
-      run.lastActivityAt = this.now();
-      run.outputBytes = (run.outputBytes ?? 0) + bytes;
-      facts.runs.save(run);
-    });
+    const run = facts.runs.bySession(sessionId);
+    if (!run || run.ownerId !== this.ownerId || run.stopConfirmed) throw new Error('任务执行租约已失效。');
+    const task = this.options.tasks.get(run.taskId);
+    const pending = run.nativePendingIds ?? [];
+    if (phase === 'starting' || phase === 'check') {
+      if (task.currentRunId !== run.runId || task.status !== 'running' || run.stopIntent) throw new Error('任务当前不能执行工具。');
+      const budget = this.budget(run.rootTaskId ?? run.taskId);
+      if (bytes > budget.remainingBytes || budget.remainingBytes < 1 || !(budget.remainingMillis > 0)) throw new Error('任务共享预算已耗尽。');
+      if (phase === 'starting') run.nativePendingIds = [...new Set([...pending, marker])];
+      remaining = budget.remainingBytes - bytes;
+    } else {
+      // 迟到回执只能结算原运行已登记的调用，不能给新 Run 记账或清除其停止标记。
+      if (!pending.includes(marker)) throw new Error('工具调用不属于当前任务运行。');
+      if (phase === 'settled') run.nativePendingIds = pending.filter((id) => id !== marker);
+      remaining = this.budget(run.rootTaskId ?? run.taskId).remainingBytes - bytes;
+    }
+    run.lastActivityAt = this.now();
+    run.outputBytes = (run.outputBytes ?? 0) + bytes;
+    facts.runs.save(run);
     return remaining;
   }
+
   /** 只结算已由托管后端核实的原进程退出凭据，不恢复旧工具或改变停止意图。 */
   reconcileBashLease(record: import('../modules/processes/managed-process.js').ManagedProcessRecord): void {
     if (record.backend !== 'bash' || record.executionMode !== 'workspace' || record.totalOutputBytes === undefined || !['exited', 'failed'].includes(record.public.state)) return;

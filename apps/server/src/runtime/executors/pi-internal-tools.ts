@@ -27,7 +27,7 @@ export function createPiInternalToolSet(
     description: spec.description,
     parameters: spec.parameters,
     // 有副作用的调用逐个执行，同一批中的管理动作与提议不相互交错。
-    executionMode: spec.effect === 'query' ? 'parallel' : 'sequential',
+    executionMode: spec.effect === 'query' || spec.name === 'delegate_to_subagent' ? 'parallel' : 'sequential',
     prepareArguments: (args) => {
       const checked = tools.validate(spec.name, args);
       if (!checked.ok) throw new Error(checked.reason);

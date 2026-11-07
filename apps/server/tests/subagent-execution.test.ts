@@ -23,7 +23,7 @@ function fixture(overrides: Partial<SubagentExecutionPorts> = {}) {
     prepare: async record => { records.push(record); return { execution: { executor: { agentId: agent.agentId, revision: record.run.agent.revision, name: record.run.agent.name,
       modelProfileId: null, modelName: '冻结模型', provider: 'fixture', modelId: 'test', thinkingLevel: 'off' }, model: config.model, instructions: record.run.agent.instructions }, config }; },
     runtime: () => runtime, stopTools: async () => {}, stopped: () => true, summary: () => '独立结论',
-    charge: (_record, _phase, _marker, delta) => { bytes += delta; return 10000 - bytes; }, changed: () => {}, ...overrides,
+    charge: (record, _phase, _marker, delta) => { repository.save(record); bytes += delta; return 10000 - bytes; }, changed: () => {}, ...overrides,
   });
   return { db, repository, execution, agent, records, sends: () => sends, bytes: () => bytes };
 }

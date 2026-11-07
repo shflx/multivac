@@ -84,6 +84,7 @@ export const createFakeHarness: HarnessFactory<FakeHarnessRuntime> = (context) =
     persistSessionModels: true,
     promptScenarioResolver: (text) => {
       // 按脚本调用全局 Multivac 的内部工具：消息中每行“内部工具：<名称> <JSON 参数>”各调用一次。
+      if (text.startsWith('内部工具：')) return 'internalTools';
       if (text.includes('bash执行：')) return 'bash';
       if (text.includes('内部工具：')) return 'internalTools';
       // 把这一轮随发送收到的服务端通知（提议的结果）原样写进回复，用来观察通知是否送达。

@@ -1,3 +1,15 @@
+import { resolveTaskAgentModel } from '../application/task-agent-runtime.js';
+import { SubagentExecution } from '../application/subagent-execution.js';
+import { SubagentSessionRuntimes } from '../application/subagent-session-runtime.js';
+import { SubagentWriteCoordinator } from '../application/subagent-write-coordinator.js';
+import { SubagentGitService } from '../application/subagent-git-service.js';
+import { SubagentDelegationTools, SUBAGENT_QUERY_TOOLS } from '../application/subagent-delegation-tools.js';
+import { SUBAGENT_GIT_TOOLS } from '../application/internal-tools/subagent-git-tools.js';
+import { subagentBashExecution } from '../application/subagent-bash-execution.js';
+import { projectBashScope } from '../application/project-bash-scope.js';
+import { judgeToolCall } from '../runtime/executors/pi-tool-boundary.js';
+import { agentModelState } from '../application/agent-service.js';
+import { createNewSessionRuntimeConfigResolver as resolveSubagentDefaults } from '../application/new-session-runtime-config.js';
 import { TaskAttachmentReader } from '../application/task-attachment-reader.js';
 import { TaskAttachmentService } from '../application/task-attachment-service.js';
 import { ScheduleInputService } from '../application/schedule-input-service.js';
@@ -19,7 +31,7 @@ import { WebAccessService } from '../application/web-access-service.js';
 import { WEB_TOOLS } from '../application/internal-tools/web-tools.js';
 import { subscribeModelSelectionLifecycle } from '../application/model-selection-events.js';
 import { resolveRuntimeConfig, runtimePathsOverlap } from '../runtime-config.js';
-import { realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { McpExecutionService, type McpExecutionHost } from '../application/mcp-execution-service.js';
 import { McpAccountService } from '../application/mcp-account-service.js';
 import { McpManagementService } from '../application/mcp-management-service.js';
@@ -324,7 +336,20 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     ...(toolAuthorizationTimeoutMs === undefined ? {} : { timeoutMs: toolAuthorizationTimeoutMs }),
   });
   toolAuthorization.invalidateOnStartup();
-  const bashProcesses: BashExecutionPort = sessionBashExecution({
+  const projectFiles = projectFileScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects });
+  const rememberedAccess = (id: string, targetPath: string, access: 'read' | 'write') => {
+    const record = store.sessions.get(id);
+    const projectId = record ? store.workspaces.get(record.workspaceId)?.project?.projectId ?? null : null;
+    return !!store.toolAuthorizations.findGrant({ sessionId: id, projectId, access, targetPath });
+  };
+  const writeCoordinator = new SubagentWriteCoordinator(store.subagents, async (id, path) => {
+    const record = store.sessions.get(id);
+    if (!record?.workingDirectory || record.archivedAt || record.host) return false;
+    const verdict = await judgeToolCall('write', { path }, record.workingDirectory.path, {}, () => projectFiles(id, record.workingDirectory!));
+    return verdict.type === 'allow' || verdict.type === 'outside' && rememberedAccess(id, verdict.targetPath, 'write');
+  }, id => managedProcesses.list(true).some(p => p.sessionId === id && !['exited', 'failed'].includes(p.state)));
+  const parentBashProcesses: BashExecutionPort = sessionBashExecution({
+    toolGuard: writeCoordinator,
     sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
     runs: store.taskRuns,
     currentExecution: id => sessionRuntimes.get(id)?.commands.currentPromptCommandId(),
@@ -359,12 +384,21 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
     bash: { execute: (...args) => managedProcesses.bash.execute(...args) },
   });
+  const bashProcesses = subagentBashExecution({ parent: parentBashProcesses, repository: store.subagents, guard: writeCoordinator,
+    scope: projectBashScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects, taskExecutionMode: id => store.taskRuns.bySession(id)?.executionMode ?? null }),
+    execution: () => subagents, bash: { execute: (...args) => managedProcesses.bash.execute(...args) } });
   // 执行器（harness）按启动配置选择；适配器、模型目录与访问后端都由它提供。用量记账在下方创建，调用时才转发。
   const harnessContext: HarnessContext = {
     environment, instance, paths, bashProcesses, executionDiagnostics,
     protectedTranscripts: protectedFiles,
-    authorizeToolCall: toolAuthorization.authorize,
-    projectFileScope: projectFileScope({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects }),
+    authorizeToolCall: (request, signal) => {
+      const child = store.subagents.bySession(request.assistantSessionId);
+      if (!child) return toolAuthorization.authorize(request, signal);
+      const parent = store.sessions.get(child.run.parentSessionId);
+      return Promise.resolve({ allowed: !!parent && !parent.archivedAt && rememberedAccess(child.run.parentSessionId, request.targetPath, request.toolName === 'read' ? 'read' : 'write'),
+        reason: '子智能体不发起人工授权，当前范围不足，请由父级处理。' });
+    },
+    projectFileScope: (id, directory) => projectFiles(store.subagents.bySession(id)?.run.parentSessionId ?? id, directory),
     usageRecorder: { begin: (sessionId, runtimeSessionId, model) => usage.begin(sessionId, runtimeSessionId, model) },
   };
   const harnessName = selectedHarness(environment);
@@ -406,6 +440,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       source: subagent ? 'subagent' : global ? 'multivac' : run ? 'task' : session ? 'session' : 'unknown' };
   }, undefined, !options.coordinatorAdapter && harness.recordsUsage);
   const adapter = options.coordinatorAdapter ?? harness.adapter;
+  adapter.bindToolGuard?.(writeCoordinator);
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
   // 服务在下方创建，工具只在调用时才用到它们。
   const webSettingsStore = harness.createWebSettingsStore();
@@ -618,7 +653,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const runtimeDependencies: AssistantSessionRuntimeDependencies = {
     attachments: attachmentAccess,
     images,
-    stopExecution: (id, commandId) => managedProcesses.bash.stopExecution(id, commandId),
+    stopExecution: async (id, commandId) => { await subagents.stopParent(id, commandId); await managedProcesses.bash.stopExecution(id, commandId); },
     fileSources: new MessageFileSources(store.messageFileSources),
     adapter,
     bindingRepository: store.bindings,
@@ -802,14 +837,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const taskRuntime = run ? taskSessionConfig(record.sessionId) : null;
     if (run && taskRuntime) return taskSessionPolicy({
       sessionId: record.sessionId, run, runtime: taskRuntime,
-      internalTools: taskTools, prepareText: prepareSkillText(record.sessionId),
+      internalTools: delegationTools(taskTools, record.sessionId), prepareText: prepareSkillText(record.sessionId),
       currentRun: () => {
         const current = store.taskRuns.bySession(record.sessionId);
         return { run: current, task: current ? tasks.get(current.taskId) : null };
       },
     });
     return workSessionPolicy({
-      runtimeConfig: workConfig, internalTools: workSessionTaskTools, prepareText: prepareSkillText(record.sessionId),
+      runtimeConfig: workConfig, internalTools: delegationTools(workSessionTaskTools, record.sessionId), prepareText: prepareSkillText(record.sessionId),
       resolveAgentExecution: (agentId: string) => {
         const projectId = store.workspaces.get(record.workspaceId)?.project?.projectId;
         return resolveWorkSessionAgent({
@@ -1042,9 +1077,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     const runtime = sessionRuntimes.get(id);
     if (runtime?.commands.isRunning()) await runtime.commands.cancel({ commandId, assistantSessionId: id });
     await mcp.cancelSession(id);
+    await subagents.stopParent(id);
     await managedProcesses.stopSession(id, commandId);
   };
-  const processObservation = setInterval(() => { void managedProcesses.observe().then(() => { reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }).catch(() => undefined); }, 2000);
+  const processObservation = setInterval(() => { void managedProcesses.observe().then(() => { subagents.reconcileStops(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }).catch(() => undefined); }, 2000);
   processObservation.unref();
   // 任务目录、Git 通道与只读 Git 不得触及的执行器内部目录；非 Pi 执行器只保护数据目录。
   const taskProtectedPaths = [...new Set([...adapter.protectedPaths, paths.dataDir])];
@@ -1052,13 +1088,17 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const taskExecution: TaskExecutionService = new TaskExecutionService({
     tasks, inputs: taskAttachments, runs: store.taskRuns, requests: store.humanRequests, events: eventStream,
     defaultBudget: () => preferencesService.defaultTaskBudget(),
-    stopRequiredProcesses: (id) => managedProcesses.stopRequired(id),
+    stopRequiredProcesses: async (id) => {
+      const run = store.taskRuns.get(id);
+      if (run) await subagents.stopParent(run.sessionId);
+      return managedProcesses.stopRequired(id);
+    },
     requiredProcessesStopped: (id) => {
       const run = store.taskRuns.get(id);
-      return managedProcesses.list(true).filter(item => item.runId === id && item.requiredWhileRunning).every(item => ['exited', 'failed'].includes(item.state)) && (!run || mcp.stopped(run.sessionId));
+      return managedProcesses.list(true).filter(item => item.runId === id && item.requiredWhileRunning).every(item => ['exited', 'failed'].includes(item.state)) && (!run || mcp.stopped(run.sessionId) && !subagents.occupies(run.sessionId));
     },
     directoryOccupied: (directory) => managedProcesses.hasDirectoryLease(directory),
-    confirmedStopped: (id) => adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && managedProcesses.list(true).filter(item => item.sessionId === id && item.requiredWhileRunning).every(item => ['exited', 'failed'].includes(item.state)) && taskGit.processesStopped(id) && mcp.stopped(id) && (!webAccess || webAccess.stopped(id)),
+    confirmedStopped: (id) => !subagents.occupies(id) && adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && managedProcesses.list(true).filter(item => item.sessionId === id && item.requiredWhileRunning).every(item => ['exited', 'failed'].includes(item.state)) && taskGit.processesStopped(id) && mcp.stopped(id) && (!webAccess || webAccess.stopped(id)),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     prepareDependencies: (task, directory, signal) => taskDirectories.prepareDependencies(task, directory, signal),
     describeDependencies: describeNodeDependencies,
@@ -1071,6 +1111,96 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       if (store.taskRuns.bySession(id)?.executionMode !== 'workspace') throw new Error('旧任务运行保持原执行方式，须先核对停止，再显式继续创建新 Run。');
       return sessionRuntimes.acquire(record);
     },
+  });
+  const parentContextForSubagent = (id: string) => {
+    const record = store.sessions.get(id);
+    const commands = sessionRuntimes.get(id)?.commands;
+    const commandId = commands?.currentPromptCommandId();
+    if (id === GLOBAL_ASSISTANT_SESSION_ID || !record || record.archivedAt || record.host || store.schedules.bySession(id) || store.subagents.bySession(id) || !record.workingDirectory || !commandId) throw new Error('当前宿主或执行轮次不能委派。');
+    const run = store.taskRuns.bySession(id);
+    let budget;
+    if (run) {
+      taskExecution.nativeLease(id, 'check', 'subagent-admission', 0);
+      budget = taskExecution.budget(run.rootTaskId ?? run.taskId);
+    } else {
+      const limits = preferencesService.defaultTaskBudget();
+      store.subagentBudget.open(id, commandId, commandRepository.get(commandId)!.createdAt, limits.maxMillis, limits.maxOutputBytes);
+      const remaining = store.subagentBudget.remaining(id, commandId);
+      budget = { remainingMillis: remaining.remainingMillis, remainingBytes: remaining.remainingBytes };
+    }
+    return { commandId, taskId: run?.taskId ?? null, taskRunId: run?.runId ?? null, workingDirectory: record.workingDirectory, remainingMillis: budget.remainingMillis, remainingBytes: budget.remainingBytes };
+  };
+  mkdirSync(join(paths.workSessionDir, 'subagents'), { recursive: true });
+  const { attachments: _subagentAttachments, images: _subagentImages, fileSources: _subagentFileSources, ...subagentDependencies } = runtimeDependencies;
+  const subagentRuntimes: SubagentSessionRuntimes = new SubagentSessionRuntimes(subagentDependencies, join(paths.workSessionDir, 'subagents'),
+    record => new InternalToolService({ tools: [...WORK_SESSION_TASK_TOOLS.filter(tool => tool.effect === 'query' && SUBAGENT_QUERY_TOOLS.has(tool.name)), ...webTools,
+      ...(record.run.mode === 'execute' ? SUBAGENT_GIT_TOOLS : [])],
+      services: { ...internalToolServices, subagentGit: { inspect: (...args) => subagentGit.inspect(...args), commit: (...args) => subagentGit.commit(...args) },
+        projectResources: { readForSession: (_id, resourceId) => internalToolServices.projectResources!.readForSession(record.run.parentSessionId, resourceId) } },
+      calls: store.internalToolCalls, currentTurn: () => ({ commandId: `subagent-send:${record.run.id}`, windowId: null }) }),
+    record => { if (parentContextForSubagent(record.run.parentSessionId).commandId !== record.run.parentCommandId) throw new Error('父级原轮次已停止或变化。'); });
+  const subagents: SubagentExecution = new SubagentExecution(store.subagents, {
+    parent: parentContextForSubagent, agent: id => agents.get(id), normalize: record => writeCoordinator.normalize(record), admit: record => writeCoordinator.admit(record),
+    async prepare(record) {
+      if (record.run.taskId) taskExecution.nativeLease(record.run.parentSessionId, 'starting', `subagent:${record.run.id}`, 0);
+      const agent = record.run.agent, version = modelSettingsService.readVersion();
+      const snapshot = await modelSettingsService.getSnapshot();
+      if (agentModelState(agent, snapshot).status === 'review') throw new Error('委派模型当前不可用。');
+      const model = await resolveTaskAgentModel(modelSettingsService, agent, workConfig.model.thinkingLevel) ?? (await resolveSubagentDefaults(modelSettingsService, workConfig)()).model;
+      const executor = previewWorkSessionAgent(agent, snapshot, model);
+      modelSettingsService.assertReadVersion(version);
+      const parent = store.sessions.get(record.run.parentSessionId)!;
+      const projectId = store.workspaces.get(parent.workspaceId)?.project?.projectId;
+      const instructions = renderTaskConventions({ agentName: agent.name, instructions: agent.instructions,
+        projectConstraints: projectId ? projectService.getProject(projectId).defaultConstraints : '', projectResources: '',
+        agentsFile: readWorkingDirectoryAgentsFile(record.workingDirectory.path) });
+      return { execution: { executor, model, instructions }, config: { ...workConfig, authorizedContext: [], model,
+        subagent: { mode: record.run.mode, writeScope: record.run.writeScope } } };
+    },
+    runtime: record => subagentRuntimes.acquire(record),
+    stopTools: (id, commandId) => managedProcesses.bash.stopExecution(id, commandId),
+    stopped: id => {
+      const busy = adapter.isBusy(id);
+      return !subagentRuntimes.get(id)?.commands.isRunning() && (!busy.ok || !busy.value) &&
+        (!busy.ok || adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id)) && taskGit.processesStopped(id) && webAccess.stopped(id) &&
+        managedProcesses.list(true).filter(p => p.sessionId === id).every(p => ['exited', 'failed'].includes(p.state));
+    },
+    summary: id => { const snapshot = adapter.readActiveBranch(id); return snapshot.ok ? snapshot.value.messages.filter(m => m.role === 'assistant').at(-1)?.text ?? '未提供结论。' : '结论暂不可读。'; },
+    charge: (record, phase, _marker, bytes) => store.accountSubagent(facts => {
+      facts.subagents.save(record);
+      if (record.run.taskId) {
+        const parentPhase = phase === 'check' ? 'check' : 'progress';
+        return taskExecution.nativeLeaseWithin(facts.tasks, record.run.parentSessionId, parentPhase, `subagent:${record.run.id}`, bytes);
+      }
+      if (phase !== 'settled' && sessionRuntimes.get(record.run.parentSessionId)?.commands.currentPromptCommandId() !== record.run.parentCommandId) throw new Error('父级原轮次已停止。');
+      const remaining = facts.budget.remaining(record.run.parentSessionId, record.run.parentCommandId, bytes);
+      if (phase !== 'settled' && remaining.remainingMillis <= 0) throw new Error('父级时间额度已耗尽。');
+      return remaining.remainingBytes;
+    }),
+    release: id => {
+      const record = store.subagents.bySession(id)!;
+      if (record.run.taskId && store.taskRuns.get(record.run.taskRunId!)?.nativePendingIds?.includes(`subagent:${record.run.id}`)) taskExecution.nativeLease(record.run.parentSessionId, 'settled', `subagent:${record.run.id}`, 0);
+      subagentRuntimes.release(id);
+    },
+    changed: run => workbenchEvents.publish({ type: 'model-selection.changed', sessionId: run.parentSessionId }),
+  });
+  subagents.recover();
+  function delegationTools(base: import('../modules/sessions/coordinator-adapter.js').CoordinatorInternalTools, id: string) {
+    return new SubagentDelegationTools(base, () => subagents, () => store.agents.list(), () => {
+      const record = store.sessions.get(id);
+      return id !== GLOBAL_ASSISTANT_SESSION_ID && !!record && !record.host && !record.archivedAt && !store.schedules.bySession(id) && !store.subagents.bySession(id);
+    }, writeCoordinator);
+  }
+  const unsubscribeSubagentEvents = eventStream.subscribe(event => {
+    const parent = store.sessions.get(event.assistantSessionId);
+    if (event.commandId && parent && parent.sessionId !== GLOBAL_ASSISTANT_SESSION_ID && !parent.host && !store.taskRuns.bySession(parent.sessionId) && !store.schedules.bySession(parent.sessionId)) {
+      const command = commandRepository.get(event.commandId);
+      if (command?.kind === 'send') { const limits = preferencesService.defaultTaskBudget(); store.subagentBudget.open(parent.sessionId, event.commandId, command.createdAt, limits.maxMillis, limits.maxOutputBytes); }
+    }
+    subagents.event(event);
+    if (!store.subagents.bySession(event.assistantSessionId) && event.commandId && store.subagentBudget.has(event.commandId) && ['assistant.message.delta', 'assistant.thinking.delta'].includes(event.type)) {
+      store.subagentBudget.remaining(event.assistantSessionId, event.commandId, Buffer.byteLength(JSON.stringify(event.data)));
+    }
   });
   const taskAttachmentReader = new TaskAttachmentReader(taskAttachments, {
     context: id => {
@@ -1085,11 +1215,11 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return run;
     },
     supportsImages: id => adapter.capabilities.imageInput && adapter.supportsImageInput(id),
-    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 16 * 1024 * 1024,
+    lease: (id, phase, marker, bytes) => store.subagents.bySession(id) ? subagents.lease(id, phase, marker, bytes) : store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : 16 * 1024 * 1024,
   });
-  adapter.bindTaskLease((id, phase, marker, bytes) => store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : taskExecution.nativeLease(id, phase, marker, bytes), id => {
+  adapter.bindTaskLease((id, phase, marker, bytes) => store.subagents.bySession(id) ? subagents.lease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : taskExecution.nativeLease(id, phase, marker, bytes), id => {
     const run = store.taskRuns.bySession(id);
-    return run ? run.executionMode ?? 'native-isolated' : store.schedules.bySession(id) ? 'workspace' : null;
+    return run ? run.executionMode ?? 'native-isolated' : store.schedules.bySession(id) || store.subagents.bySession(id) ? 'workspace' : null;
   });
   const taskScheduler = new TaskScheduler(tasks, taskExecution, store.taskRuns, store.taskRuntime);
   const taskGit: TaskGitService = new TaskGitService({
@@ -1107,17 +1237,23 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       return { runId: run.runId, directory: run.directory.path, sourceDirectory };
     },
   });
+  const subagentGit: SubagentGitService = new SubagentGitService(store.subagents, taskGit.channel, writeCoordinator, taskProtectedPaths,
+    (id, phase, marker, bytes) => subagents.lease(id, phase, marker, bytes),
+    id => managedProcesses.list(true).some(p => p.sessionId === id && p.state === 'exited' && p.exitCode === 0));
   const webAccess: WebAccessService = new WebAccessService(() => webSettings.resolve(), {
-    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 512 * 1024,
+    lease: (id, phase, marker, bytes) => store.subagents.bySession(id) ? subagents.lease(id, phase, marker, bytes) : store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 512 * 1024,
     remainingMillis: id => {
+      if (store.subagents.bySession(id)) return subagents.remainingMillis(id);
       const run = store.taskRuns.bySession(id);
       return run ? taskExecution.budget(run.rootTaskId ?? run.taskId).remainingMillis : store.schedules.bySession(id) ? scheduleAgent.remainingMillis(id) : 30000;
     },
   });
   const gitRead = new GitReadService({
     channel: taskGit.channel,
-    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 1024 * 1024,
+    lease: (id, phase, marker, bytes) => store.subagents.bySession(id) ? subagents.lease(id, phase, marker, bytes) : store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 1024 * 1024,
     boundary: async (id) => {
+      const child = store.subagents.bySession(id);
+      if (child) return { ...await workingGitBoundary(child.workingDirectory.path, taskProtectedPaths), identity: child.run.id };
       if (store.taskRuns.bySession(id)) return taskGit.readBoundary(id);
       const record = sessionRegistry.get(id);
       if (!record || record.kind !== 'work' || record.archivedAt || record.host || !record.workingDirectory) throw new TaskServiceError('INVALID_REQUEST', '当前没有可读取 Git 仓库的工作会话。');
@@ -1186,7 +1322,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       const url = new URL(service.transport.url);
       return url.protocol === 'https:' || url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
     },
-    lease: (id, phase, marker, bytes) => store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 2_000_000,
+    lease: (id, phase, marker, bytes) => store.subagents.bySession(id) ? subagents.lease(id, phase, marker, bytes) : store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 2_000_000,
     redactor: async (id, revision) => {
       const credentials = await mcpAccounts.credentials(id, revision);
       const secrets = [...Object.values(credentials.environment), ...Object.values(credentials.headers).flatMap(value => [value, value.replace(/^Bearer /u, '')])]
@@ -1385,13 +1521,15 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
 
   return {
+    subagents, subagentRuntimes,
     taskAttachments, terminals, managedProcesses, tasks, agents, taskExecution, taskScheduler, humanRequests, artifacts, inbox, gitPublish, reminders, schedules, mcp, mcpAccounts, mcpManagement, mcpResources,
     server,
     remoteAccess,
     paths,
     workPaths,
-    ready: ready.then(async () => { await initialAttachmentCleanup; await managedProcesses.recover(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
+    ready: ready.then(async () => { await initialAttachmentCleanup; await managedProcesses.recover(); subagents.reconcileStops(); reconcileBashLeases(); taskScheduler.reconcileProcessExits(); }),
     close() {
+      const subagentsStopped = Promise.all(store.subagents.unsettled().map(record => subagents.stop(record.run.id, '应用正在退出。')));
       const schedulesStopped = scheduleScheduler.close();
       const hadNotifications = notificationDelivery.hasActivity || wechatNotifications.hasActivity || notificationChannels.hasActivity;
       const notificationsStopped = Promise.allSettled([notificationDelivery.close(), wechatNotifications.close(), notificationChannels.close()]);
@@ -1424,7 +1562,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       void modelAccessService.close();
       const finish = () => {
         taskExecution.dispose(); taskScheduler.dispose();
-        coordinator.dispose(); sessionRuntimes.releaseAll();
+        coordinator.dispose(); sessionRuntimes.releaseAll(); subagentRuntimes.dispose(); unsubscribeSubagentEvents();
         eventStream.clear(); workbenchEvents.clear(); adapter.dispose();
         unsubscribeNoteLocks();
         for (const timer of stopChecks) clearTimeout(timer);
@@ -1433,9 +1571,9 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
         unsubscribeExecutionEvents(); unsubscribeTaskDiagnostics(); executionDiagnostics.close(); store.close();
       };
       // 先收敛进程，再释放 Pi 和数据库；后台任务的原生工具也能提交真实退出与额度。
-      if (pendingAttachmentCleanup || schedulesStopped || hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb || hadNotifications) {
+      if (store.subagents.unsettled().length || pendingAttachmentCleanup || schedulesStopped || hadTerminals || managedProcesses.activeCount || taskGit.channel.hasOperations || hadMcp || hadWeb || hadNotifications) {
         const processesStopped = managedProcesses.activeCount ? managedProcesses.close() : Promise.resolve();
-        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped, notificationsStopped, schedulesStopped, pendingAttachmentCleanup]).then(results => {
+        return Promise.allSettled([terminalsStopped, gitStopped, processesStopped, mcpStopped, webStopped, notificationsStopped, schedulesStopped, pendingAttachmentCleanup, subagentsStopped]).then(results => {
           // 无法核对终端停止时仍保留数据库和运行时，让迟到退出能够写回真实状态。
           if (results[0]?.status === 'rejected') throw results[0].reason;
           finish();

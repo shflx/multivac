@@ -22,7 +22,7 @@ export interface SubagentExecutionPorts {
   stopTools(sessionId: string, commandId: string): Promise<void>;
   stopped(sessionId: string): boolean;
   summary(sessionId: string): string;
-  /** 时间在父级运行的壁钟中计算，输出逐次计入父级原轮次。 */
+  /** 原子保存子级记录并向父级记账；时间沿用父级壁钟，输出计入原轮次。 */
   charge(record: SubagentRecord, phase: ExecutionLeasePhase, marker: string, bytes: number): number;
   changed(run: SubagentRun): void;
   /** 写入范围受理、冲突校验与同步占用在同一事务内执行。 */
@@ -30,7 +30,7 @@ export interface SubagentExecutionPorts {
   admit?(record: SubagentRecord): void;
   release?(sessionId: string): void;
 }
-interface Active { controller: AbortController; promise: Promise<SubagentRun>; stopping: Promise<boolean> | null }
+interface Active { controller: AbortController; promise: Promise<SubagentRun>; stopping: Promise<boolean> | null; preparationSettled: boolean; terminal: 'cancelled' | 'exhausted' }
 
 export function boundedSubagentSummary(text: string): { summary: string; summaryTruncated: boolean } {
   if (text.length <= SUBAGENT_SUMMARY_MAX_LENGTH) return { summary: text, summaryTruncated: false };
@@ -54,7 +54,7 @@ export class SubagentExecution {
   /** 停止证明可以补齐，恢复核对不启动模型或重发工具。 */
   reconcileStops(): void {
     for (const record of this.repository.unsettled()) {
-      if (!this.active.has(record.run.id) && this.ports.stopped(record.run.sessionId)) this.patch(record.run.id, { stopConfirmed: true });
+      if (!this.active.has(record.run.id) && this.ports.stopped(record.run.sessionId)) { this.patch(record.run.id, { stopConfirmed: true }); this.ports.release?.(record.run.sessionId); }
     }
   }
   get(id: string): SubagentRun {
@@ -110,7 +110,7 @@ export class SubagentExecution {
     this.ports.changed(record.run);
     const controller = new AbortController();
     // 先登记活动，再异步准备，取消在任何等待点都能找到本次执行。
-    const active: Active = { controller, promise: Promise.resolve(record.run), stopping: null };
+    const active: Active = { controller, promise: Promise.resolve(record.run), stopping: null, preparationSettled: false, terminal: 'cancelled' };
     this.active.set(id, active);
     const abort = () => { void this.stop(id, '父级已取消。', 'cancelled'); };
     signal.addEventListener('abort', abort, { once: true });
@@ -120,21 +120,20 @@ export class SubagentExecution {
   }
   lease(sessionId: string, phase: ExecutionLeasePhase, marker: string, bytes: number): number {
     let blocked = false;
-    const remaining = this.repository.transaction(() => {
+    const remaining = (() => {
       const record = this.requireSession(sessionId);
       const meter = { outputBytes: record.run.outputBytes, toolCalls: record.run.toolCalls, markers: record.markers };
       meterExecution(meter, phase, marker, bytes);
       record.run.outputBytes = meter.outputBytes; record.run.toolCalls = meter.toolCalls;
       record.markers = meter.markers;
       record.run.elapsedMs = Math.max(0, this.now() - Date.parse(record.run.createdAt));
-      this.repository.save(record);
       let parentRemaining = 0;
       try { parentRemaining = this.ports.charge(record, phase, `subagent:${record.run.id}:${marker}`, bytes); }
       catch { blocked = true; }
       const ownRemaining = record.run.maxOutputBytes - record.run.outputBytes;
       blocked ||= !['preparing', 'running'].includes(record.run.status) || record.run.elapsedMs >= record.run.maxMillis || ownRemaining <= 0 || parentRemaining <= 0;
       return Math.max(0, Math.min(ownRemaining, parentRemaining));
-    });
+    })();
     if (phase !== 'settled' && blocked) throw new Error('子智能体已停止或父级剩余额度已耗尽。');
     return remaining;
   }
@@ -154,6 +153,7 @@ export class SubagentExecution {
     if (active?.stopping) return active.stopping;
     const record = this.repository.get(id);
     if (!record || record.run.stopConfirmed) return true;
+    if (active) active.terminal = status;
     this.patch(id, { status: 'stopping', summary: reason });
     active?.controller.abort();
     const stopping = (async () => {
@@ -162,7 +162,7 @@ export class SubagentExecution {
         ...(runtime ? [runtime.commands.cancel({ commandId: `subagent-stop:${id}`, assistantSessionId: record.run.sessionId })] : []),
         this.ports.stopTools(record.run.sessionId, `subagent-send:${id}`),
       ]);
-      const stopped = this.ports.stopped(record.run.sessionId);
+      const stopped = (!active || active.preparationSettled) && this.ports.stopped(record.run.sessionId);
       this.patch(id, { status: stopped ? status : 'reconcile', stopConfirmed: stopped, endedAt: new Date(this.now()).toISOString() });
       return stopped;
     })();
@@ -182,7 +182,7 @@ export class SubagentExecution {
     }, 100); timer.unref();
     try {
       const record = this.repository.get(id)!;
-      const prepared = await this.ports.prepare(record);
+      const prepared = await this.ports.prepare(record).finally(() => { const active = this.active.get(id); if (active) active.preparationSettled = true; });
       controller.signal.throwIfAborted();
       const current = this.repository.get(id)!;
       current.execution = structuredClone(prepared.execution); current.runtimeConfig = structuredClone(prepared.config);
@@ -213,6 +213,7 @@ export class SubagentExecution {
       clearInterval(timer);
       const active = this.active.get(id);
       if (active?.stopping) await active.stopping;
+      if (controller.signal.aborted && active?.preparationSettled && this.ports.stopped(this.get(id).sessionId)) this.patch(id, { status: active.terminal, stopConfirmed: true });
       this.active.delete(id);
       if (this.get(id).stopConfirmed) this.ports.release?.(this.get(id).sessionId);
     }
