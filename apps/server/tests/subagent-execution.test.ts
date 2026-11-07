@@ -139,3 +139,44 @@ test('取消异步准备不会提前释放并发占用，准备落定后不启�
     assert.equal(run.status, 'cancelled'); assert.equal(run.stopConfirmed, true); assert.equal(world.sends(), 0);
   } finally { release(); world.db.close(); }
 });
+
+test('路径准备期间父级额度耗尽，不保存新委派也不启动模型', async () => {
+  let remaining = 10000, release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  const world = fixture({ parent: () => ({ commandId: 'parent-turn', taskId: null, taskRunId: null, workingDirectory: { kind: 'temporary', path: '/work' }, remainingMillis: 10000, remainingBytes: remaining }), normalize: async () => gate });
+  try {
+    const pending = world.execution.delegate('parent', 'admission-budget', input, new AbortController().signal);
+    remaining = 0; release();
+    await assert.rejects(pending, /剩余额度不足/);
+    assert.equal(world.repository.page('parent', 0, 20).total, 0); assert.equal(world.sends(), 0);
+  } finally { release(); world.db.close(); }
+});
+
+test('模型准备期间共享额度耗尽，发送前再次核对且不调用模型', async () => {
+  let remaining = 10000;
+  const world = fixture({ charge: (record) => { world.repository.save(record); return remaining; },
+    prepare: async record => {
+      remaining = 0;
+      return { execution: { executor: { agentId: 'general', revision: 1, name: '执行', modelProfileId: null, modelName: 'test', provider: 'fixture', modelId: 'test', thinkingLevel: 'off' }, model: runtimeConfig({}).model, instructions: '' }, config: runtimeConfig({}) };
+    } });
+  try {
+    const run = await world.execution.delegate('parent', 'dispatch-budget', input, new AbortController().signal);
+    assert.equal(world.sends(), 0); assert.equal(run.status, 'failed'); assert.match(run.summary, /额度已耗尽/);
+  } finally { world.db.close(); }
+});
+
+test('模型输出耗尽共享额度会自动取消子级并等待停止确认', async () => {
+  let release!: () => void;
+  const waiting = new Promise<void>(r => { release = r; });
+  let cancelled = false;
+  const runtime = { commands: { send: async () => { await waiting; return { terminalOutcome: 'cancelled' }; }, cancel: async () => { cancelled = true; release(); } } } as unknown as AssistantSessionRuntime;
+  const world = fixture({ runtime: () => runtime });
+  try {
+    const pending = world.execution.delegate('parent', 'output-exhausted', input, new AbortController().signal);
+    await tick(); const record = world.repository.byCall('parent', 'output-exhausted')!;
+    world.execution.event({ type: 'assistant.message.delta', assistantSessionId: record.run.sessionId, data: { delta: 'x'.repeat(10001) } } as any);
+    const run = await pending;
+    assert.equal(cancelled, true); assert.equal(run.status, 'exhausted'); assert.equal(run.stopConfirmed, true);
+    assert.ok(world.bytes() > 10000); assert.equal(world.execution.occupies('parent'), false);
+  } finally { release(); world.db.close(); }
+});

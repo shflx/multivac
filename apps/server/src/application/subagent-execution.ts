@@ -97,12 +97,16 @@ export class SubagentExecution {
     };
     await this.ports.normalize?.(record);
     signal.throwIfAborted();
-    if (this.ports.parent(parentSessionId).commandId !== parent.commandId) throw new Error('父级执行轮次已变化。');
     const concurrentReplay = this.repository.byCall(parentSessionId, toolCallId);
     if (concurrentReplay) {
       if (concurrentReplay.fingerprint !== key) throw new Error('同一次委派调用的参数已变化。');
       return this.active.get(concurrentReplay.run.id)?.promise ?? concurrentReplay.run;
     }
+    const currentParent = this.ports.parent(parentSessionId);
+    if (currentParent.commandId !== parent.commandId) throw new Error('父级执行轮次已变化。');
+    if (currentParent.remainingMillis <= 0 || currentParent.remainingBytes <= 0) throw new Error('父级剩余额度不足，未启动委派。');
+    record.run.maxMillis = Math.min(record.run.maxMillis, Math.floor(currentParent.remainingMillis));
+    record.run.maxOutputBytes = Math.min(record.run.maxOutputBytes, Math.floor(currentParent.remainingBytes));
     this.repository.transaction(() => {
       if (this.repository.unsettled(parentSessionId).length >= SUBAGENT_MAX_CONCURRENT) throw new Error('同一父级最多并发 5 个子智能体。');
       this.ports.admit?.(record);
@@ -194,6 +198,7 @@ export class SubagentExecution {
       current.execution = structuredClone(prepared.execution); current.runtimeConfig = structuredClone(prepared.config);
       current.run.executor = prepared.execution.executor;
       this.repository.save(current);
+      this.lease(current.run.sessionId, 'check', 'model-dispatch', 0);
       runtime = this.ports.runtime(current);
       this.patch(id, { status: 'running', startedAt: new Date(this.now()).toISOString() });
       const receipt = await runtime.commands.send({ commandId: `subagent-send:${id}`, assistantSessionId: current.run.sessionId,
