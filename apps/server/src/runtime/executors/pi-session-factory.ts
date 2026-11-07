@@ -39,7 +39,7 @@ import {
   type SessionEntry,
 } from '@earendil-works/pi-coding-agent';
 import { createControlledResourceLoader } from './controlled-resource-loader.js';
-import { createBoundaryFileTools, type OutsideWorkingDirectoryAuthorizer, type ToolBoundaryExtensionOptions } from './pi-tool-boundary.js';
+import { createBoundaryFileTools, createBoundarySearchTools, type OutsideWorkingDirectoryAuthorizer, type ToolBoundaryExtensionOptions } from './pi-tool-boundary.js';
 import { internalToolBoundary, type PiInternalToolSet } from './pi-internal-tools.js';
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint, type PiResolvedRequestEndpoint } from './pi-model-auth.js';
@@ -144,6 +144,7 @@ export interface PiCoordinatorSessionResources {
 }
 
 export interface PiCoordinatorSessionFactoryInput {
+  toolGuard?: { sessionId: string; tools: import('../../modules/sessions/coordinator-adapter.js').CoordinatorToolGuard };
   protectedTranscripts?: ProtectedTranscriptStore;
   assistantSessionId?: string;
   bashProcesses?: BashExecutionPort;
@@ -636,6 +637,8 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       const guardedFiles = !input.config.readingOnly && !input.taskIsolation;
       const toolBoundary: ToolBoundaryExtensionOptions = {
         cwd: input.cwd,
+        ...(input.config.subagent ? { subagent: input.config.subagent } : {}),
+        ...(input.toolGuard ? { guard: input.toolGuard } : {}),
         readingOnly: input.config.readingOnly,
         ...(input.taskExecution ? { assertExecution: () => input.taskLease!('check', 'file-check', 0) } : {}),
         ...(guardedFiles ? { fileExecutionGuarded: true } : {}),
@@ -682,10 +685,12 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         : { sessionManager };
       const internalToolNames = [...(input.internalTools?.specs.map((spec) => spec.name) ?? []), ...(input.skills?.definitions.map(t=>t.name) ?? [])];
       taskTools = input.taskIsolation ? await NativeTaskTools.create(input.cwd, [input.agentDir, ...(input.sessionDir ? [input.sessionDir] : []), ...(input.taskProtectedPaths ?? [])], input.taskLease) : undefined;
-      const managedBash = !input.config.readingOnly && input.bashProcesses && input.assistantSessionId
+      const managedBash = !input.config.readingOnly && (!input.config.subagent || input.config.subagent.mode === 'execute') && input.bashProcesses && input.assistantSessionId
         ? managedBashTool(input.assistantSessionId, input.cwd, input.bashProcesses, taskTools) : undefined;
-      const files = guardedFiles ? createBoundaryFileTools(toolBoundary) : [];
-      const tracked = [...files, ...(input.skills?.definitions ?? [])].map(tool => lifecycle ? lifecycle.wrap(tool) : tool);
+      const files = guardedFiles ? createBoundaryFileTools(toolBoundary).filter(tool => !input.config.subagent || input.config.subagent.mode !== 'read' || tool.name === 'read') : [];
+      const searches = input.config.subagent ? createBoundarySearchTools(toolBoundary) : [];
+      const builtinNames = input.config.subagent ? ['read', 'grep', 'find', 'ls', ...(input.config.subagent.mode !== 'read' ? ['edit', 'write'] : []), ...(input.config.subagent.mode === 'execute' ? ['bash'] : [])] : [...COORDINATOR_TOOL_ALLOWLIST];
+      const tracked = [...files, ...searches, ...(input.skills?.definitions ?? [])].map(tool => lifecycle ? lifecycle.wrap(tool) : tool);
       const customTools = [...tracked, ...(taskTools?.definitions().filter(tool => !managedBash || tool.name !== 'bash') ?? []), ...(managedBash ? [managedBash] : []), ...(input.internalTools?.definitions ?? [])];
       if (input.skills) {
         // Skill 单文件脚本的共同限制保持不变，任务额外使用原 Run 租约。
@@ -710,7 +715,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         sessionManager: preparation.sessionManager,
         resourceLoader,
         // allowlist 之外只启用本会话注入的内部工具；没有注入时 Pi 中就没有它们。
-        tools: input.config.readingOnly ? internalToolNames : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames],
+        tools: input.config.readingOnly ? internalToolNames : [...builtinNames, ...internalToolNames],
         ...(customTools.length ? { customTools } : {}),
       });
       createdAgentSession = result.session;
@@ -741,7 +746,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       }
 
       const activeToolNames = result.session.getActiveToolNames().sort();
-      const expectedToolNames = input.config.readingOnly ? [...internalToolNames].sort() : [...COORDINATOR_TOOL_ALLOWLIST, ...internalToolNames].sort();
+      const expectedToolNames = input.config.readingOnly ? [...internalToolNames].sort() : [...builtinNames, ...internalToolNames].sort();
       if (activeToolNames.join('\0') !== expectedToolNames.join('\0')) {
         throw new PiCoordinatorSessionFactoryError(
           'INVALID_CONFIGURATION',

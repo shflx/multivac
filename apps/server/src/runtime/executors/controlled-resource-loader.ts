@@ -131,7 +131,11 @@ class ControlledResourceLoader implements ResourceLoader {
     };
     // 内部工具说明由实际注入的工具生成，与目录边界说明放在一起，只列出本会话实际提供的工具。
     this.appendSystemPrompt = [
-      ...(input.readingOnly ? ['本会话只处理阅读数据，仅可使用实际列出的相邻页只读工具，没有文件或命令工具，不具备工作目录的读取和写入能力。'] : renderAuthorizedContext(input.authorizedContext, input.taskIsolation ?? false)),
+      ...(input.toolBoundary.subagent ? [
+        '你是深度 1 的独立子智能体，只处理本次自包含委派。不继承父级完整对话，不再次委派。只使用实际注入的工具。禁止 MCP、Skill、人工授权、Inbox、外发、成果登记和推送。遇到缺少资料或权限时将阻碍写入结论，由父级处理。',
+        `本次方式：${input.toolBoundary.subagent.mode}；文件写入范围：${JSON.stringify(input.toolBoundary.subagent.writeScope)}。文件工具逐次核对真实路径与父级当前范围；执行方式的 bash 与父级同规则，不受 writeScope 路径强制限制，执行独占不提供沙箱。执行验证后本地提交只列出委派相关文件，先核对差异，不使用 git add -A，不推送；无改动不提交；结果未知由父级只读对账。`,
+      ] : []),
+      ...(input.toolBoundary.subagent ? [] : input.readingOnly ? ['本会话只处理阅读数据，仅可使用实际列出的相邻页只读工具，没有文件或命令工具，不具备工作目录的读取和写入能力。'] : renderAuthorizedContext(input.authorizedContext, input.taskIsolation ?? false)),
       ...(input.internalTools?.length ? [renderInternalToolsPrompt(input.internalTools)] : []),
     ];
   }

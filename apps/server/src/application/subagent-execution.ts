@@ -26,6 +26,7 @@ export interface SubagentExecutionPorts {
   charge(record: SubagentRecord, phase: ExecutionLeasePhase, marker: string, bytes: number): number;
   changed(run: SubagentRun): void;
   /** 写入范围受理、冲突校验与同步占用在同一事务内执行。 */
+  normalize?(record: SubagentRecord): Promise<void>;
   admit?(record: SubagentRecord): void;
   release?(sessionId: string): void;
 }
@@ -67,7 +68,7 @@ export class SubagentExecution {
     const record = this.requireSession(sessionId);
     return Math.max(0, Math.min(record.run.maxMillis - (this.now() - Date.parse(record.run.createdAt)), this.ports.parent(record.run.parentSessionId).remainingMillis));
   }
-  delegate(parentSessionId: string, toolCallId: string, input: DelegateToSubagent, signal: AbortSignal): Promise<SubagentRun> {
+  async delegate(parentSessionId: string, toolCallId: string, input: DelegateToSubagent, signal: AbortSignal): Promise<SubagentRun> {
     if (!Check(DelegateToSubagentSchema, input) || !input.goal.trim() || !input.deliverable.trim() || !input.reason.trim()) throw new Error('委派参数无效。');
     if (this.repository.bySession(parentSessionId)) throw new Error('子智能体不能再次委派。');
     signal.throwIfAborted();
@@ -93,6 +94,14 @@ export class SubagentExecution {
         changedFiles: [], commitHashes: [], maxMillis: Math.floor(parent.remainingMillis), maxOutputBytes: Math.floor(parent.remainingBytes),
         stopConfirmed: false, createdAt: at, startedAt: null, endedAt: null },
     };
+    await this.ports.normalize?.(record);
+    signal.throwIfAborted();
+    if (this.ports.parent(parentSessionId).commandId !== parent.commandId) throw new Error('父级执行轮次已变化。');
+    const concurrentReplay = this.repository.byCall(parentSessionId, toolCallId);
+    if (concurrentReplay) {
+      if (concurrentReplay.fingerprint !== key) throw new Error('同一次委派调用的参数已变化。');
+      return this.active.get(concurrentReplay.run.id)?.promise ?? concurrentReplay.run;
+    }
     this.repository.transaction(() => {
       if (this.repository.unsettled(parentSessionId).length >= SUBAGENT_MAX_CONCURRENT) throw new Error('同一父级最多并发 5 个子智能体。');
       this.ports.admit?.(record);

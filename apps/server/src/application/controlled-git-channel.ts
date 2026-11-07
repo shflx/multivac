@@ -77,7 +77,7 @@ export class ControlledGitChannel {
         signal.throwIfAborted();
         if (this.disposed) fail('受控 Git 通道已停止。');
         const checked = await options.boundary();
-        if (checked.gitDirectory !== boundary.gitDirectory || checked.directory !== boundary.directory || checked.commonDirectory !== boundary.commonDirectory || checked.identity !== boundary.identity) fail('Git 读取或执行边界已失效。');
+        if (checked.gitDirectory !== boundary.gitDirectory || checked.directory !== boundary.directory || checked.commonDirectory !== boundary.commonDirectory || checked.identity !== boundary.identity || checked.branch !== boundary.branch) fail('Git 读取或执行边界已失效。');
         signal.throwIfAborted();
         // 边界读取会让出执行权；关闭后不能在这段等待结束时再启动新进程。
         if (this.disposed) fail('受控 Git 通道已停止。');

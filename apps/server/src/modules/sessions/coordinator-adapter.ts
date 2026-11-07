@@ -216,6 +216,11 @@ export interface CoordinatorContextManagementPort {
 /** 任务执行工具的额度租约：工具副作用前登记、真实结束后结算，返回剩余字节；租约失效时抛错。 */
 export type CoordinatorTaskLease = (sessionId: string, phase: 'starting' | 'settled' | 'check' | 'progress', marker: string, bytes: number) => number;
 
+/** 文件 I/O 与命令的写入占用；释放必须在真实执行落定后调用。 */
+export interface CoordinatorToolGuard {
+  acquire(sessionId: string, toolName: string, targetPath?: string): (succeeded?: boolean) => void;
+}
+
 export interface CoordinatorAdapter {
   /** 执行器标识。创建的绑定带上它；续接与读取持久历史只接受同一 harness 的身份，其他身份以 SESSION_BINDING_MISMATCH 拒绝。 */
   readonly harness: CoordinatorHarnessId;
@@ -228,6 +233,7 @@ export interface CoordinatorAdapter {
   bindTaskLease(lease: CoordinatorTaskLease, mode?: (sessionId: string) => 'workspace' | 'native-isolated' | null): void;
   /** 装配时接入 Skill 来源，之后新建或恢复的会话按它装载 Skill；capabilities.skills 为 false 时忽略。 */
   bindSkills(source: SkillSource): void;
+  bindToolGuard?(guard: CoordinatorToolGuard): void;
   /** 准备本轮临时配置，不写永久选模；activate/restore 均同步并在同一运行中配对。不支持时返回失败。 */
   prepareTurnExecution(sessionId: string, model: CoordinatorModelConfig, instructions: string): Promise<CoordinatorResult<CoordinatorTurnPreparation>>;
   /** 当前会话的实际模型是否接受图片；未打开或不支持时为 false。 */

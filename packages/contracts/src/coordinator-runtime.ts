@@ -143,6 +143,8 @@ export interface CoordinatorCompactionConfig {
 }
 
 export interface CoordinatorRuntimeConfig {
+  /** 仅服务端独立委派会话使用；不属于智能体配置。 */
+  subagent?: { mode: import('./subagent.js').SubagentMode; writeScope: string[] };
   readingOnly?: boolean;
   systemPrompt: string;
   authorizedContext: CoordinatorAuthorizedContext[];

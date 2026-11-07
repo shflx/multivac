@@ -43,7 +43,7 @@ test('独立运行冻结配置；相同工具调用在途共享、完成后只�
     assert.equal(a.summary, '独立结论'); assert.equal(world.sends(), 1);
     assert.equal((await world.execution.delegate('parent', 'call', input, new AbortController().signal)).id, a.id);
     assert.equal(world.sends(), 1);
-    assert.throws(() => world.execution.delegate('parent', 'call', { ...input, goal: '换参数' }, new AbortController().signal), /参数已变化/);
+    await assert.rejects(async () => world.execution.delegate('parent', 'call', { ...input, goal: '换参数' }, new AbortController().signal), /参数已变化/);
   } finally { world.db.close(); }
 });
 
@@ -53,8 +53,9 @@ test('并发 5 个实际同时准备，第六个拒绝；结束后可继续委�
   const world = fixture({ prepare: async record => { await wait; return { execution: { executor: { agentId: 'general', revision: 1, name: '执行', modelProfileId: null, modelName: 'test', provider: 'fixture', modelId: 'test', thinkingLevel: 'off' }, model: runtimeConfig({}).model, instructions: '' }, config: runtimeConfig({}) }; } });
   try {
     const pending = Array.from({ length: 5 }, (_, i) => world.execution.delegate('parent', String(i), input, new AbortController().signal));
+    await tick();
     assert.equal(world.repository.unsettled('parent').length, 5);
-    assert.throws(() => world.execution.delegate('parent', 'six', input, new AbortController().signal), /最多并发/);
+    await assert.rejects(async () => world.execution.delegate('parent', 'six', input, new AbortController().signal), /最多并发/);
     release(); await Promise.all(pending);
     assert.equal((await world.execution.delegate('parent', 'later', input, new AbortController().signal)).status, 'succeeded');
   } finally { release(); world.db.close(); }
@@ -121,6 +122,6 @@ test('模型准入失败明确失败且不换模型；子级不能再次委派',
   try {
     const run = await world.execution.delegate('parent', 'bad-model', input, new AbortController().signal);
     assert.equal(run.status, 'failed'); assert.match(run.summary, /模型已失效/); assert.equal(world.sends(), 0);
-    assert.throws(() => world.execution.delegate(run.sessionId, 'nested', input, new AbortController().signal), /不能再次委派/);
+    await assert.rejects(async () => world.execution.delegate(run.sessionId, 'nested', input, new AbortController().signal), /不能再次委派/);
   } finally { world.db.close(); }
 });

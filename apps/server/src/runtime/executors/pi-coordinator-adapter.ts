@@ -752,6 +752,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     this.taskMode = mode;
   }
 
+  private toolGuard: import('../../modules/sessions/coordinator-adapter.js').CoordinatorToolGuard | undefined;
+  bindToolGuard(guard: import('../../modules/sessions/coordinator-adapter.js').CoordinatorToolGuard): void { this.toolGuard = guard; }
   private skillsFor: ((id: string) => PiSkills) | undefined;
   bindSkills(source: SkillSource): void { this.skillsFor = (id) => createPiSkills(source, id); }
 
@@ -765,7 +767,8 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     const authorize = this.authorizeToolCall;
     const taskMode = this.taskMode?.(assistantSessionId) ?? null;
     return {
-      ...(this.skillsFor && !config.readingOnly ? { skills: this.skillsFor(assistantSessionId) } : {}),
+      ...(this.skillsFor && !config.readingOnly && !config.subagent ? { skills: this.skillsFor(assistantSessionId) } : {}),
+      ...(this.toolGuard ? { toolGuard: { sessionId: assistantSessionId, tools: this.toolGuard } } : {}),
       cwd: workingDirectory.path,
       ...(!config.readingOnly && taskMode !== 'native-isolated' && this.optionsProjectFileScope ? {
         projectDirectories: () => this.optionsProjectFileScope!(assistantSessionId, workingDirectory),

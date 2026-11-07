@@ -1,4 +1,4 @@
-import { READING_PAGE_TOOL_NAMES } from '@multivac/contracts';
+import { READING_PAGE_TOOL_NAMES, type CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { access, lstat, mkdir, readFile, readlink, realpath, stat, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { homedir } from 'node:os';
@@ -12,6 +12,7 @@ import {
   type ToolCallEventResult,
   type ToolDefinition,
   createReadToolDefinition,
+  createGrepToolDefinition, createFindToolDefinition, createLsToolDefinition,
   createEditToolDefinition,
   createWriteToolDefinition,
   detectSupportedImageMimeTypeFromFile,
@@ -19,6 +20,7 @@ import {
 import type { InternalToolEffect } from '../../modules/internal-tools/internal-tool.js';
 import { isPathWithin } from '../../modules/sessions/working-directory.js';
 import type {
+  CoordinatorToolGuard,
   CoordinatorPathToolName,
   CoordinatorToolAuthorizationDecision,
 } from '../../modules/sessions/coordinator-adapter.js';
@@ -190,8 +192,14 @@ export async function judgeToolCall(
   cwd: string,
   internalTools: InternalToolBoundary = {},
   projectDirectories: () => readonly string[] = () => [],
+  subagent?: CoordinatorRuntimeConfig['subagent'],
 ): Promise<ToolBoundaryVerdict> {
-  const rule = Object.hasOwn(TOOL_BOUNDARY_RULES, toolName)
+  if (subagent) {
+    if (['list_mcp_tools', 'call_mcp_tool', 'skill_load', 'skill_resource', 'delegate_to_subagent'].includes(toolName)) return { type: 'block', reason: '子智能体不能使用 MCP、Skill 或再次委派。' };
+    if (['write', 'edit'].includes(toolName) && subagent.mode === 'read' || toolName === 'bash' && subagent.mode !== 'execute') return { type: 'block', reason: '该委派方式不能使用写入或 bash。' };
+    if (internalTools[toolName] && internalTools[toolName] !== 'query' && !['inspect_subagent_git', 'commit_subagent_code'].includes(toolName)) return { type: 'block', reason: '子智能体不能使用管理、授权、成果或外发工具。' };
+  }
+  const rule = subagent && ['grep', 'find', 'ls'].includes(toolName) ? 'target-path' : Object.hasOwn(TOOL_BOUNDARY_RULES, toolName)
     ? TOOL_BOUNDARY_RULES[toolName as CoordinatorToolName]
     : undefined;
   if (!rule) {
@@ -201,7 +209,7 @@ export async function judgeToolCall(
   }
   if (rule === 'working-directory') return { type: 'allow' };
 
-  const requestedPath = input.path;
+  const requestedPath = input.path ?? (subagent && ['grep', 'find', 'ls'].includes(toolName) ? '.' : undefined);
   if (typeof requestedPath !== 'string' || !requestedPath.trim()) {
     return { type: 'block', reason: `${toolName} 缺少目标路径，调用未执行。` };
   }
@@ -222,6 +230,8 @@ export async function judgeToolCall(
       reason: `无法确认 ${requestedPath} 是否位于会话工作目录内，${toolName} 未执行。`,
     };
   }
+
+  if (subagent && ['write', 'edit'].includes(toolName) && !subagent.writeScope.some(scope => isPathWithin(scope, targetPath))) return { type: 'block', reason: '写入超出本次 writeScope，调用未执行。' };
 
   if (isPathWithin(workingDirectory, targetPath)) return { type: 'allow', targetPath };
 
@@ -264,6 +274,8 @@ export function denyOutsideWorkingDirectory(cwd: string): OutsideWorkingDirector
 }
 
 export interface ToolBoundaryExtensionOptions {
+  subagent?: CoordinatorRuntimeConfig['subagent'];
+  guard?: { sessionId: string; tools: CoordinatorToolGuard };
   readingOnly?: boolean | undefined;
   /** 任务运行检查与文件权限分开，授权等待后及每次 I/O 前复核原 Run。 */
   assertExecution?: () => void;
@@ -293,8 +305,9 @@ export function createToolBoundaryExtension(options: ToolBoundaryExtensionOption
     if (options.readingOnly && !(READING_PAGE_TOOL_NAMES.includes(event.toolName) && options.internalTools?.[event.toolName] === 'query')) return { block: true, reason: '书伴仅可调用已注入的相邻页只读工具，不具备文件、命令或工作工具权限。' };
     if (options.fileExecutionGuarded && TOOL_BOUNDARY_RULES[event.toolName as CoordinatorToolName] === 'target-path') return undefined;
     if (context.signal?.aborted) return { block: true, reason: CANCELLED_REASON };
-    const verdict = await judgeToolCall(event.toolName, event.input, options.cwd, options.internalTools, options.projectDirectories);
+    const verdict = await judgeToolCall(event.toolName, event.input, options.cwd, options.internalTools, options.projectDirectories, options.subagent);
     if (verdict.type === 'allow') {
+      if (!options.fileExecutionGuarded && options.guard) { const release = options.guard.tools.acquire(options.guard.sessionId, event.toolName, verdict.targetPath); release(); }
       // 工作目录内的访问同样钉住：判定之后工具不一定立即执行（同批调用要等全部放行才一起执行，
       // 其间可能等待其他调用的授权），目录内的链接在此期间被改指到目录外时，仍访问判定时的位置。
       if (verdict.targetPath) pinTargetPath(event.input, verdict.targetPath, options.cwd);
@@ -360,13 +373,14 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
     async execute(toolCallId, params, signal, onUpdate, context) {
       options.assertExecution?.();
       const event = { type: 'tool_call', toolName: definition.name, toolCallId, input: { ...params as Record<string, unknown> } } as ToolCallEvent;
-      const planned = await judgeToolCall(definition.name, event.input, options.cwd, options.internalTools, options.projectDirectories);
+      const planned = await judgeToolCall(definition.name, event.input, options.cwd, options.internalTools, options.projectDirectories, options.subagent);
       if (planned.type === 'block') throw new Error(planned.reason);
       const target = planned.targetPath;
       if (!target) throw new Error('无法确认文件目标。');
       const executionInput = { ...event.input };
       pinTargetPath(executionInput, target, options.cwd);
       let started = false;
+      let releaseWrite: ((succeeded?: boolean) => void) | undefined;
       const beforeIo = async (filePath?: string) => {
         if (signal?.aborted) throw new Error(CANCELLED_REASON);
         options.assertExecution?.();
@@ -379,6 +393,7 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
         if (result?.block) throw new Error(result.reason);
         if (signal?.aborted) throw new Error(CANCELLED_REASON);
         options.assertExecution?.();
+        releaseWrite = options.guard?.tools.acquire(options.guard.sessionId, definition.name, target);
         started = true;
       };
       // 每个调用独立持有状态；复用 Pi 的队列、替换算法、图片与截断处理。
@@ -392,7 +407,23 @@ export function createBoundaryFileTools(options: ToolBoundaryExtensionOptions): 
       const guarded = (definition.name === 'read' ? createReadToolDefinition(options.cwd, { operations })
         : definition.name === 'edit' ? createEditToolDefinition(options.cwd, { operations })
           : createWriteToolDefinition(options.cwd, { operations })) as unknown as ToolDefinition;
-      return guarded.execute(toolCallId, executionInput, signal, onUpdate, context);
+      let succeeded = false;
+      try { const result = await guarded.execute(toolCallId, executionInput, signal, onUpdate, context); succeeded = true; return result; }
+      finally { releaseWrite?.(succeeded); }
     },
   }));
+}
+
+/** 检索工具仅给子智能体；根目录按真实路径核对，SDK 检索不跟随目录中的符号链接。 */
+export function createBoundarySearchTools(options: ToolBoundaryExtensionOptions): ToolDefinition[] {
+  return [createGrepToolDefinition(options.cwd), createFindToolDefinition(options.cwd), createLsToolDefinition(options.cwd)].map(definition => ({
+    ...definition,
+    async execute(toolCallId, params, signal, onUpdate, context) {
+      options.assertExecution?.();
+      signal?.throwIfAborted();
+      const verdict = await judgeToolCall(definition.name, params as Record<string, unknown>, options.cwd, options.internalTools, options.projectDirectories, options.subagent);
+      if (verdict.type !== 'allow' || !verdict.targetPath) throw new Error(verdict.type === 'block' ? verdict.reason : '检索目录超出当前许可范围，不发起授权。');
+      return definition.execute(toolCallId, { ...params as object, path: verdict.targetPath } as never, signal, onUpdate, context);
+    },
+  } as ToolDefinition));
 }

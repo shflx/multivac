@@ -15,6 +15,24 @@ export interface TaskGitOptions {
 }
 const fail = (message: string): never => { throw new TaskServiceError('INVALID_REQUEST', message); };
 
+export async function validateGitPaths(boundary: GitBoundary, paths: readonly string[]): Promise<string[]> {
+  return Promise.all(paths.map(async path => {
+    if (!path || isAbsolute(path) || /[\u0000-\u001f\\]/u.test(path) || path.split('/').some(part => !part || part === '..' || part === '.' || part === '.git')) fail('Git 文件路径必须是任务目录内的相对文件路径。');
+    const target = resolve(boundary.directory, path);
+    if (!isPathWithin(boundary.directory, target)) fail('Git 文件路径超出任务目录。');
+    let current = boundary.directory;
+    for (const part of path.split('/')) {
+      current = join(current, part);
+      try {
+        const stat = await lstat(current);
+        if (stat.isSymbolicLink() || stat.isFile() && stat.nlink > 1) fail('Git 提交通道不接受符号链接或硬链接原件。');
+        if (current === target && stat.isDirectory()) fail('请逐项列出需要提交的文件，不提交整个目录。');
+      } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    }
+    return path;
+  }));
+}
+
 /** Git 专用进程只访问固定 worktree 与所需元数据；共用 shell 也能操作 Git 元数据，本通道仍提供固定边界的可核对入口。 */
 export class TaskGitService {
   readonly channel: ControlledGitChannel;
@@ -67,23 +85,6 @@ export class TaskGitService {
     } finally { await file.close(); }
   }
 
-  private async paths(boundary: GitBoundary, paths: readonly string[]): Promise<string[]> {
-    return Promise.all(paths.map(async path => {
-      if (!path || isAbsolute(path) || /[\u0000-\u001f\\]/u.test(path) || path.split('/').some(part => !part || part === '..' || part === '.' || part === '.git')) fail('Git 文件路径必须是任务目录内的相对文件路径。');
-      const target = resolve(boundary.directory, path);
-      if (!isPathWithin(boundary.directory, target)) fail('Git 文件路径超出任务目录。');
-      let current = boundary.directory;
-      for (const part of path.split('/')) {
-        current = join(current, part);
-        try {
-          const stat = await lstat(current);
-          if (stat.isSymbolicLink() || stat.isFile() && stat.nlink > 1) fail('Git 提交通道不接受符号链接或硬链接原件。');
-          if (current === target && stat.isDirectory()) fail('请逐项列出需要提交的文件，不提交整个目录。');
-        } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      }
-      return path;
-    }));
-  }
 
   private async operation<T>(sessionId: string, signal: AbortSignal, inputBytes: number,
     action: (git: (args: string[], allowMissing?: boolean) => Promise<string>, boundary: GitBoundary) => Promise<T>): Promise<T> {
@@ -101,7 +102,7 @@ export class TaskGitService {
 
   async inspect(sessionId: string, input: { staged?: boolean; paths?: string[] }, signal: AbortSignal): Promise<string> {
     return this.operation(sessionId, signal, 0, async (git, boundary) => {
-      const paths = await this.paths(boundary, input.paths ?? []);
+      const paths = await validateGitPaths(boundary, input.paths ?? []);
       const head = (await git(['rev-parse', '--verify', 'HEAD'])).trim();
       const status = await git(['status', '--short', '--untracked-files=normal', '--ignore-submodules=all', '--', ...paths]);
       const diff = await git(['diff', '--no-ext-diff', '--no-textconv', '--ignore-submodules=all', ...(input.staged ? ['--cached'] : []), '--', ...paths]);
@@ -112,7 +113,7 @@ export class TaskGitService {
   async commit(sessionId: string, input: { paths: string[]; message: string }, signal: AbortSignal): Promise<string> {
     if (!input.paths.length || input.paths.length > 100 || !input.message.trim() || input.message.length > 16000) fail('提交须指定 1–100 个文件和非空提交信息。');
     return this.operation(sessionId, signal, Buffer.byteLength(input.message, 'utf8'), async (git, boundary) => {
-      const paths = await this.paths(boundary, input.paths);
+      const paths = await validateGitPaths(boundary, input.paths);
       await git(['add', '--', ...paths]);
       await git(['commit', '--only', '--no-gpg-sign', '--no-verify', '-m', input.message, '--', ...paths]);
       const head = (await git(['rev-parse', '--verify', 'HEAD'])).trim();
