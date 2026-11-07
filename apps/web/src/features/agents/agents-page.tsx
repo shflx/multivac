@@ -340,7 +340,7 @@ function AgentDetail({ agent: listed, modelState, snapshot, modelSettingsError, 
       </form>
 
       <section className="detail-section">
-        <label><input type="checkbox" checked={agent.delegable} disabled={busy}
+        <label className="agent-delegable"><input type="checkbox" checked={agent.delegable} disabled={busy}
           onChange={(event) => void run({ delegable: event.target.checked }, '委派设置保存失败。', setEditError)} />允许作为子智能体</label>
         <p className="section-hint">用途须从调用方视角说明适合与不适合的简单工作。委派不增加工具或权限。</p>
         {!editing && editError && <p className="form-error" role="alert">{editError}</p>}
@@ -428,7 +428,7 @@ function NewAgentForm({ snapshot, modelSettingsError, onCreated, onCancel, onMan
               onChange={(event) => setDescription(event.target.value)} />
           </label>
         </div>
-        <label><input type="checkbox" checked={delegable} onChange={(event) => setDelegable(event.target.checked)} />允许作为子智能体</label>
+        <label className="agent-delegable"><input type="checkbox" checked={delegable} onChange={(event) => setDelegable(event.target.checked)} />允许作为子智能体</label>
         <p className="section-hint">开启后，用途必须说明适合与不适合委派的工作。</p>
         <div className="agent-model-section">
           <AgentModelField snapshot={snapshot} disabled={busy} value={model} onChange={setModel} />

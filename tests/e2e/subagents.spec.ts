@@ -3,7 +3,7 @@ import { fakeApiRoot, resetE2eState, openPanel, openCreationDialog } from './tes
 
 test('工作会话并行委派、完成卡片及只读完整抽屉，运行和用量归属可见', async ({ page, request }) => {
   await resetE2eState(request);
-  const agent = await request.post(`${fakeApiRoot}/api/agents`, { data: { commandId: crypto.randomUUID(), name: '独立核对', description: '适合自包含的检查，不适合授权或外发', delegable: true, instructions: '返回简短结论。' } });
+  const agent = await request.post(`${fakeApiRoot}/api/agents`, { data: { commandId: crypto.randomUUID(), name: 'W'.repeat(60), description: '适合自包含的检查，不适合授权或外发', delegable: true, instructions: '返回简短结论。' } });
   expect(agent.ok()).toBe(true);
   const { agent: { agentId } } = await agent.json();
   await page.goto('/'); await expect(page.getByLabel('Multivac 草稿')).toBeEditable();

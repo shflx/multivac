@@ -6371,6 +6371,14 @@ svg {
 
 .coordinator-tools .coordinator-tool-names { overflow-wrap: anywhere; }
 
+.agent-delegable { display: inline-flex; align-items: center; gap: 8px; font-size: var(--t-sm); cursor: pointer; }
+.agent-delegable input { appearance: none; display: grid; place-content: center; flex: none; width: 16px; height: 16px; margin: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); cursor: inherit; }
+.agent-delegable input::before { content: ''; width: 8px; height: 4px; border-left: 2px solid var(--surface); border-bottom: 2px solid var(--surface); transform: translateY(-1px) rotate(-45deg); opacity: 0; }
+.agent-delegable input:checked { border-color: var(--accent); background: var(--accent); }
+.agent-delegable input:checked::before { opacity: 1; }
+.agent-delegable:hover input:not(:disabled) { border-color: var(--accent); }
+.agent-delegable:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+
 /* 表单字段：标题在上、控件在下；名称、用途、模型与推理共用。 */
 .agent-field {
   display: grid;
