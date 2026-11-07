@@ -64,6 +64,8 @@ test('任务详情和任务会话时间线展示两个委派及独立只读过�
   await page.goto('/'); await expect(page.getByRole('button', { name: '快捷键', exact: true })).toBeVisible();
   await openPanel(page, 'management'); await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '待办', exact: true }).click();
   await page.getByRole('button', { name: `查看任务：${task.title}`, exact: true }).click();
+  let relationReads = 0;
+  page.on('request', request => { if (request.url().includes('/relations?') || request.url().includes('/api/tasks?parentTaskId=')) relationReads++; });
   const inspector = page.getByRole('complementary', { name: '任务详情' });
   await expect(inspector.locator('.subagent-open')).toHaveCount(2);
   await inspector.getByRole('button', { name: `打开任务会话：${task.title}`, exact: true }).click();
@@ -73,6 +75,8 @@ test('任务详情和任务会话时间线展示两个委派及独立只读过�
   const drawer = page.getByRole('dialog', { name: '子智能体只读过程' });
   await expect(drawer).toContainText('任务执行'); await expect(drawer).toContainText('完整过程');
   await drawer.getByRole('button', { name: '关闭子智能体过程' }).click();
+  // 委派区域与关系区域不能共用 key；查询结果写回缓存后应保留原组件。
+  expect(relationReads).toBeLessThan(10);
 });
 
 test('真实重启中断执行子级并回收进程，原委派不重放，过程仍可读', async ({ page, request }) => {
