@@ -18,7 +18,7 @@ export function sessionBashExecution(dependencies: Parameters<typeof projectBash
     const run = dependencies.runs.bySession(id);
     return run ? run.executionMode ?? 'native-isolated' : null;
   } });
-  return { execute: async (sessionId, runtimePath, toolCallId, input, signal, onData, isolated) => {
+  return { execute: (sessionId, runtimePath, toolCallId, input, signal, onData, isolated) => {
     const executionId = dependencies.currentExecution(sessionId);
     if (!executionId) throw new Error('当前没有可登记的会话执行。');
     if (dependencies.sessions.get(sessionId)?.archivedAt) throw new Error('会话已归档，未启动命令。');
@@ -42,13 +42,13 @@ export function sessionBashExecution(dependencies: Parameters<typeof projectBash
       const control = run?.executionMode === 'workspace' ? dependencies.taskControl?.(run, toolCallId) : dependencies.scheduleControl?.(sessionId, toolCallId);
       if (run?.executionMode === 'workspace' && !control) throw new Error('任务执行租约尚未接入。');
       const plan = scope(sessionId, runtimeDirectory, input.cwd);
-      return await dependencies.bash.execute({ sessionId, executionId, directory: plan.directory,
+      return dependencies.bash.execute({ sessionId, executionId, directory: plan.directory,
         ...(run ? { taskId: run.taskId, runId: run.runId } : {}) }, toolCallId, !run && control ? { ...input, requiredWhileRunning: true } : input, signal, onData, isolated, () => {
         validateExecution();
         const checkRelease = dependencies.toolGuard?.acquire(sessionId, 'bash'); checkRelease?.();
         plan.revalidate();
         control?.check();
-      }, control);
-    } finally { release?.(); }
+      }, control).finally(() => release?.());
+    } catch (error) { release?.(); throw error; }
   } };
 }

@@ -50,7 +50,7 @@ function supervisorFixture() {
   return { launches, stops, supervisors: { bash, managed: () => { throw new Error('不应调用任务监护器。'); } } };
 }
 
-async function fixture() {
+async function fixture(toolGuard?: import('../src/modules/sessions/coordinator-adapter.js').CoordinatorToolGuard) {
   const root = realpathSync(await mkdtemp(join(tmpdir(), 'multivac-session-bash-')));
   const primary = join(root, 'primary'), extra = join(root, 'extra'), other = join(root, 'other'), data = join(root, 'data'), home = join(root, 'home');
   for (const path of [primary, extra, other, data, home]) await mkdir(path);
@@ -71,7 +71,7 @@ async function fixture() {
   let directoryReads = 0;
   const leases = new Set<string>();
   const leaseEvents: string[] = [];
-  const port = sessionBashExecution({ sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
+  const port = sessionBashExecution({ toolGuard, sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
     runs: { bySession: () => run }, currentExecution: () => execution,
     taskControl: original => {
       const check = () => {
@@ -120,6 +120,25 @@ test('真实工具定义/准入/SQLite + 监护替身：前后台贯通真实 cw
     await f.processes.stop(f.processes.list()[0]!.processId);
     assert.equal(f.processes.list()[0]!.state, 'exited');
     assert.match((await f.processes.logs(record.public.processId)).text, /simulated cwd/);
+  } finally { await f.close(); }
+});
+
+test('启动准入同步拒绝时释放写入租约，前台命令则持有租约直到真实退出', async () => {
+  let held = 0;
+  const f = await fixture({ acquire: () => { held++; return () => { held--; }; } });
+  try {
+    assert.throws(() => f.port.execute('session', f.primary, 'outside', { command: 'probe', cwd: f.other }, undefined, () => {}), /当前已确认/);
+    assert.equal(held, 0);
+    const pending = f.port.execute('session', f.primary, 'held', { command: 'hold' }, undefined, () => {});
+    const deadline = Date.now() + 3000;
+    while (!f.supervisors.launches.length) {
+      assert.ok(Date.now() < deadline, '监护器应已启动');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(held, 1);
+    await f.processes.stop(f.processes.list()[0]!.processId);
+    await pending;
+    assert.equal(held, 0);
   } finally { await f.close(); }
 });
 
