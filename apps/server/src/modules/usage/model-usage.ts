@@ -2,6 +2,9 @@ import type { UsageSource, UsageTokens } from '@multivac/contracts';
 
 export interface UsageIdentity {
   sessionId: string;
+  parentSessionId?: string;
+  taskRunId?: string;
+  subagentRunId?: string;
   sessionTitle: string;
   runtimeSessionId: string;
   provider: string | null;

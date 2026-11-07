@@ -2,7 +2,7 @@ import type { UsageDays, UsageDaily, UsageGroup, UsageStatistics, UsageTotals } 
 import type { UsageRecord } from './model-usage.js';
 
 const empty = (): UsageTotals => ({ input: 0, cacheRead: 0, output: 0, total: 0, requests: 0, measuredRequests: 0, missingRequests: 0, cacheHitRate: null });
-const sourceLabels = { multivac: 'Multivac 协调', session: '会话', task: '任务执行', unknown: '未知来源' };
+const sourceLabels = { multivac: 'Multivac 协调', session: '会话', task: '任务执行', subagent: '子智能体', unknown: '未知来源' };
 const add = (sum: UsageTotals, record: UsageRecord) => {
   sum.requests++;
   // 请求数包含失败、取消和待返回；只有成功结束却没有有效用量才计缺失。

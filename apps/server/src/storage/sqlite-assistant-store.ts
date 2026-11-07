@@ -1,3 +1,4 @@
+import { SUBAGENT_MIGRATION, SqliteSubagentRepository } from './sqlite-subagent-repository.js';
 import { SqliteTaskAttachmentRepository, TASK_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_CLEANUP_MIGRATION } from './sqlite-task-attachment-repository.js';
 import { NoteRecordCodec, NOTE_PROTECTION_MIGRATION } from './note-record-codec.js';
 import { SqliteNoteSecurityRepository, NOTE_SECURITY_MIGRATION, NOTE_KEYPAIR_MIGRATION } from './sqlite-note-security-repository.js';
@@ -348,6 +349,7 @@ const MIGRATIONS = [
   SESSION_ATTACHMENT_MIGRATION,
   SESSION_ATTACHMENT_CLEANUP_MIGRATION,
   AGENT_DELEGABLE_MIGRATION,
+  SUBAGENT_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -413,6 +415,7 @@ export class SqliteAssistantStore {
   readonly projectResources: SqliteProjectResourceRepository;
   readonly tasks: SqliteTaskRepository;
   readonly agents: SqliteAgentRepository;
+  readonly subagents: SqliteSubagentRepository;
   readonly managedProcesses: SqliteManagedProcessRepository;
   readonly taskRuns: SqliteTaskRunRepository;
   readonly taskRuntime: SqliteTaskRuntimeRepository;
@@ -494,6 +497,7 @@ export class SqliteAssistantStore {
       this.images = new SqliteImageRepository(this.database);
       this.taskAttachments = new SqliteTaskAttachmentRepository(this.database);
       this.tasks = new SqliteTaskRepository(this.database);
+      this.subagents = new SqliteSubagentRepository(this.database);
       this.agents = new SqliteAgentRepository(this.database);
       this.managedProcesses = new SqliteManagedProcessRepository(this.database);
       this.taskRuns = new SqliteTaskRunRepository(this.database);

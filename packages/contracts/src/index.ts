@@ -58,3 +58,5 @@ export * from './schedule.js';
 export * from './schedule-time.js';
 
 export * from './task-attachment.js';
+
+export * from './subagent.js';

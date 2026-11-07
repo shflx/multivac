@@ -3,7 +3,7 @@ import { Type } from 'typebox';
 /** 统计页只接受日历天范围；项目仅是分布维度。 */
 export const USAGE_DAYS = [7, 30, 90] as const;
 export type UsageDays = (typeof USAGE_DAYS)[number];
-export type UsageSource = 'multivac' | 'session' | 'task' | 'unknown';
+export type UsageSource = 'multivac' | 'session' | 'task' | 'subagent' | 'unknown';
 
 /** 三段可加总的 token；input 含缓存写入，output 已含推理。 */
 export interface UsageTokens {

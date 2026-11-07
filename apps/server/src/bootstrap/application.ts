@@ -392,15 +392,18 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const unsubscribeCredentials = modelAccessService.onCredentialsChanged(() => publishModelSelection(null));
   // 每个会话都注入目录边界扩展，文件工具越界时由授权服务生成请求并等待用户决定。
   const usage = new ModelUsageService(store.usage, sessionId => {
-    const session = store.sessions.get(sessionId);
-    const run = store.taskRuns.bySession(sessionId);
+    const subagent = store.subagents.bySession(sessionId)?.run;
+    const ownerId = subagent?.parentSessionId ?? sessionId;
+    const session = store.sessions.get(ownerId);
+    const run = store.taskRuns.bySession(ownerId);
     const workspace = session ? store.workspaces.get(session.workspaceId) : undefined;
     const global = sessionId === GLOBAL_ASSISTANT_SESSION_ID;
     const projectId = global ? null : run ? run.projectId : workspace?.project?.projectId ?? null;
-    return { sessionId, sessionTitle: global ? 'Multivac' : session?.title ?? '未知会话',
+    return { sessionId, ...(subagent ? { parentSessionId: subagent.parentSessionId, ...(subagent.taskRunId ? { taskRunId: subagent.taskRunId } : {}), subagentRunId: subagent.id } : {}),
+      sessionTitle: subagent ? `${subagent.agent.name} · ${subagent.reason}` : global ? 'Multivac' : session?.title ?? '未知会话',
       projectId, projectKnown: global || Boolean(run || workspace),
       projectName: projectId ? store.projects.get(projectId)?.name ?? null : null,
-      source: global ? 'multivac' : run ? 'task' : session ? 'session' : 'unknown' };
+      source: subagent ? 'subagent' : global ? 'multivac' : run ? 'task' : session ? 'session' : 'unknown' };
   }, undefined, !options.coordinatorAdapter && harness.recordsUsage);
   const adapter = options.coordinatorAdapter ?? harness.adapter;
   // 内部工具共用的服务能力：按会话注册工具集合，调用走与界面相同的服务。
@@ -1013,7 +1016,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   const agents: AgentService = new AgentService({ repository: store.agents, modelSettings: modelSettingsService, events: workbenchEvents,
     executionPreview: (agent, snapshot) => previewWorkSessionAgent(agent, snapshot, workConfig.model),
     coordinatorTools: () => internalTools.specs.map((spec) => spec.name),
-    usage: (id): string | null => tasks.list({ agentId: id, viewStatus: 'unfinished', limit: 1 }).total ? '仍有未完成的任务使用这个智能体，请先更换这些任务的智能体或等它们结束。' : null });
+    usage: (id): string | null => store.subagents.unsettled().some(record => record.run.agent.agentId === id) ? '仍有未确认停止的子智能体引用此配置。' : tasks.list({ agentId: id, viewStatus: 'unfinished', limit: 1 }).total ? '仍有未完成的任务使用这个智能体，请先更换这些任务的智能体或等它们结束。' : null });
   const runs = new RunsService((activeOnly) => store.taskRuns.overview(activeOnly), Date.now, (activeOnly) => store.managedProcesses.counts(activeOnly));
   const managedProcesses = new ManagedProcessService(store.managedProcesses, join(paths.dataDir, 'managed-processes'), [paths.dataDir], { isolation: nativeTaskIsolation, supervisors: nodeProcessSupervisors }, () => {
     workbenchEvents.publish({ type: 'process.changed', origin: { windowId: null, commandId: null } });

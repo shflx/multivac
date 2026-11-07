@@ -1,3 +1,4 @@
+import { meterExecution } from './execution-budget-lease.js';
 import { randomUUID } from 'node:crypto';
 import type { AssistantPublicEvent, CoordinatorRuntimeConfig, ScheduleOccurrence, WorkingDirectory } from '@multivac/contracts';
 import type { AssistantAgentExecution } from '../modules/sessions/assistant-turn.js';
@@ -37,8 +38,7 @@ export class ScheduleAgentExecution implements ScheduleActionRunner {
       const snapshot = item?.executionSnapshot as unknown as ScheduleExecutionSnapshot | null;
       if (!item || item.snapshot.action.kind !== 'agent' || !snapshot) throw new Error('定时执行身份不可用。');
       const budget = item.snapshot.action.budget;
-      if (phase === 'starting' && !snapshot.markers[marker]) { snapshot.markers[marker] = true; snapshot.toolCalls++; }
-      snapshot.outputBytes += Math.max(0, bytes);
+      meterExecution(snapshot, phase, marker, Math.max(0, bytes));
       this.repository.saveOccurrence({ ...item, executionSnapshot: snapshot as unknown as Record<string, unknown> });
       const blocked = !['running', 'waiting'].includes(item.status) || snapshot.stopReason || this.remainingMillis(sessionId) <= 0 || snapshot.outputBytes >= budget.maxOutputBytes || snapshot.toolCalls > budget.maxToolCalls;
       return { blocked, bytes: Math.max(0, budget.maxOutputBytes - snapshot.outputBytes) };
