@@ -1,37 +1,37 @@
-.subagent-group { margin: 12px 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); overflow: hidden; min-width: 0; }
-.subagent-group > header { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 10px 12px; font-size: var(--t-xs); color: var(--muted); background: var(--surface-subtle); }
-.subagent-group > header svg { width: 15px; height: 15px; }
-.subagent-group > header strong { color: var(--text); }
-.subagent-group > header small { margin-left: auto; overflow-wrap: anywhere; }
+.subagent-group { margin: 0 0 22px 41px; max-width: calc(100% - 84px); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; min-width: 0; }
+.subagent-group > header { display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: var(--t-xs); }
+.subagent-group > header svg { width: 14px; height: 14px; }
+.subagent-group > header small { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subagent-item + .subagent-item { border-top: 1px solid var(--line); }
-.subagent-open { display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 12px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.subagent-open { display: flex; gap: 10px; align-items: center; width: 100%; padding: 9px 12px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
 .subagent-open:hover { background: var(--surface-subtle); }
-.subagent-open > svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 2px; color: var(--muted); }
-.subagent-item-main { display: grid; gap: 4px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.subagent-open:focus-visible { outline: 0; box-shadow: inset var(--focus-halo); }
+.subagent-open > svg { width: 15px; height: 15px; flex-shrink: 0; color: var(--faint); }
+.subagent-item.succeeded .subagent-open > svg:first-child { color: var(--success); }
+.subagent-item:is(.failed, .exhausted, .interrupted, .reconcile) .subagent-open > svg:first-child { color: var(--danger); }
+.subagent-item:is(.preparing, .running, .stopping) .subagent-open > svg:first-child { color: var(--accent); }
+.subagent-item-main { display: grid; gap: 1px; flex: 1; min-width: 0; }
+.subagent-item-main strong, .subagent-item-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subagent-item-main strong { font-size: var(--t-sm); font-weight: 550; }
-.subagent-item-main > span, .subagent-item-main small, .subagent-item-facts { font-size: var(--t-xs); color: var(--muted); }
-.subagent-item-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.subagent-item-facts { display: grid; gap: 4px; text-align: right; flex-shrink: 0; }
-.subagent-conclusion { margin: 0 12px 12px 38px; font-size: var(--t-xs); }
-.subagent-conclusion > summary { cursor: pointer; color: var(--muted); }
-.subagent-conclusion pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.subagent-item-main small { color: var(--muted); font-size: var(--t-xs); }
+.subagent-item-state { flex-shrink: 0; color: var(--muted); font-size: var(--t-xs); }
+.subagent-item:is(.failed, .exhausted, .interrupted, .reconcile) .subagent-item-state { color: var(--danger); }
 .subagent-pagination { display: flex; gap: 12px; justify-content: flex-end; }
-.subagent-scrim { position: fixed; inset: 0; z-index: 1800; display: flex; justify-content: flex-end; background: #0004; }
-.subagent-drawer { display: flex; flex-direction: column; width: min(700px, 100%); height: 100%; background: var(--surface); box-shadow: -10px 0 40px #0002; color: var(--text); }
-.subagent-drawer > header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); gap: 12px; }
-.subagent-drawer > header > div { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
-.subagent-drawer > header > button { flex-shrink: 0; }
-.subagent-drawer small, .subagent-parent { color: var(--muted); font-size: var(--t-xs); }
-.subagent-drawer-body { flex: 1; min-height: 0; overflow: auto; padding: 20px; overscroll-behavior: contain; }
-.subagent-drawer-body h2 { font-size: var(--t-lg); overflow-wrap: anywhere; }
-.subagent-drawer-body h3 { font-size: var(--t-sm); margin-top: 24px; }
-.subagent-details { display: grid; gap: 10px; font-size: var(--t-xs); }
-.subagent-details > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
-.subagent-details dt { color: var(--muted); }
-.subagent-details dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.subagent-process-entry { padding: 14px 0; border-top: 1px solid var(--line); font-size: var(--t-sm); }
-.subagent-process-entry > strong { display: block; margin-bottom: 8px; font-size: var(--t-xs); color: var(--muted); overflow-wrap: anywhere; }
-.subagent-process-entry summary { cursor: pointer; font-size: var(--t-xs); color: var(--muted); }
-.subagent-drawer-body pre { white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; font-size: var(--t-xs); line-height: 1.6; }
-@media (max-width: 600px) { .subagent-open { flex-wrap: wrap; } .subagent-item-main { flex-basis: calc(100% - 52px); } .subagent-item-facts { margin-left: 26px; text-align: left; display: flex; flex-wrap: wrap; gap: 8px; } .subagent-open > svg:last-child { display: none; } .subagent-drawer-body { padding: 16px; } }
 @media (prefers-reduced-motion: reduce) { .subagent-group .spin { animation: none; } }
+
+/* 子智能体只读会话：整屏覆盖，主体就是普通会话时间线。 */
+.subagent-session { position: fixed; inset: 0; z-index: 1800; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--surface); color: var(--ink); }
+.subagent-session-header { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 20px; border-bottom: 1px solid var(--line); }
+.subagent-session-header > button { flex-shrink: 0; }
+.subagent-session-title { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.subagent-session-title strong, .subagent-session-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-session-title strong { font-size: var(--t-md); font-weight: 600; }
+.subagent-session-title small { color: var(--muted); font-size: var(--t-xs); }
+.subagent-session .assistant-conversation { min-height: 0; }
+.subagent-session-state { margin: 0 0 22px; color: var(--muted); font-size: var(--t-sm); text-align: center; }
+
+@media (max-width: 600px) {
+  .subagent-session-header { padding: 8px 12px; }
+  .subagent-session .assistant-conversation { width: calc(100% - 24px); }
+  .subagent-session .run-trace, .subagent-group { max-width: 100%; margin-left: 0; }
+}

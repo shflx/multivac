@@ -75,7 +75,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   list_task_attachments: { displayName: '查询任务输入附件', keyArgument: { argument: 'taskId', action: '查询附件' } },
   read_task_attachment: { displayName: '读取任务输入附件', keyArgument: { argument: 'attachmentId', action: '读取附件' } },
   read_project_resource: { displayName: '读取项目资料', keyArgument: { argument: 'resourceId', action: '读取资料' } },
-  delegate_to_subagent: { displayName: '委派子智能体', keyArgument: { argument: 'reason', action: '委派' } },
+  delegate_to_subagent: { displayName: '委派子智能体' },
   inspect_subagent_git: { displayName: '核对委派代码差异' },
   commit_subagent_code: { displayName: '提交委派代码' },
   inspect_task_git: { displayName: '查看任务代码差异' },

@@ -1,6 +1,6 @@
 import { SubagentActivity } from '../subagents/subagent-activity.js';
 import { useEffect, useRef, useState } from 'react';
-import { Activity, CircleAlert, LoaderCircle, MessageSquare, Pause, Terminal } from 'lucide-react';
+import { Activity, Bot, CircleAlert, LoaderCircle, MessageSquare, Pause, Terminal } from 'lucide-react';
 import { type RunSnapshot } from '@multivac/contracts';
 import { activeRunStates, durationLabel, recentToolAge, runStateLabel } from './run-presentation.js';
 import { useRuns } from './runs-provider.js';
@@ -63,7 +63,12 @@ export function RunsPage({ active, onOpenTask, onOpenSession, children }: {
         <button className="secondary-button compact" disabled={loading || data.nextOffset === null} onClick={() => void store.refresh(data.nextOffset!)}>下一页</button>
       </div>}
     </section>
-    <section className="run-section" aria-label="子智能体运行"><div className="run-section-heading"><h2>子智能体运行</h2></div><SubagentActivity active={active} showParent /></section>
+    {/* 只列未确认停止的委派；已结束的过程从父会话或任务详情查看。 */}
+    <section className="run-section" aria-label="子智能体运行"><div className="run-section-heading"><h2>子智能体运行</h2></div><SubagentActivity active={active} activeOnly showParent empty={<div className="empty-state run-empty">
+      <Bot aria-hidden="true" />
+      <h3>没有正在运行的子智能体</h3>
+      <p>会话或任务委派的子智能体运行时出现在这里；结束后可在父会话或任务详情中查看过程。</p>
+    </div>} /></section>
     {children}
   </div>;
 }

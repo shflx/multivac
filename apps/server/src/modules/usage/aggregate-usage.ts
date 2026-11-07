@@ -45,6 +45,15 @@ export function usageCalendar(timeZone: string) {
   return { dateKey, midnight };
 }
 
+/**
+ * 子智能体是父级的一次工具调用：统计时归入父会话，来源随父级记为会话或任务执行。
+ * 账本仍保留子智能体自身的会话与运行 ID，委派卡片据此读取单次消耗。
+ */
+function ownedByParent(record: UsageRecord): UsageRecord {
+  if (!record.parentSessionId) return record;
+  return { ...record, sessionId: record.parentSessionId, sessionTitle: '未知会话', source: record.taskRunId ? 'task' : 'session' };
+}
+
 export interface AggregateUsageOptions {
   days: UsageDays;
   timeZone: string;
@@ -86,7 +95,8 @@ export function aggregateUsage(records: readonly UsageRecord[], options: Aggrega
   const group = (dimension: 'model' | 'project' | 'source' | 'session'): UsageGroup[] => {
     const groups = new Map<string, UsageGroup>();
     const sessionContext = new Map<string, { projects: Map<string, string>; sources: Set<string> }>();
-    for (const record of current) {
+    for (const raw of current) {
+      const record = ownedByParent(raw);
       const key = dimension === 'model' ? JSON.stringify([record.provider, record.modelId])
         : dimension === 'project' ? !record.projectKnown ? 'unknown' : record.projectId === null ? 'none' : `project:${record.projectId}`
         : dimension === 'source' ? record.source : record.sessionId;

@@ -188,3 +188,14 @@ test('查询默认30天，只允许7/30/90和IANA时区，拒绝项目筛选与�
     assert.throws(() => usageQuery(new URLSearchParams(query)));
   }
 });
+
+test('子智能体用量归入父会话，来源随父级记为会话或任务执行', () => {
+  const at = '2026-10-13T12:00:00.000Z';
+  const result = aggregateUsage([
+    record('parent', at),
+    { ...record('child', at), sessionTitle: '检查 · 委派原因', parentSessionId: 'parent', subagentRunId: 'run-1', source: 'subagent' },
+    { ...record('task-child', at), parentSessionId: 'task-session', taskRunId: 'task-run', subagentRunId: 'run-2', source: 'subagent' },
+  ], options(7, { sessionTitle: id => ({ parent: '父会话', 'task-session': '任务会话' })[id] }));
+  assert.deepEqual(result.topSessions.map(item => [item.key, item.label, item.requests]), [['parent', '父会话', 2], ['task-session', '任务会话', 1]]);
+  assert.deepEqual(result.distributions.source.map(item => [item.key, item.requests]), [['session', 2], ['task', 1]]);
+});

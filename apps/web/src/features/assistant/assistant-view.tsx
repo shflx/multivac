@@ -1,4 +1,6 @@
-import { useSubagents, SubagentGroups } from '../subagents/subagent-activity.js';
+import { useSubagents } from '../subagents/subagent-activity.js';
+import { SubagentSessionView } from '../subagents/subagent-session-view.js';
+import { SUBAGENT_STATES, formatElapsed } from '../subagents/subagent-labels.js';
 import { FileDraftPreview, MessageFiles } from './file-input.js';
 import { CompactFeedback, ContextPanel } from './context-panel.js';
 import { MessageActions } from './message-copy.js';
@@ -53,7 +55,7 @@ import { WorkSessionAgentPicker, type AgentPickerRequest } from './work-session-
 import { ExecutorLabel } from './executor-label.js';
 import { messageExecutor } from './message-executor.js';
 import { useRemoteConversation } from './remote-context.js';
-import { ToolExecutionGroup } from './tool-execution';
+import { ToolExecutionGroup, type ToolLink } from './tool-execution';
 import { ToolReceipts } from './tool-receipt.js';
 import { AuthorizationCard } from './authorization-card.js';
 import type { MultivacFocus } from './multivac-focus.js';
@@ -204,7 +206,17 @@ function AssistantSessionView({
   const writesAnchor = variant !== 'sidebar';
   // 对话内的确认卡只属于全局 Multivac（首页与侧栏共用同一份提议）。
   const isCoordinator = session.sessionId === GLOBAL_ASSISTANT_SESSION_ID;
-  const subagents = useSubagents({ parentSessionId: session.sessionId, active: active && !remote && !isCoordinator });
+  const subagents = useSubagents({ parentSessionId: session.sessionId, active: active && !remote && !isCoordinator, limit: 100 });
+  // 委派由轨迹里的工具行呈现：行上显示进度，点开进入子智能体的只读会话。
+  const [openedSubagent, setOpenedSubagent] = useState<string | null>(null);
+  const subagentLinks = new Map<string, ToolLink>((subagents.page?.items ?? []).map(child => [child.parentToolCallId, {
+    label: `查看子智能体过程：${child.goal}`,
+    text: `委派子智能体（${child.agent.name}）`,
+    state: !child.stopConfirmed ? 'running' : child.status === 'succeeded' ? 'succeeded' : 'failed',
+    status: child.stopConfirmed ? SUBAGENT_STATES[child.status] : `${formatElapsed(child.elapsedMs)} · ${child.toolCalls} 次工具`,
+    open: () => setOpenedSubagent(child.id),
+  }]));
+  const openedSubagentItem = subagents.page?.items.find(child => child.id === openedSubagent);
   const proposalState = useProposals(isCoordinator);
   const proposals = isCoordinator ? proposalState.proposals ?? [] : [];
   const panelMenuId = useId();
@@ -778,11 +790,11 @@ function AssistantSessionView({
                         replyVisible={Boolean(item.superseded) || (item.replyFollows ??
                           (item.commandId !== null && visibleReplyCommands.has(item.commandId)))}
                         {...(item.trace ? { trace: item.trace } : {})}
+                        toolLinks={subagentLinks}
                         {...(session.runFeedbackCommandId === item.commandId
                           ? { feedbackStatus: runTraceStatus(runFeedback, runBusy) }
                           : {})}
                       />
-                      {timeline.findIndex(candidate => candidate.kind === 'trace' && candidate.commandId === item.commandId) === index && <SubagentGroups items={subagents.page?.items.filter(child => child.parentCommandId === item.commandId) ?? []} />}
                       {!item.superseded && authorizationCardsAfter(item.commandId)}
                       {!item.superseded && proposalCardsAfter(item.commandId)}
                       {/* Multivac 直接执行的管理动作（新建、改名、归档、恢复会话）的回执：跟在这一轮之后，轨迹收起后仍可见。 */}
@@ -855,9 +867,7 @@ function AssistantSessionView({
                       </div>
                     </article>
                   )])}
-                  {subagents.error && <p role="alert">{subagents.error}</p>}
-                  {subagents.offset > 0 && <button className="inline-link" onClick={() => void subagents.refresh(0)}>最近委派</button>}
-                  {subagents.page?.nextOffset !== null && subagents.page?.nextOffset !== undefined && <button className="inline-link" onClick={() => void subagents.refresh(subagents.page!.nextOffset!)}>读取更早委派</button>}
+                  {openedSubagentItem && <SubagentSessionView item={openedSubagentItem} onClose={() => setOpenedSubagent(null)} />}
                   {taskReplies?.tail.map((request) => <TaskRequestReply key={`request:${request.requestId}`} request={request} />)}
                   {session.authorizations
                     .filter((request) => request.status === 'pending' &&

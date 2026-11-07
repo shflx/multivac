@@ -30,7 +30,12 @@ interface ToolExecutionGroupProps {
   unanchored?: boolean;
   /** 尚无服务端轨迹时，由当前命令的运行反馈提供状态。 */
   feedbackStatus?: 'running' | 'succeeded' | 'failed' | 'cancelled' | 'unknown';
+  /** 可打开的工具行（如委派子智能体）：按调用 ID 给出进度说明与打开方式。 */
+  toolLinks?: ReadonlyMap<string, ToolLink>;
 }
+
+/** text 替代工具行的入参摘要；state 决定图标与配色，按被打开对象的真实状态给出。 */
+export interface ToolLink { label: string; text: string; status: string; state: 'running' | 'succeeded' | 'failed'; open: () => void }
 
 /** 工具行的图标与样式状态：待授权与未获批准的调用各有自己的样式，不显示执行中的旋转图标。 */
 function toolRowState(record: ToolExecution): { className: string; Icon: typeof CheckCircle2 } {
@@ -57,7 +62,7 @@ function RunTraceSummary({ timing }: { timing: RunTraceTiming }) {
 }
 
 /** 原型中的运行 Trace：摘要展示思考中或用时，展开后展示阶段说明和工具步骤。 */
-export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus, replyVisible, unanchored = false }: ToolExecutionGroupProps) {
+export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus, replyVisible, unanchored = false, toolLinks }: ToolExecutionGroupProps) {
   const running = records.some((record) =>
     record.status === 'running' || record.status === 'awaiting_authorization');
   const traceStatus = trace?.status ?? feedbackStatus ?? (running ? 'running' : 'unknown');
@@ -100,6 +105,19 @@ export function ToolExecutionGroup({ records, trace, notes = [], feedbackStatus,
     const { className, Icon } = toolRowState(record);
     // 批准依据：用户在卡上批准的范围，或按已记住的授权放行（没有出现授权卡）。
     const approval = record.authorization?.status === 'approved' ? record.authorization.approval : null;
+    const link = toolLinks?.get(record.toolCallId);
+    if (link) {
+      const LinkIcon = link.state === 'running' ? LoaderCircle : link.state === 'failed' ? CircleAlert : CheckCircle2;
+      return (
+        <button type="button" className={`run-trace-tool linked ${link.state}`} data-tool-call-id={record.toolCallId}
+          key={`tool:${record.toolCallId}`} aria-label={link.label} title={link.text} onClick={link.open}>
+          <LinkIcon className={link.state === 'running' ? 'status-spinner' : ''} aria-hidden="true" />
+          <span>{link.text}</span>
+          <em>{link.status}</em>
+          <ChevronRight className="run-trace-link-chevron" aria-hidden="true" />
+        </button>
+      );
+    }
     return (
       <div
         className={`run-trace-tool ${className}`}
