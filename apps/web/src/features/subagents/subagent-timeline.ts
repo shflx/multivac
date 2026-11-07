@@ -65,7 +65,25 @@ export function subagentTimeline(item: SubagentListItem, entries: readonly Subag
 
   const trace: RunTrace | null = traceEntries.length || status === 'running' ? {
     commandId: item.parentCommandId, cursor: '0', status, entries: traceEntries, thinkingTruncated: false, startedAt, endedAt: item.endedAt,
-    ...(status === 'failed' ? { error: { code: item.status, message: `子智能体${item.status === 'exhausted' ? '额度耗尽' : item.status === 'failed' ? '执行失败' : '执行中断'}，未正常完成。` } } : {}),
+    ...(status === 'failed' ? { error: { code: item.status, message: subagentOutcome(item) ?? '子智能体未正常完成。' } } : {}),
   } : null;
   return { input, trace, records: [...records.values()], reply: replyIndex >= 0 ? entries[replyIndex]! : null };
+}
+
+/** 委派输入按行拼接（“目标：…”“交付要求：…”）；渲染为 Markdown 时保留单个换行，代码块原样。 */
+export function delegationMarkdown(text: string): string {
+  let fenced = false;
+  const lines = text.split('\n');
+  return lines.map((line, index) => {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    return !fenced && line.trim() && lines[index + 1]?.trim() ? `${line}  ` : line;
+  }).join('\n');
+}
+
+/** 未成功结束的委派：后端把停止或失败原因写在结论位置，按状态给出说明。 */
+export function subagentOutcome(item: SubagentListItem): string | null {
+  if (['preparing', 'running', 'stopping', 'succeeded'].includes(item.status)) return null;
+  const reason = item.summary.trim();
+  const label = { failed: '执行失败', cancelled: '已取消', exhausted: '额度耗尽', interrupted: '执行中断', reconcile: '停止待核对' }[item.status as 'failed'];
+  return `${label}${reason ? `：${reason}` : '，没有记录原因。'}`;
 }

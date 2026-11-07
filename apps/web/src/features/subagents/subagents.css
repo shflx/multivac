@@ -23,11 +23,23 @@
 .subagent-session { position: fixed; inset: 0; z-index: 1800; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--surface); color: var(--ink); }
 .subagent-session-header { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 20px; border-bottom: 1px solid var(--line); }
 .subagent-session-header > button { flex-shrink: 0; }
-.subagent-session-title { display: grid; gap: 2px; flex: 1; min-width: 0; }
-.subagent-session-title strong, .subagent-session-title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.subagent-session-title strong { font-size: var(--t-md); font-weight: 600; }
-.subagent-session-title small { color: var(--muted); font-size: var(--t-xs); }
+.subagent-session-title { min-width: 0; overflow: hidden; font-size: var(--t-md); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-state { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; background: var(--surface-subtle); color: var(--muted); font-size: var(--t-xs); }
+.subagent-state:is(.preparing, .running, .stopping) { background: var(--accent-soft); color: var(--accent); }
+.subagent-state.succeeded { background: var(--success-soft); color: var(--success); }
+.subagent-state:is(.failed, .exhausted, .interrupted, .reconcile) { background: var(--danger-soft); color: var(--danger); }
 .subagent-session .assistant-conversation { min-height: 0; }
+.subagent-input-source { margin: 0 2px 4px; color: var(--faint); font-size: var(--t-xs); }
+/* 委派输入按 Markdown 渲染在用户气泡里；收起时限高并渐隐。 */
+.subagent-input-body { max-width: 100%; padding: 10px 13px; border-radius: var(--r-md); background: var(--accent-soft); }
+.subagent-input-body .markdown-body > :first-child { margin-top: 0; }
+.subagent-input-body .markdown-body > :last-child { margin-bottom: 0; }
+.chat-row.user .subagent-input-body p { padding: 0; border-radius: 0; background: none; }
+.subagent-input-body.clamped { max-height: 18em; overflow: hidden; mask-image: linear-gradient(to bottom, #000 75%, transparent); }
+.subagent-outcome { display: flex; align-items: flex-start; gap: 7px; margin: 0 0 22px 41px; color: var(--muted); font-size: var(--t-sm); line-height: 1.7; overflow-wrap: anywhere; }
+.subagent-outcome svg { flex: none; width: 15px; height: 15px; margin-top: 4px; }
+.subagent-outcome:is(.failed, .exhausted, .interrupted, .reconcile) { color: var(--danger); }
+.subagent-input .inline-link { margin-top: 4px; font-size: var(--t-xs); }
 .subagent-session-state { margin: 0 0 22px; color: var(--muted); font-size: var(--t-sm); text-align: center; }
 
 @media (max-width: 600px) {

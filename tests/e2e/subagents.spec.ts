@@ -30,7 +30,7 @@ test('工作会话并行委派、委派行及只读会话视图，运行和用�
   await expandTraces(panel);
   await cards.first().click();
   const view = page.getByRole('dialog', { name: '子智能体会话' });
-  await expect(view).toContainText('子智能体会话只读'); await expect(view).toContainText('来自 委派验证');
+  await expect(view).toContainText('子智能体会话只读'); await expect(view).toContainText('来自「委派验证」的委派');
   await expect(view.locator('textarea,input,[contenteditable=true]')).toHaveCount(0);
   await expect(view.getByRole('button', { name: '发送消息' })).toHaveCount(0);
   await page.keyboard.press('Escape'); await expect(view).toHaveCount(0);
@@ -85,7 +85,7 @@ test('任务详情和任务会话时间线展示两个委派及独立只读过�
   await expandTraces(timeline);
   await timeline.locator('.run-trace-tool.linked').first().click();
   const view = page.getByRole('dialog', { name: '子智能体会话' });
-  await expect(view).toContainText('任务执行'); await expect(view).toContainText('子智能体会话只读');
+  await expect(view).toContainText('的委派'); await expect(view).toContainText('子智能体会话只读');
   await view.getByRole('button', { name: '关闭子智能体会话' }).click();
   // 委派区域与关系区域不能共用 key；查询结果写回缓存后应保留原组件。
   expect(relationReads).toBeLessThan(10);

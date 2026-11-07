@@ -1,26 +1,47 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, Bot, Info, LoaderCircle } from 'lucide-react';
+import { ArrowLeft, Bot, CircleAlert, Forward, Info, LoaderCircle } from 'lucide-react';
 import { SubagentProcessPageSchema, type SubagentListItem, type SubagentProcessEntry, type SubagentProcessPage } from '@multivac/contracts';
 import { ToolExecutionGroup } from '../assistant/tool-execution.js';
 import { fetchJson } from '../../data/assistant-api.js';
 import { MarkdownBody } from '../assistant/markdown-body.js';
 import { focusableWithin, wrapFocusIndex } from '../../components/focus-trap.js';
 import { SUBAGENT_STATES } from './subagent-labels.js';
-import { subagentTimeline } from './subagent-timeline.js';
+import { delegationMarkdown, subagentOutcome, subagentTimeline } from './subagent-timeline.js';
 
 /** 距底部多少像素以内视为贴近底部，运行中的新过程继续跟随。 */
 const FOLLOW_THRESHOLD_PX = 24;
 
-/** 委派输入与回复按普通会话的消息行呈现。 */
-function Message({ entry, item }: { entry: SubagentProcessEntry; item: SubagentListItem }) {
-  const assistant = entry.role === 'assistant';
+/** 子智能体的回复按普通会话的助手消息呈现。 */
+function Reply({ entry, item }: { entry: SubagentProcessEntry; item: SubagentListItem }) {
   return (
-    <article className={`chat-row ${entry.role}`}>
-      <span className="avatar" aria-hidden="true">{assistant ? <Bot /> : '委'}</span>
+    <article className="chat-row assistant">
+      <span className="avatar" aria-hidden="true"><Bot /></span>
       <div className="chat-content">
-        <span className="message-author">{assistant ? item.agent.name : '委派输入'}</span>
-        {assistant ? <MarkdownBody text={entry.text} identity={`${item.id}:${entry.id}`} /> : <p>{entry.text}</p>}
+        <span className="message-author">{item.agent.name}</span>
+        <MarkdownBody text={entry.text} identity={`${item.id}:${entry.id}`} />
+      </div>
+    </article>
+  );
+}
+
+/** 委派输入沿用用户气泡；来源写在气泡上方，过长时默认收起。 */
+function DelegationInput({ entry, item }: { entry: SubagentProcessEntry; item: SubagentListItem }) {
+  const body = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false), [overflows, setOverflows] = useState(false);
+  useLayoutEffect(() => {
+    const element = body.current;
+    if (element && !expanded) setOverflows(element.scrollHeight > element.clientHeight + 1);
+  }, [entry.text, expanded]);
+  return (
+    <article className="chat-row user subagent-input">
+      <span className="avatar" aria-hidden="true"><Forward /></span>
+      <div className="chat-content">
+        <span className="subagent-input-source">来自「{item.parentTitle}」的委派</span>
+        <div ref={body} className={`subagent-input-body${expanded ? '' : ' clamped'}`}>
+          <MarkdownBody text={delegationMarkdown(entry.text)} identity={`${item.id}:${entry.id}`} />
+        </div>
+        {(overflows || expanded) && <button type="button" className="inline-link" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : '展开全部'}</button>}
       </div>
     </article>
   );
@@ -66,7 +87,7 @@ export function SubagentSessionView({ item, onClose }: { item: SubagentListItem;
   }, [page]);
 
   const timeline = subagentTimeline(item, page?.items ?? []);
-  const message = (entry: SubagentProcessEntry) => <Message key={entry.id} entry={entry} item={item} />;
+  const outcome = subagentOutcome(item);
 
   return createPortal(
     <div className="subagent-session" ref={root} role="dialog" aria-modal="true" aria-label="子智能体会话"
@@ -78,10 +99,8 @@ export function SubagentSessionView({ item, onClose }: { item: SubagentListItem;
       }}>
       <header className="subagent-session-header">
         <button type="button" className="icon-button" aria-label="关闭子智能体会话" title="返回" onClick={onClose}><ArrowLeft aria-hidden="true" /></button>
-        <div className="subagent-session-title">
-          <strong title={item.goal}>{item.goal}</strong>
-          <small>{item.agent.name} · {SUBAGENT_STATES[item.status]} · 来自 {item.parentTitle}{item.taskId ? ' · 任务执行' : ' · 工作会话'}</small>
-        </div>
+        <strong className="subagent-session-title" title={`子智能体 ${item.agent.name}`}>{item.agent.name}</strong>
+        <span className={`subagent-state ${item.status}`}>{SUBAGENT_STATES[item.status]}</span>
       </header>
 
       <section className="assistant-conversation" aria-label="子智能体过程">
@@ -93,9 +112,10 @@ export function SubagentSessionView({ item, onClose }: { item: SubagentListItem;
             {error && <p className="subagent-session-state" role="alert">{error}</p>}
             {!page && !error && <p className="subagent-session-state" role="status">正在读取过程…</p>}
             {page && !page.available && <p className="subagent-session-state" role="status">过程暂时不可读；未重新启动执行。</p>}
-            {timeline.input && message(timeline.input)}
+            {timeline.input && <DelegationInput entry={timeline.input} item={item} />}
             {timeline.trace && <ToolExecutionGroup records={timeline.records} trace={timeline.trace} replyVisible={!!timeline.reply} />}
-            {timeline.reply && message(timeline.reply)}
+            {timeline.reply && <Reply entry={timeline.reply} item={item} />}
+            {outcome && <p className={`subagent-outcome ${item.status}`} role="status"><CircleAlert aria-hidden="true" />{outcome}</p>}
             {page?.nextOffset !== null && page?.nextOffset !== undefined && <button type="button" className="load-earlier" onClick={() => setLoaded(loaded + 100)}>读取后续过程</button>}
           </div>
         </div>
@@ -103,7 +123,7 @@ export function SubagentSessionView({ item, onClose }: { item: SubagentListItem;
         <div className="assistant-composer task-readonly">
           <p className="task-session-notice">
             {running ? <LoaderCircle className="spin" aria-hidden="true" /> : <Info aria-hidden="true" />}
-            子智能体会话只读：由父会话委派执行，只把结论交回父会话，不能在这里继续对话。
+            {running ? '执行中，结论会交回父会话' : '已结束'} · 子智能体会话只读，不能继续对话
           </p>
         </div>
       </section>

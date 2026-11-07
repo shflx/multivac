@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SubagentListItem, SubagentProcessEntry } from '@multivac/contracts';
-import { subagentTimeline } from '../src/features/subagents/subagent-timeline.js';
+import { delegationMarkdown, subagentOutcome, subagentTimeline } from '../src/features/subagents/subagent-timeline.js';
 
 const item = (overrides: Partial<SubagentListItem> = {}) => ({ id: 'run', parentCommandId: 'cmd', status: 'succeeded', stopConfirmed: true,
   startedAt: '2026-11-07T00:00:00.000Z', createdAt: '2026-11-07T00:00:00.000Z', endedAt: '2026-11-07T00:01:00.000Z', ...overrides }) as SubagentListItem;
@@ -28,4 +28,15 @@ test('执行中缺少输出的工具显示为运行中，最后的过程说明�
   assert.equal(timeline.reply, null);
   assert.equal(timeline.trace?.status, 'running');
   assert.equal(timeline.records.at(-1)?.status, 'running');
+});
+
+test('委派输入保留单个换行，代码块内容不变', () => {
+  assert.equal(delegationMarkdown('目标：检查\n交付要求：结论\n\n```\na\nb\n```'), '目标：检查  \n交付要求：结论\n\n```\na\nb\n```');
+});
+
+test('未成功结束的委派给出状态与原因，成功和执行中不提示', () => {
+  assert.equal(subagentOutcome(item({ status: 'cancelled', summary: '父级已取消。' })), '已取消：父级已取消。');
+  assert.equal(subagentOutcome(item({ status: 'failed', summary: '' })), '执行失败，没有记录原因。');
+  assert.equal(subagentOutcome(item({ status: 'succeeded', summary: '结论' })), null);
+  assert.equal(subagentOutcome(item({ status: 'running', stopConfirmed: false })), null);
 });
