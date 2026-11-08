@@ -47,6 +47,11 @@ export class SessionRuntimeRegistry<T extends SessionRuntime> implements Workspa
     runtime.dispose();
   }
 
+  /** 当前持有运行时的会话 id。 */
+  sessionIds(): string[] {
+    return [...this.runtimes.keys()];
+  }
+
   /** 释放全部非常驻运行时；常驻运行时由其所有者关闭。 */
   releaseAll(): void {
     for (const sessionId of [...this.runtimes.keys()]) this.release(sessionId);

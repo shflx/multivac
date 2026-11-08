@@ -1189,12 +1189,32 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     changed: run => workbenchEvents.publish({ type: 'subagent.changed', parentSessionId: run.parentSessionId, taskId: run.taskId }),
   });
   subagents.recover();
-  function delegationTools(base: import('../modules/sessions/coordinator-adapter.js').CoordinatorInternalTools, id: string) {
-    return new SubagentDelegationTools(base, () => subagents, () => store.agents.list(), () => {
-      const record = store.sessions.get(id);
-      return id !== GLOBAL_ASSISTANT_SESSION_ID && !!record && !record.host && !record.archivedAt && !store.schedules.bySession(id) && !store.subagents.bySession(id);
-    }, writeCoordinator);
+  function delegationAllowed(id: string): boolean {
+    const record = store.sessions.get(id);
+    return id !== GLOBAL_ASSISTANT_SESSION_ID && !!record && !record.host && !record.archivedAt && !store.schedules.bySession(id) && !store.subagents.bySession(id);
   }
+  function delegationTools(base: import('../modules/sessions/coordinator-adapter.js').CoordinatorInternalTools, id: string) {
+    return new SubagentDelegationTools(base, () => subagents, () => store.agents.list(), () => delegationAllowed(id), writeCoordinator);
+  }
+  // 委派工具与候选写进会话创建时的工具说明，之后不再变化；候选变化后释放这些会话的运行时，
+  // 运行中的等本轮结束再释放，下次发送按新配置重建。
+  const delegationCandidates = () => JSON.stringify(store.agents.list()
+    .filter(agent => agent.delegable && !agent.fixed && agent.description.trim())
+    .map(agent => [agent.agentId, agent.name, agent.description, agent.modelProfileId ?? null]));
+  let lastDelegationCandidates = delegationCandidates();
+  const refreshDelegation = (sessionId: string) => {
+    const runtime = sessionRuntimes.get(sessionId);
+    if (!runtime) return;
+    if (!runtime.isRunning()) { sessionRuntimes.release(sessionId); return; }
+    const timer = setTimeout(() => { stopChecks.delete(timer); refreshDelegation(sessionId); }, 1000); timer.unref(); stopChecks.add(timer);
+  };
+  const unsubscribeDelegationCandidates = workbenchEvents.subscribe(event => {
+    if (event.type !== 'agent.changed') return;
+    const current = delegationCandidates();
+    if (current === lastDelegationCandidates) return;
+    lastDelegationCandidates = current;
+    for (const sessionId of sessionRuntimes.sessionIds()) if (delegationAllowed(sessionId)) refreshDelegation(sessionId);
+  });
   const unsubscribeSubagentEvents = eventStream.subscribe(event => {
     const parent = store.sessions.get(event.assistantSessionId);
     if (event.commandId && parent && parent.sessionId !== GLOBAL_ASSISTANT_SESSION_ID && !parent.host && !store.taskRuns.bySession(parent.sessionId) && !store.schedules.bySession(parent.sessionId)) {
@@ -1569,7 +1589,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       void modelAccessService.close();
       const finish = () => {
         taskExecution.dispose(); taskScheduler.dispose();
-        coordinator.dispose(); sessionRuntimes.releaseAll(); subagentRuntimes.dispose(); unsubscribeSubagentEvents();
+        unsubscribeDelegationCandidates(); coordinator.dispose(); sessionRuntimes.releaseAll(); subagentRuntimes.dispose(); unsubscribeSubagentEvents();
         eventStream.clear(); workbenchEvents.clear(); adapter.dispose();
         unsubscribeNoteLocks();
         for (const timer of stopChecks) clearTimeout(timer);
