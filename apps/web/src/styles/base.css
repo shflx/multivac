@@ -6909,6 +6909,33 @@ svg {
   .image-preview-nav.next { right: 8px; }
 }
 .chat-content > .message-images { margin: 6px 0; }
+
+/* 仅扩展命中区域，保留图标外观和布局；紧邻的控件各使用一半间隙。 */
+:is(.message-actions button, .compact-feedback button, .agent-invoke-search button, .terminal-error .icon-button, .conversation-file-action) {
+  position: relative;
+}
+:where(.message-actions button, .compact-feedback button, .agent-invoke-search button, .terminal-error .icon-button, .conversation-file-action, .image-remove)::after {
+  --hit-size: 40px;
+  content: '';
+  position: absolute;
+  inset: calc((100% - var(--hit-size)) / 2);
+}
+.agent-invoke-search button::after { left: -4px; }
+.conversation-file-action::after {
+  inset-inline: -4px;
+  /* 卡片内容高 30px，上下各留 5px；不跨越可滚动列表中的相邻行。 */
+  inset-block: max(-8px, calc((100% - var(--hit-size)) / 2));
+}
+.image-remove::after {
+  inset: -2px -2px auto auto;
+  width: var(--hit-size);
+  height: var(--hit-size);
+}
+@media (hover: none) {
+  :where(.message-actions button, .compact-feedback button, .agent-invoke-search button, .terminal-error .icon-button, .conversation-file-action, .image-remove)::after {
+    --hit-size: 44px;
+  }
+}
 /* 运行页沿用 prototypes 的紧凑四列、区块分隔和行内进程操作。 */
 .runs-page { line-height: 1.55; }
 .runs-page .run-section { margin-top: 26px; }
