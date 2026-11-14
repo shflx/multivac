@@ -41,7 +41,8 @@ export function MessageActions({ text, createdAt }: { text: string; createdAt: s
   const label = state === 'copied' ? '已复制' : state === 'failed' ? '复制失败' : '复制消息';
   return <div className="message-actions">
     <button type="button" aria-label="复制消息" title={label} data-state={state} onClick={() => void copy()}>
-      {state === 'copied' ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+      <Copy className="message-copy-icon" aria-hidden="true" />
+      <Check className="message-copy-check" aria-hidden="true" />
     </button>
     <time className="message-time" dateTime={createdAt} title={new Date(createdAt).toLocaleString('zh-CN')}>{messageTime(createdAt)}</time>
     <span className="message-actions-feedback" role="status" aria-live="polite">{state === 'idle' ? '' : label}</span>

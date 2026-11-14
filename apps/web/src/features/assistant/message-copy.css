@@ -6,7 +6,14 @@
   display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: var(--r-sm);
   background: transparent; color: var(--faint); cursor: pointer; opacity: 0; transition: opacity .12s ease;
 }
-.message-actions button svg { width: 14px; height: 14px; }
+.message-actions button svg {
+  grid-area: 1 / 1; width: 14px; height: 14px;
+  opacity: 0; transform: scale(.25); filter: blur(4px);
+  transition: opacity 180ms cubic-bezier(.2, 0, 0, 1), transform 180ms cubic-bezier(.2, 0, 0, 1), filter 180ms cubic-bezier(.2, 0, 0, 1);
+}
+.message-actions button .message-copy-icon,
+.message-actions button[data-state='copied'] .message-copy-check { opacity: 1; transform: scale(1); filter: blur(0); }
+.message-actions button[data-state='copied'] .message-copy-icon { opacity: 0; transform: scale(.25); filter: blur(4px); }
 .message-actions button:hover { background: var(--surface-subtle); color: var(--ink); }
 .message-actions button:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
 .message-actions button[data-state='copied'] { color: var(--success); }
@@ -17,3 +24,4 @@
 .message-actions-feedback { color: var(--muted); font-size: var(--t-xs); }
 /* 触屏没有悬停，操作行常驻但保持弱化。 */
 @media (hover: none) { .message-actions button, .message-time { opacity: .7; } }
+@media (prefers-reduced-motion: reduce) { .message-actions button svg { transition: none; } }
