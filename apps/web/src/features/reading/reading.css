@@ -86,7 +86,7 @@
 .reading-record small, .reading-record-source { font-size: 11px; color: var(--muted); }
 .reading-record-source { display: flex; align-items: center; gap: 6px; }
 .reading-record-source button { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.reading-record-source span { flex: none; padding: 1px 4px; background: var(--surface-subtle); border-radius: 2px; }
+.reading-record-source span { flex: none; padding: 1px 4px; background: var(--surface-subtle); border-radius: var(--r-sm); }
 .reading-record-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
 .reading-record button:not(.reading-command), .reading-draft-conflict button { border: 0; background: transparent; color: var(--muted); padding: 3px 0; font-size: 11px; }
 .reading-record button.reading-record-location { padding: 0; }
@@ -180,8 +180,8 @@
 .reading-selection-toolbar > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .reading-selection-toolbar > div { display: flex; align-items: center; gap: 4px; }
 .reading-selection-toolbar .reading-command { padding: 4px 6px; white-space: nowrap; }
-.reading-actions-menu { z-index: 14; width: 180px; max-width: calc(100% - 16px); overflow-y: auto; padding: 6px; }
-.reading-actions-menu button { display: block; width: 100%; padding: 10px 12px !important; text-align: left; border: 0; background: transparent; color: var(--ink); font-size: 13px !important; }
+.reading-actions-menu { z-index: 14; width: 180px; max-width: calc(100% - 16px); overflow-y: auto; padding: 6px; border-radius: var(--r-xl); }
+.reading-actions-menu button { display: block; width: 100%; padding: 10px 12px !important; text-align: left; border: 0; background: transparent; color: var(--ink); font-size: 13px !important; border-radius: var(--r-lg); }
 .reading-actions-menu button:hover, .reading-actions-menu button:focus-visible { background: var(--surface-subtle); }
 .reading-font-popover { width: 240px; max-width: calc(100% - 16px); z-index: 15; display: flex; align-items: center; gap: 10px; padding: 16px; }
 .reading-font-popover label { display: grid; gap: 8px; flex: 1; font-size: 13px; }

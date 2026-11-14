@@ -33,6 +33,7 @@
 .mcp-session-attention { flex-shrink: 0; width: 6px; height: 6px; margin-left: 1px; border-radius: 50%; background: var(--warn); }
 
 .mcp-session-menu {
+  --menu-padding: 4px;
   position: absolute;
   bottom: calc(100% + 10px);
   right: 12px;
@@ -45,7 +46,7 @@
   overflow: hidden;
   padding: 10px 0 0;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: calc(var(--r-lg) + var(--menu-padding));
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-menu);
@@ -55,19 +56,19 @@
 .mcp-session-heading > span { color: var(--faint); font-size: var(--t-xs); }
 .mcp-session-heading strong { color: var(--ink); font-size: var(--t-sm); font-weight: 600; }
 
-.mcp-session-error { display: flex; align-items: flex-start; gap: 7px; margin: 0 12px 8px; padding: 9px; border-radius: 6px; background: var(--danger-soft); color: var(--danger); font-size: var(--t-xs); overflow-wrap: anywhere; }
+.mcp-session-error { display: flex; align-items: flex-start; gap: 7px; margin: 0 12px 8px; padding: 9px; border-radius: var(--r-md); background: var(--danger-soft); color: var(--danger); font-size: var(--t-xs); overflow-wrap: anywhere; }
 .mcp-session-error svg { flex: 0 0 14px; width: 14px; height: 14px; }
 
-.mcp-session-list { display: grid; gap: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 6px; scrollbar-width: thin; }
+.mcp-session-list { display: grid; gap: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 var(--menu-padding) 6px; scrollbar-width: thin; }
 .mcp-session-empty { display: flex; align-items: center; gap: 8px; margin: 0; padding: 16px 6px; color: var(--muted); font-size: var(--t-xs); }
 .mcp-session-empty svg { width: 14px; height: 14px; }
 
-.mcp-session-group { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; margin-top: 2px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--faint); font-size: var(--t-xs); text-align: left; cursor: pointer; }
+.mcp-session-group { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 30px; margin-top: 2px; padding: 0 8px; border: 0; border-radius: var(--r-lg); background: transparent; color: var(--faint); font-size: var(--t-xs); text-align: left; cursor: pointer; }
 .mcp-session-group:hover { color: var(--muted); }
 .mcp-session-group svg { width: 12px; height: 12px; transition: transform 120ms ease; }
 .mcp-session-group[aria-expanded='true'] svg { transform: rotate(90deg); }
 
-.mcp-session-service { border-radius: 6px; }
+.mcp-session-service { border-radius: var(--r-lg); }
 .mcp-session-service:hover { background: var(--surface-subtle); }
 .mcp-session-service > header { display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 8px; }
 /* 不可用的服务：去掉底色并整体变淡，与可操作项区分。 */
@@ -137,7 +138,7 @@ button.mcp-session-name { cursor: pointer; }
 
 /* 资源引用对话框：可选中的资源行，与弹层列表同一视觉。 */
 .mcp-resource-options { display: grid; gap: 4px; max-height: 300px; overflow-y: auto; margin: 8px 0; }
-.mcp-resource-options label { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: 8px; background: var(--surface-subtle); cursor: pointer; overflow-wrap: anywhere; }
+.mcp-resource-options label { display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px; border-radius: var(--r-lg); background: var(--surface-subtle); cursor: pointer; overflow-wrap: anywhere; }
 .mcp-resource-options label.selected { background: var(--accent-soft); }
 .mcp-resource-options input { margin-top: 3px; accent-color: var(--accent); }
 .mcp-resource-options label > span { display: grid; gap: 2px; min-width: 0; }

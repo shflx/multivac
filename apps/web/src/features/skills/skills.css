@@ -479,7 +479,7 @@
   place-items: center;
   flex: 0 0 26px;
   height: 26px;
-  border-radius: 7px;
+  border-radius: var(--r-md);
   background: var(--surface);
   color: var(--muted);
 }
@@ -488,6 +488,6 @@
 .skill-use-copy { display: grid; gap: 2px; min-width: 0; }
 .skill-use-copy strong { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: var(--t-sm); font-weight: 550; }
 .skill-use-copy strong code { color: var(--muted); font-weight: 400; overflow-wrap: anywhere; }
-.skill-use-copy em { padding: 0 6px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); font-size: 10px; font-style: normal; line-height: 1.7; }
+.skill-use-copy em { padding: 0 6px; border-radius: var(--r-sm); background: var(--warn-soft); color: var(--warn); font-size: 10px; font-style: normal; line-height: 1.7; }
 .skill-use-copy small { display: flex; flex-wrap: wrap; align-items: center; color: var(--muted); font-size: var(--t-xs); }
 .skill-use-copy .inline-link { font-size: var(--t-xs); }

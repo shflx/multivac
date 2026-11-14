@@ -41,13 +41,13 @@
 .terminal-ended-card small { display: block; margin-top: 10px; color: var(--faint); font-size: var(--t-xs); }
 
 /* 预设标识：侧栏、标题栏与创建卡共用。 */
-.terminal-badge { display: inline-grid; flex-shrink: 0; place-items: center; width: 18px; height: 18px; border-radius: 5px; background: var(--n-200); color: var(--n-700); font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.terminal-badge { display: inline-grid; flex-shrink: 0; place-items: center; width: 18px; height: 18px; border-radius: var(--r-sm); background: var(--n-200); color: var(--n-700); font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .terminal-badge svg { width: 12px !important; height: 12px !important; }
 .terminal-badge.claude { background: #f6e3da; color: #b4532a; }
 .terminal-badge.codex { background: #e3e8f5; color: #34478a; }
 
 /* Claude Code、Codex 标题后的小标识：浅底小字，只用于终端标题栏。 */
-.agent-mark { display: inline-grid; flex: 0 0 auto; place-items: center; min-width: 16px; height: 14px; padding: 0 3px; border-radius: 4px; font: 600 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.agent-mark { display: inline-grid; flex: 0 0 auto; place-items: center; min-width: 16px; height: 14px; padding: 0 3px; border-radius: var(--r-sm); font: 600 9px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
 .agent-mark.claude { background: #f6e3da; color: #b4532a; }
 .agent-mark.codex { background: #e3e8f5; color: #34478a; }
 
@@ -61,10 +61,10 @@
 .rail-item.ended .nav-label { color: var(--muted); }
 .rail-item.ended .rail-row-icon { opacity: .6; }
 
-.rail-create-menu { position: fixed; z-index: 80; display: grid; gap: 1px; width: 248px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-menu); }
+.rail-create-menu { position: fixed; z-index: 80; display: grid; gap: 1px; width: 248px; padding: 6px; border: 1px solid var(--line); border-radius: var(--r-xl); background: var(--surface); box-shadow: var(--shadow-menu); }
 .rail-create-menu h4 { margin: 6px 8px 4px; color: var(--faint); font-size: var(--t-xs); font-weight: 500; }
 .rail-create-menu hr { height: 1px; margin: 5px 4px; border: 0; background: var(--line); }
-.rail-create-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.rail-create-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 8px; border: 0; border-radius: var(--r-lg); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
 .rail-create-menu button:hover, .rail-create-menu button:focus-visible { background: var(--surface-subtle); outline: none; }
 .rail-create-menu button > span:last-child { display: grid; min-width: 0; }
 .rail-create-menu strong { font-size: var(--t-sm); font-weight: 550; }
@@ -77,7 +77,7 @@
 .terminal-kinds button { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink); font: inherit; font-size: var(--t-xs); cursor: pointer; }
 .terminal-kinds button:hover { background: var(--surface-subtle); }
 .terminal-kinds button[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.terminal-kinds .terminal-badge { width: 24px; height: 24px; border-radius: 6px; font-size: 11px; }
+.terminal-kinds .terminal-badge { width: 24px; height: 24px; border-radius: var(--r-md); font-size: 11px; }
 .terminal-creation-fields { margin-top: 12px; }
 .confirm-card-fields.terminal-creation-fields input:not([type]) { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: var(--t-xs); }
 .terminal-creation-path { overflow: hidden; color: var(--muted); font-size: var(--t-xs); text-overflow: ellipsis; white-space: nowrap; }

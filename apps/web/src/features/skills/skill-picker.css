@@ -69,7 +69,7 @@
   overflow: hidden;
   padding: 14px 0 0;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--r-xl);
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-menu);
@@ -77,7 +77,7 @@
 
 .skill-picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px 10px; }
 .skill-picker-heading strong { font-size: var(--t-sm); font-weight: 600; }
-.skill-picker-heading > span { padding: 2px 7px; border-radius: 5px; background: var(--surface-subtle); color: var(--muted); font-size: var(--t-xs); }
+.skill-picker-heading > span { padding: 2px 7px; border-radius: var(--r-sm); background: var(--surface-subtle); color: var(--muted); font-size: var(--t-xs); }
 
 .skill-picker-search {
   display: flex;
@@ -88,7 +88,7 @@
   margin: 0 12px 8px;
   padding: 0 10px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-lg);
   background: var(--surface-subtle);
 }
 
@@ -106,7 +106,7 @@
   width: 100%;
   padding: 9px 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--r-lg);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -124,7 +124,7 @@
   flex: 0 0 32px;
   height: 32px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--r-lg);
   background: var(--surface);
   color: var(--muted);
 }
@@ -134,7 +134,7 @@
 
 .skill-option-copy { display: flex; flex: 1; flex-direction: column; gap: 3px; min-width: 0; }
 .skill-option-copy strong { display: flex; align-items: center; gap: 6px; font-size: var(--t-sm); font-weight: 550; line-height: 1.4; overflow-wrap: anywhere; }
-.skill-option-copy em { padding: 0 5px; border-radius: 4px; background: var(--surface-strong); color: var(--muted); font-size: 10px; font-style: normal; font-weight: 500; line-height: 1.6; }
+.skill-option-copy em { padding: 0 5px; border-radius: var(--r-sm); background: var(--surface-strong); color: var(--muted); font-size: 10px; font-style: normal; font-weight: 500; line-height: 1.6; }
 
 .skill-option-copy small {
   display: -webkit-box;
@@ -153,7 +153,7 @@
 .skill-picker-empty strong { color: var(--ink); font-size: var(--t-sm); font-weight: 500; }
 
 /* 会话候选范围：低频设置，收在列表下方。 */
-.skill-picker-manage { flex-shrink: 0; margin: 0 6px 6px; padding: 0 8px; border-radius: 8px; }
+.skill-picker-manage { flex-shrink: 0; margin: 0 6px 6px; padding: 0 8px; border-radius: var(--r-lg); }
 .skill-picker-manage[open] { padding-bottom: 8px; background: var(--surface-subtle); }
 
 .skill-picker-manage summary {

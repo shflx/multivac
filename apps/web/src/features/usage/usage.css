@@ -35,7 +35,7 @@
 .usage-bar { position: relative; display: flex; flex: 1 1 0; align-items: flex-end; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; cursor: pointer; }
 .usage-bar:hover, .usage-bar[aria-pressed="true"] { background: var(--surface-subtle); }
 .usage-bar:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 1px; z-index: 1; }
-.usage-bar-stack { display: flex; flex-direction: column-reverse; width: 100%; max-width: 28px; margin: 0 auto; overflow: hidden; border-radius: 3px 3px 0 0; }
+.usage-bar-stack { display: flex; flex-direction: column-reverse; width: 100%; max-width: 28px; margin: 0 auto; overflow: hidden; border-radius: var(--r-sm) var(--r-sm) 0 0; }
 .usage-bar-stack i { display: block; flex-basis: 0; }
 .usage-chart i.input { background: var(--usage-input); }
 .usage-chart i.cache { background: var(--usage-cache); }
@@ -43,7 +43,7 @@
 .usage-chart-axis { display: flex; justify-content: space-between; margin: 10px 0 0 56px; color: var(--faint); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
 .usage-legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 0 0 56px; padding: 0; color: var(--muted); font-size: var(--t-xs); list-style: none; }
 .usage-legend li { display: inline-flex; align-items: center; gap: 6px; }
-.usage-legend i { display: block; flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.usage-legend i { display: block; flex: none; width: 10px; height: 10px; border-radius: var(--r-sm); }
 .usage-day-detail { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--t-sm); font-variant-numeric: tabular-nums; }
 .usage-day-total { display: grid; gap: 4px; }
 .usage-day-total strong { color: var(--ink); font-size: var(--t-xs); font-weight: 600; }
@@ -57,7 +57,7 @@
 .usage-breakdown-head strong, .usage-sessions strong { font-size: var(--t-sm); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .usage-breakdown-head > span, .usage-session-amount { font-size: var(--t-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .usage-breakdown small, .usage-sessions small { color: var(--muted); font-size: var(--t-xs); overflow-wrap: anywhere; }
-.usage-meter { height: 6px; overflow: hidden; border-radius: 3px; background: var(--surface-strong); }
+.usage-meter { height: 6px; overflow: hidden; border-radius: var(--r-sm); background: var(--surface-strong); }
 .usage-meter span { display: block; height: 100%; border-radius: inherit; background: var(--usage-input); }
 .usage-sessions li { display: flex; align-items: center; gap: 14px; padding: 16px 22px; border-bottom: 1px solid var(--line); }
 .usage-session-rank { display: grid; place-items: center; flex: none; width: 26px; height: 26px; border: 1px solid var(--line); border-radius: var(--r-sm); color: var(--muted); background: var(--surface-subtle); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }

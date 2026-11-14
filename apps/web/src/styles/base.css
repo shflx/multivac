@@ -88,10 +88,11 @@
   --t-xl: 22px;
   --t-2xl: 28px;
 
-  /* 圆角阶梯：4 控件 / 6 卡片 / 8 浮层 */
+  /* 圆角阶梯：4 小控件 / 6 卡片 / 8 菜单项 / 14 浮层（菜单项 + 6px 内边距）。 */
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 8px;
+  --r-xl: 14px;
 
   /* 阴影与聚焦光晕：透明度叠加色取中性阶最深档 --n-900 的 RGB */
   --focus-halo: 0 0 0 3px rgb(51 66 79 / 8%);
@@ -164,14 +165,14 @@
 .task-filter-menu {
   position: absolute; z-index: 20; top: calc(100% + 8px); left: 0; width: max(100%, 224px);
   max-width: calc(100vw - 48px); max-height: min(380px, 60vh); overflow-y: auto; padding: 6px;
-  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--r-xl); background: var(--surface);
   box-shadow: 0 12px 32px rgb(27 32 35 / 12%), 0 2px 6px rgb(27 32 35 / 5%);
   overscroll-behavior: contain;
 }
 .task-filter-menu-heading { padding: 6px 9px 8px; color: var(--muted); font-size: var(--t-xs); }
 .task-filter-option {
   display: flex; align-items: center; gap: 9px; width: 100%; min-height: 36px; padding: 8px 9px;
-  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); text-align: left;
+  border: 0; border-radius: var(--r-lg); background: transparent; color: var(--ink); text-align: left;
   font: inherit; font-size: var(--t-sm); line-height: 1.5;
 }
 .task-filter-option > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -703,7 +704,7 @@ svg {
   width: min(320px, calc(100vw - 24px));
   padding: 6px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
+  border-radius: var(--r-xl);
   background: var(--surface);
   box-shadow: var(--shadow-menu);
 }
@@ -714,7 +715,7 @@ svg {
   gap: 12px;
   padding: 9px 10px;
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-lg);
   background: transparent;
   color: var(--ink);
   text-align: left;
@@ -2381,7 +2382,7 @@ svg {
   max-height: min(520px, calc(100dvh - 150px));
   overflow-y: auto;
   border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
+  border-radius: var(--r-xl);
   background: var(--surface);
   box-shadow: var(--shadow-menu);
   color: var(--ink);
@@ -4160,7 +4161,7 @@ svg {
   width: min(460px, calc(100vw - 32px));
   overflow: hidden;
   border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
+  border-radius: var(--r-xl);
   background: var(--surface);
   box-shadow: var(--shadow-menu);
   animation: toolbar-pop 150ms ease-out;
@@ -4909,7 +4910,7 @@ svg {
   min-width: 140px;
   padding: 4px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--r-md);
+  border-radius: calc(var(--r-lg) + 4px);
   background: var(--surface);
   box-shadow: var(--shadow-menu);
 }
@@ -4920,7 +4921,7 @@ svg {
   gap: 8px;
   padding: 7px 10px;
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-lg);
   background: transparent;
   color: var(--ink);
   font-size: var(--t-sm);
@@ -6684,8 +6685,8 @@ svg {
 .rail-empty { margin: 6px 8px 12px; font-size: var(--t-sm); color: var(--muted); }
 .rail-new-project { display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--t-sm); }
 .rail-view { display: flex; align-items: center; gap: 4px; padding: 10px; border-top: 1px solid var(--line); flex-shrink: 0; }
-.rail-menu { position: fixed; z-index: 80; width: 216px; padding: 5px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 28px #0002; }
-.rail-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; padding: 8px; background: transparent; text-align: left; color: var(--ink); cursor: pointer; font-size: var(--t-sm); }
+.rail-menu { position: fixed; z-index: 80; width: 216px; padding: 5px; background: var(--bg); border: 1px solid var(--line); border-radius: calc(var(--r-lg) + 5px); box-shadow: 0 8px 28px #0002; }
+.rail-menu button { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; padding: 8px; background: transparent; text-align: left; color: var(--ink); cursor: pointer; font-size: var(--t-sm); border-radius: var(--r-lg); }
 .rail-menu button:hover, .rail-menu button:focus-visible { background: var(--n-100); }
 .workspace-rail .scene-rename { min-width: 0; width: 100%; }
 .workspace-rail .scene-rename input { width: 100%; min-width: 0; }
@@ -6828,8 +6829,8 @@ svg {
 @media (hover: none) { .task-card-primary.icon-button { opacity: 1; } }
 .task-inspector-controls { position: relative; display: flex; flex-shrink: 0; gap: 4px; }
 .task-inspector-heading { position: sticky; top: -18px; z-index: 2; background: var(--surface); padding: 10px 0; }
-.task-management-popover { position: absolute; right: 0; top: 100%; z-index: 3; width: 190px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); }
-.task-management-popover button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px; border: 0; background: transparent; color: var(--ink); text-align: left; font-size: var(--t-sm); }
+.task-management-popover { position: absolute; right: 0; top: 100%; z-index: 3; width: 190px; padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-xl); }
+.task-management-popover button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px; border: 0; background: transparent; color: var(--ink); text-align: left; font-size: var(--t-sm); border-radius: var(--r-lg); }
 .task-management-popover button svg { width: 16px; height: 16px; }
 .task-management-popover button:hover:not(:disabled) { background: var(--surface-subtle); }
 .task-management-popover .task-cancel-action { color: var(--danger); }
@@ -7011,7 +7012,7 @@ svg {
 .icon-button.run-indicator.attention { color: var(--ink); font-weight: 500; }
 .run-indicator.attention .run-indicator-dot { width: 8px; height: 8px; background: var(--warn-bright); box-shadow: 0 0 0 3px var(--warn-soft); }
 .icon-button.run-indicator.idle { color: var(--faint); }
-.run-popover { position: absolute; z-index: 70; top: calc(100% + 8px); right: 0; width: 360px; max-width: calc(100vw - 32px); max-height: 70vh; overflow: auto; border: 1px solid var(--line-strong); border-radius: var(--r-md); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-menu); line-height: 1.55; }
+.run-popover { position: absolute; z-index: 70; top: calc(100% + 8px); right: 0; width: 360px; max-width: calc(100vw - 32px); max-height: 70vh; overflow: auto; border: 1px solid var(--line-strong); border-radius: var(--r-xl); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-menu); line-height: 1.55; }
 .run-popover > header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
 .run-popover > header strong { font-size: var(--t-sm); }
 .run-popover > header span { color: var(--muted); font-size: var(--t-xs); }

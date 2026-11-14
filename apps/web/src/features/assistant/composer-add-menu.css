@@ -11,7 +11,7 @@
   width: 240px;
   padding: 6px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--r-xl);
   background: var(--surface);
   box-shadow: var(--shadow-menu);
 }
@@ -23,7 +23,7 @@
   width: 100%;
   padding: 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--r-lg);
   background: transparent;
   color: var(--ink);
   text-align: left;
