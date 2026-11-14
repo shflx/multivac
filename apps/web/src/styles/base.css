@@ -503,8 +503,11 @@ svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
-  stroke-width: 1.8;
+  stroke-width: 1.5;
 }
+
+/* 标题中的描边图标与粗体文字匹配，专用图标仍可显式覆盖。 */
+:where(h1, h2, h3, h4, h5, h6) > svg { stroke-width: 2; }
 
 .app-shell {
   display: grid;
@@ -5161,6 +5164,7 @@ svg {
   flex: 0 0 auto;
   margin-top: 3px;
   color: var(--accent);
+  stroke-width: 2;
 }
 
 .confirm-card.danger .confirm-card-head > svg {
