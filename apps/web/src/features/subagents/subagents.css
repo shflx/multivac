@@ -17,7 +17,6 @@
 .subagent-item-state { flex-shrink: 0; color: var(--muted); font-size: var(--t-xs); }
 .subagent-item:is(.failed, .exhausted, .interrupted, .reconcile) .subagent-item-state { color: var(--danger); }
 .subagent-pagination { display: flex; gap: 12px; justify-content: flex-end; }
-@media (prefers-reduced-motion: reduce) { .subagent-group .spin { animation: none; } }
 
 /* 子智能体只读会话：整屏覆盖，主体就是普通会话时间线。 */
 .subagent-session { position: fixed; inset: 0; z-index: 1800; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--surface); color: var(--ink); }

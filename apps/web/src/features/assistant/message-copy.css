@@ -24,4 +24,3 @@
 .message-actions-feedback { color: var(--muted); font-size: var(--t-xs); }
 /* 触屏没有悬停，操作行常驻但保持弱化。 */
 @media (hover: none) { .message-actions button, .message-time { opacity: .7; } }
-@media (prefers-reduced-motion: reduce) { .message-actions button svg { transition: none; } }

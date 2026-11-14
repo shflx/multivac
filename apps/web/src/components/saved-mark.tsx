@@ -33,7 +33,7 @@ export function useSavedFlash<K extends string>(): SavedFlash<K> {
 
 /**
  * 修改成功后放在小节标题、名称或按钮旁的“✓ 已保存”，约 1.6 秒后淡出
- * （偏好减少动效时不做淡出，到时直接消失）。只在 target 是最近保存的那一处时出现。
+ * （偏好减少动效时也仅保留透明度淡出）。只在 target 是最近保存的那一处时出现。
  */
 export function SavedMark<K extends string>({ saved, target }: { saved: SavedFlash<K>; target: K }) {
   if (saved.savedKey !== target) return null;

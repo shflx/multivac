@@ -253,8 +253,3 @@
   .note-versions-content { grid-template-columns: 170px minmax(0, 1fr); }
   .note-version-preview { padding: 22px; }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .notes-library-item, .note-list-actions, .note-list-actions .note-delete { transition: none; }
-}
-

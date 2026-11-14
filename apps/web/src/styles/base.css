@@ -194,9 +194,6 @@
 .task-filter-option > .task-filter-check { color: var(--accent); }
 .task-filter-option > .task-filter-count { flex: 0 0 auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--surface-strong); color: var(--muted); font-size: var(--t-xs); font-weight: 400; font-variant-numeric: tabular-nums; line-height: 18px; text-align: center; }
 .task-filter-option.selected > .task-filter-count { background: var(--surface); color: var(--accent); }
-@media (prefers-reduced-motion: reduce) {
-  .task-filter-trigger, .task-filter-trigger .task-filter-chevron { transition: none; }
-}
 .task-properties select { padding: 7px 10px; border: 1px solid transparent; border-radius: var(--r-sm); font-size: var(--t-sm); background: var(--surface-subtle); color: var(--ink); }
 .task-panel-tools { display: flex; align-items: center; flex-shrink: 0; gap: 8px; margin-left: auto; }
 .task-view-modes { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 3px; background: var(--surface-subtle); }
@@ -442,11 +439,6 @@
 .task-create-field :is(input, textarea):hover:not(:disabled):not(:focus-visible) { border-color: var(--n-400); }
 .task-create-acceptance:has(input:disabled) { cursor: not-allowed; opacity: .5; }
 .task-create-acceptance input:not(:disabled) { cursor: pointer; }
-@media (prefers-reduced-motion: reduce) {
-  :is(.task-panel, .task-panel-toolbar, .task-create-dialog) button,
-  .task-create-field input, .task-create-field textarea { transition: none; }
-  :is(.task-panel, .task-panel-toolbar, .task-create-dialog) button:active:not(:disabled) { transform: none; }
-}
 
 * {
   box-sizing: border-box;
@@ -2113,9 +2105,6 @@ svg {
 /* 成功提示停留约 6 秒后由界面收起，最后一段时间先淡出。 */
 .run-status.succeeded { animation: run-status-fade 400ms ease-in 5600ms forwards; }
 @keyframes run-status-fade { to { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .run-status.succeeded { animation: none; }
-}
 .run-status.authorization,
 .run-status.authorization > svg { color: var(--warn); }
 .run-status.failed,
@@ -4597,7 +4586,6 @@ svg {
 .browser-toast[data-error] { border-color: var(--danger-line); color: var(--danger); }
 .browser-toast .icon-button { width: 22px; height: 22px; flex-shrink: 0; }
 @keyframes browser-toast-in { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: 1; transform: translateX(-50%); } }
-@media (prefers-reduced-motion: reduce) { .browser-toast { animation: none; } }
 .browser-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); min-width: 0; }
 .browser-toolbar strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--t-sm); }
 .browser-toolbar { flex-wrap: wrap; }
@@ -6627,36 +6615,6 @@ svg {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .spin,
-  .status-spinner {
-    animation-duration: 1800ms;
-  }
-
-  /* 偏好减少动效时只保留状态旋转，其余过渡与入场动画全部关闭。 */
-  .chat-row,
-  .run-trace-content,
-  .authorization-card,
-  .task-receipt,
-  .composer-quote,
-  .selection-toolbar,
-  .message-quote,
-  .multivac-sidebar,
-  .conversation-menu,
-  .session-directory-detail,
-  .creation-dialog,
-  .confirm-card,
-  .saved-mark {
-    animation: none;
-  }
-
-  .chat-row *,
-  .assistant-composer *,
-  .run-trace > summary,
-  .run-trace > summary > .disclosure-chevron {
-    transition: none;
-  }
-}
 /* 左侧导航复用管理侧栏的令牌，主工作面保持可横向滚动。 */
 .workspace-page { position: relative; flex-direction: row; }
 .workspace-main { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
@@ -6687,7 +6645,6 @@ svg {
 .session-status-badge.processing > svg { animation: spin 1s linear infinite; }
 .session-status-badge.unread { color: var(--accent); }
 .session-status-badge.unread > svg { width: 7px; height: 7px; flex-basis: 7px; fill: currentColor; }
-@media (prefers-reduced-motion: reduce) { .session-status-badge > svg { animation: none !important; } }
 .rail-empty { margin: 6px 8px 12px; font-size: var(--t-sm); color: var(--muted); }
 .rail-new-project { display: flex; align-items: center; gap: 8px; padding: 8px; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: var(--t-sm); }
 .rail-view { display: flex; align-items: center; gap: 4px; padding: 10px; border-top: 1px solid var(--line); flex-shrink: 0; }
@@ -6713,7 +6670,6 @@ svg {
 .rail-handle-button svg { width: 14px; height: 14px; }
 .rail-handle:hover .rail-handle-grip, .rail-handle:focus-visible .rail-handle-grip { opacity: 0; }
 .rail-handle:hover .rail-handle-button, .rail-handle:focus-visible .rail-handle-button { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .rail-handle-grip, .rail-handle-button { transition: none; } }
 .palette-scrim { position: fixed; z-index: 200; inset: 0; display: flex; justify-content: center; padding-top: 12vh; background: #141a1e38; backdrop-filter: blur(2px); }
 .palette { display: flex; flex-direction: column; align-self: flex-start; width: min(560px, calc(100vw - 32px)); max-height: 72vh; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); box-shadow: 0 28px 70px #1b20233d; }
 .palette-search { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); }
@@ -6774,7 +6730,6 @@ svg {
 /* 浅色提示：与说明气泡、上下文面板等浮层同一套白底描边样式。 */
 .task-control-tooltip { position: fixed; z-index: 200; transform: translateX(-50%); max-width: 320px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); color: var(--ink); box-shadow: 0 6px 20px rgb(27 32 35 / 10%); font-size: var(--t-xs); line-height: 1.5; pointer-events: none; animation: task-tooltip-in 140ms 280ms ease both; }
 @keyframes task-tooltip-in { from { opacity: 0; } to { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .task-control-tooltip { animation: none; } }
 
 /* 关系读取复用面板样式；展开的上下文行不冒充筛选结果。 */
 .task-relation-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -7045,3 +7000,24 @@ svg {
 .workspace-shell > .workspace-page[hidden],
 .task-session-view[hidden] { display: none; }
 .task-session-view { display: flex; flex: 1; min-width: 0; min-height: 0; }
+
+/* 减少动效统一入口：important 防止后加载的功能样式恢复过渡或入场动画。
+ * 例外仅限状态旋转，以及保存成功、执行成功提示的纯透明度淡出。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  .spin, .status-spinner, .session-status-badge.processing > svg {
+    animation: spin 1800ms linear infinite !important;
+  }
+
+  .saved-mark { animation: saved-fade 1.6s ease forwards !important; }
+  .run-status.succeeded { animation: run-status-fade 400ms ease-in 5600ms forwards !important; }
+
+  :is(.task-panel, .task-panel-toolbar, .task-create-dialog) button:active:not(:disabled),
+  .note-list-actions .note-delete:active:not(:disabled) { transform: none; }
+}
