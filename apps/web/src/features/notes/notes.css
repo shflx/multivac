@@ -34,8 +34,8 @@
 .notes-library-item[data-selected="true"] > .note-list-open { padding-right: 54px; color: var(--accent); }
 .note-list-actions { position: absolute; top: 50%; right: 10px; display: inline-flex; transform: translateY(-50%); opacity: 0; pointer-events: none; transition: opacity 140ms ease; }
 .notes-library-item:hover .note-list-actions, .notes-library-item:has(:focus-visible) .note-list-actions { opacity: 1; pointer-events: auto; }
-.note-list-actions .note-delete { width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: var(--r-lg); color: var(--muted); background: transparent; transition: color 140ms ease, background-color 140ms ease, transform 140ms ease; }
-.note-list-actions .note-delete:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); transform: scale(1.04); }
+.note-list-actions .note-delete { width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: var(--r-lg); color: var(--muted); background: transparent; transition: color 140ms ease, background-color 140ms ease, transform 120ms ease-out; }
+.note-list-actions .note-delete:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
 .note-list-actions .note-delete:active:not(:disabled) { transform: scale(.96); }
 .note-list-actions .note-delete:focus-visible { outline: 2px solid var(--danger-line); outline-offset: 2px; }
 .notes-library-copy { min-width: 0; }

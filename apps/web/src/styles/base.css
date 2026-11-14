@@ -424,9 +424,9 @@
 /* 任务区域沿用原型的手形光标、短过渡与轻微按压反馈，不影响其他页面。 */
 :is(.task-panel, .task-panel-toolbar, .task-create-dialog) button {
   cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 120ms ease-out;
 }
-:is(.task-panel, .task-panel-toolbar, .task-create-dialog) button:active:not(:disabled) { transform: translateY(1px); }
+:is(.task-panel, .task-panel-toolbar, .task-create-dialog) button:active:not(:disabled) { transform: scale(.96); }
 :is(.task-panel, .task-panel-toolbar, .task-create-dialog) button:disabled { cursor: not-allowed; opacity: .5; }
 .task-panel-filter.active:not(.open) .task-filter-trigger:hover:not(:disabled) { background: var(--accent-muted); border-color: var(--accent-line); }
 .task-panel-filter:not(.open) .task-filter-trigger:active:not(:disabled) { background: var(--accent-muted); border-color: var(--accent); }
