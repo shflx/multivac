@@ -7024,5 +7024,5 @@ svg {
   .run-status.succeeded { animation: run-status-fade 400ms ease-in 5600ms forwards !important; }
 
   :is(.task-panel, .task-panel-toolbar, .task-create-dialog) button:active:not(:disabled),
-  .note-list-actions .note-delete:active:not(:disabled) { transform: none; }
+  .note-list-actions .note-delete:active:not(:disabled) { transform: none !important; }
 }
