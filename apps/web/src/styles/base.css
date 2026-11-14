@@ -393,7 +393,7 @@
 .task-input-history { min-width: 0; overflow-wrap: anywhere; }
 .task-attachment-preview { max-height: 360px; overflow: auto; margin-top: 8px; padding: 10px; background: var(--surface-subtle); border-radius: var(--r-sm); }
 .task-attachment-preview pre { margin: 0; font-size: var(--t-xs); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.task-attachment-preview img { display: block; max-width: 100%; height: auto; }
+.task-attachment-preview img { display: block; max-width: 100%; height: auto; outline: 1px solid oklch(0 0 0 / 0.1); outline-offset: -1px; }
 .task-create-field { display: flex; flex-direction: column; gap: 8px; font-size: var(--t-sm); }
 .task-create-field > span { font-weight: 550; }
 .task-create-field small { margin-left: 6px; color: var(--muted); font-size: var(--t-xs); font-weight: 400; }

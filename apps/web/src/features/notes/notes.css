@@ -211,7 +211,7 @@
 /* 图片保持正文流内位置，宽度不超过文档，原图比例不变。 */
 .note-image { display: inline-block; max-width: 100%; vertical-align: middle; margin: 8px 2px; }
 .note-image > button { display: inline-block; max-width: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }
-.note-image img { display: block; max-width: 100%; height: auto; max-height: 600px; object-fit: contain; border-radius: var(--r-md); }
+.note-image img { display: block; max-width: 100%; height: auto; max-height: 600px; object-fit: contain; border-radius: var(--r-md); outline: 1px solid oklch(0 0 0 / 0.1); outline-offset: -1px; }
 .note-image > span { color: var(--muted); font-size: var(--t-xs); }
 .note-image[data-state="loading"], .note-image[data-state="error"] { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-subtle); }
 .note-image-status { min-width: 0; overflow-wrap: anywhere; }
