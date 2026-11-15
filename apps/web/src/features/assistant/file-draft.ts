@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check } from 'typebox/value';
+import { newCommandId } from '../../data/command-id.js';
 import { GLOBAL_ASSISTANT_SESSION_ID, TASK_ATTACHMENT_LIMITS as LIMITS, TaskAttachmentSchema, type TaskAttachment } from '@multivac/contracts';
 
 export interface DraftFile { id: string; name: string; bytes: number; file?: File; attachment?: TaskAttachment; status: 'uploading' | 'ready' | 'error'; error?: string | undefined }
@@ -21,7 +22,7 @@ export function useFileDraft(sessionId: string, changed: () => void) {
       const stored = JSON.parse(localStorage.getItem(key) ?? 'null');
       if (enabled && /^[a-f0-9-]{36}$/.test(stored?.draftId) && Array.isArray(stored.items)) return { draftId: stored.draftId, items: stored.items.filter((item: DraftFile) => /^[a-f0-9-]{36}$/.test(item.id) && typeof item.name === 'string' && Number.isSafeInteger(item.bytes)).slice(0, LIMITS.count).map((item: DraftFile) => ({ id: item.id, name: item.name, bytes: item.bytes, ...(item.attachment && Check(TaskAttachmentSchema, item.attachment) ? { attachment: item.attachment, status: 'ready' } : { status: 'error', error: '上传未完成，请移除后重新选择文件。' }) })) };
     } catch { /* 损坏草稿不构造文件或读取本地路径。 */ }
-    return { draftId: crypto.randomUUID(), items: [] };
+    return { draftId: newCommandId(), items: [] };
   });
   const current = useRef(state), alive = useRef(true);
   const [error, setError] = useState('');
@@ -62,7 +63,7 @@ export function useFileDraft(sessionId: string, changed: () => void) {
     if (files.some(file => !file.size || file.size > LIMITS.bytes)) { setError('文件不能为空，单文件上限 10 MiB。'); return; }
     if (current.current.items.length + files.length > LIMITS.count || [...current.current.items, ...files.map(file => ({ bytes: file.size }))].reduce((sum, item) => sum + item.bytes, 0) > LIMITS.totalBytes) { setError('最多 20 个文件，总大小不超过 50 MiB。'); return; }
     const draftId = current.current.draftId;
-    const items: DraftFile[] = files.map(file => ({ id: crypto.randomUUID(), name: file.name, bytes: file.size, file, status: 'uploading' }));
+    const items: DraftFile[] = files.map(file => ({ id: newCommandId(), name: file.name, bytes: file.size, file, status: 'uploading' }));
     update({ draftId, items: [...current.current.items, ...items] }); changed();
     for (const item of items) void upload(item, draftId);
   }
@@ -76,7 +77,7 @@ export function useFileDraft(sessionId: string, changed: () => void) {
     } catch (cause) { if (alive.current) setError((cause as Error).message); }
   }
   function clear(draftId?: string) {
-    if (draftId && current.current.draftId === draftId) { update({ draftId: crypto.randomUUID(), items: [] }); setError(''); }
+    if (draftId && current.current.draftId === draftId) { update({ draftId: newCommandId(), items: [] }); setError(''); }
   }
   async function restore(draftId?: string, isCurrent: () => boolean = () => true) {
     if (!enabled || !draftId || current.current.items.length && current.current.draftId !== draftId) return;
