@@ -21,8 +21,9 @@ function turnItems(page: Page, firstUserText: string) {
       }
       if (!node.classList.contains('chat-row')) return [];
       const role = node.classList.contains('user') ? 'user' : 'reply';
-      const author = node.querySelector('.message-author')?.textContent ?? '';
-      return [`${role}:${node.querySelector('.chat-content')?.textContent?.slice(author.length) ?? ''}`];
+      // 只读取正文，消息作者、时间和复制反馈不属于执行顺序断言的内容。
+      const body = node.querySelector(role === 'reply' ? '.chat-content > .markdown-body' : '.chat-content > p');
+      return [`${role}:${body?.textContent ?? ''}`];
     });
   }, firstUserText);
 }
