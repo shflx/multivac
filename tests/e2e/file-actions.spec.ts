@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { fakeApiRoot, openPanel, resetE2eState } from './test-state.js';
@@ -10,6 +10,8 @@ test('文件操作在树、搜索与当前文件中固定目标，并如实反�
   const root = (await created.json()).workingDirectory.path as string;
   const name = "中文 空格 '单引号 $() ; [x].txt";
   writeFileSync(join(root, name), '真实文件');
+  // 文件操作返回真实绝对路径，临时目录在 macOS 上可能通过 /var 别名访问。
+  const absolutePath = realpathSync(join(root, name));
   writeFileSync(join(root, 'other.txt'), '另一个目标');
   mkdirSync(join(root, '目录 空格'));
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -21,7 +23,7 @@ test('文件操作在树、搜索与当前文件中固定目标，并如实反�
   const menu = page.getByRole('menu', { name: `「${name}」的文件操作`, exact: true });
   await browser.getByRole('button', { name, exact: true }).click({ button: 'right' });
   await menu.getByRole('menuitem', { name: '复制绝对路径', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(join(root, name));
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(absolutePath);
   await expect(browser.getByRole('article')).toHaveCount(0);
   await browser.getByRole('button', { name: `「${name}」的文件操作`, exact: true }).click();
   await menu.getByRole('menuitem', { name: '复制文件名', exact: true }).click();
@@ -38,7 +40,7 @@ test('文件操作在树、搜索与当前文件中固定目标，并如实反�
   await expect(browser.getByRole('article')).toContainText('真实文件');
   await browser.locator('.file-reader header strong').click({ button: 'right' });
   await menu.getByRole('menuitem', { name: '复制绝对路径', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(join(root, name));
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(absolutePath);
   await page.evaluate(() => { Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: () => Promise.reject(new Error('剪贴板拒绝')) }); });
   await browser.locator('.file-reader').getByRole('button', { name: `「${name}」的文件操作`, exact: true }).click();
   await menu.getByRole('menuitem', { name: '复制文件名', exact: true }).click();
