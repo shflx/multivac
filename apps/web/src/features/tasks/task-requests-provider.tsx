@@ -14,7 +14,8 @@ export class TaskRequestsStore {
   private state: RequestState = EMPTY;
   private readonly listeners = new Set<() => void>();
   private read = 0;
-  private inboxRead = 0;
+  private inboxRefresh: Promise<void> | null = null;
+  private inboxRefreshAgain = false;
   private dirty = new Set<string>();
   private draftBases = new Map<string, number>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -39,25 +40,37 @@ export class TaskRequestsStore {
     this.replace({ ...this.state, items: [...this.state.items.filter((value) => value.id !== item.id), merged],
       drafts: this.dirty.has(item.id) ? this.state.drafts : { ...this.state.drafts, [item.id]: state.draft } });
   };
-  refreshInbox = async () => {
-    const read = ++this.inboxRead;
+  refreshInbox = (): Promise<void> => {
+    this.inboxRefreshAgain = true;
+    if (this.inboxRefresh) return this.inboxRefresh;
+    // 事件、决定和轮询共用一条分页链；期间的变化合并成下一轮补读。
+    this.inboxRefresh = this.refreshInboxUntilCurrent().finally(() => { this.inboxRefresh = null; });
+    return this.inboxRefresh;
+  };
+  private async refreshInboxUntilCurrent(): Promise<void> {
+    do {
+      this.inboxRefreshAgain = false;
+      try { await this.readInbox(); }
+      catch (error) { if (!this.inboxRefreshAgain) throw error; }
+    } while (this.inboxRefreshAgain);
+  }
+  private async readInbox(): Promise<void> {
     try {
       let offset: number | null = 0;
       const items: InboxItem[] = [];
       let counts = { pendingCount: 0, unseenCount: 0 };
       do {
         const page: InboxList = await fetchJson(`/api/inbox?status=all&limit=100&offset=${offset}`, undefined, InboxListSchema);
-        if (read !== this.inboxRead) return;
         items.push(...page.items); offset = page.nextOffset;
         counts = { pendingCount: page.pendingCount, unseenCount: page.unseenCount };
       } while (offset !== null);
       for (const item of items) this.applyInbox(item);
       this.replace({ ...this.state, ...counts, loaded: true, inboxError: '', arrival: this.detectArrival() });
     } catch (error) {
-      if (read === this.inboxRead) this.replace({ ...this.state, inboxError: error instanceof Error ? error.message : 'Inbox 未读取。' });
+      this.replace({ ...this.state, inboxError: error instanceof Error ? error.message : 'Inbox 未读取。' });
       throw error;
     }
-  };
+  }
   private detectArrival(): InboxArrival {
     const pending = this.state.items.filter((item) => item.status === 'pending');
     const known = this.knownPending;

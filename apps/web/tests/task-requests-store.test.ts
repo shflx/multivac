@@ -143,3 +143,76 @@ for (const remote of [false, true]) test(`${remote ? '远程' : '本机'}决定�
   // 结束草稿自动保存定时器；保留模拟中的输入和错误事实。
   await store.saveDraft(item.id);
 });
+
+for (const remote of [false, true]) test(`${remote ? '远程轮询' : '事件和决定'}共享刷新，百条分页期间多次通知合并补读并取得完整计数`, async (t) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const offsets: number[] = [];
+  let active = 0, maxActive = 0, round = 0;
+  t.mock.method(globalThis, 'fetch', async (url: string) => {
+    active++; maxActive = Math.max(active, maxActive);
+    const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'));
+    offsets.push(offset);
+    if (offset === 0) round++;
+    if (round === 1 && offset === 100) await gate;
+    active--;
+    return response({ items: offset === 0 ? Array.from({ length: 100 }, (_, i) => inboxItem(`page-${i}`)) : [inboxItem(round === 1 ? 'old' : 'latest')], total: 101, pendingCount: round === 1 ? 101 : 102, unseenCount: round === 1 ? 101 : 7, nextOffset: offset === 0 ? 100 : null });
+  });
+  const store = new TaskRequestsStore(remote);
+  const initial = store.refreshInbox();
+  await turn();
+  for (let i = 0; i < 20; i++) assert.equal(store.refreshInbox(), initial);
+  assert.deepEqual(offsets, [0, 100]);
+  release(); await initial;
+  assert.deepEqual(offsets, [0, 100, 0, 100]);
+  assert.equal(maxActive, 1);
+  assert.equal(store.snapshot().items.some(item => item.id === 'latest'), true);
+  assert.equal(store.snapshot().pendingCount, 102);
+  assert.equal(store.snapshot().unseenCount, 7);
+  assert.equal(store.snapshot().loaded, true);
+});
+
+test('分页失败不提交半份事实，可重试且保留本窗口草稿和刷新期间的变化', async (t) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let fail = true, read = 0;
+  const item = inboxItem('draft');
+  t.mock.method(globalThis, 'fetch', async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return response({ error: { code: 'TASK_CONFLICT', message: '草稿冲突' } }, 409);
+    const offset = Number(new URL(url, 'http://localhost').searchParams.get('offset'));
+    read++;
+    if (offset === 100 && fail) { await gate; throw new Error('分页失败'); }
+    return response({ items: offset === 0 ? [{ ...item, state: { revision: 3, draft: '远端草稿', seen: true } }] : [inboxItem('latest')], total: 101, pendingCount: 101, unseenCount: 9, nextOffset: offset === 0 ? 100 : null });
+  });
+  const store = new TaskRequestsStore(); store.applyInbox(item); store.draft(item.id, '本窗口草稿');
+  const first = store.refreshInbox(); await turn(); release(); await assert.rejects(first, /分页失败/);
+  assert.equal(store.snapshot().items.length, 1);
+  assert.equal(store.snapshot().loaded, false);
+  assert.equal(store.snapshot().drafts[item.id], '本窗口草稿');
+  fail = false; await store.refreshInbox();
+  assert.equal(read, 4);
+  assert.equal(store.snapshot().inboxError, '');
+  assert.equal(store.snapshot().drafts[item.id], '本窗口草稿');
+  assert.equal(store.snapshot().pendingCount, 101);
+  await store.saveDraft(item.id);
+});
+
+test('失败分页期间收到的补读要求仍会执行，重连可继续核对后续变化', async (t) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let calls = 0;
+  t.mock.method(globalThis, 'fetch', async () => {
+    calls++;
+    if (calls === 1) { await gate; throw new Error('断线'); }
+    return response({ items: [inboxItem(`latest-${calls}`)], total: 1, pendingCount: 1, unseenCount: 0, nextOffset: null });
+  });
+  const store = new TaskRequestsStore();
+  const initial = store.refreshInbox();
+  assert.equal(store.refreshInbox(), initial);
+  release(); await initial;
+  assert.equal(calls, 2);
+  assert.equal(store.snapshot().inboxError, '');
+  await store.refreshInbox();
+  assert.equal(calls, 3);
+  assert.equal(store.snapshot().items.some(item => item.id === 'latest-3'), true);
+});

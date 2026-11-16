@@ -31,6 +31,8 @@ test('查询不自动查看，查看与确认计数分别变化；新窗口读�
   assert.equal(first.snapshot().pendingCount, 1); assert.equal(first.snapshot().unseenCount, 0);
   await second.refreshInbox(); assert.equal(second.snapshot().items[0]!.state.seen, true);
   await first.decideItem(current, 'acknowledge');
+  assert.equal(first.snapshot().items[0]!.status, 'answered');
+  await first.refreshInbox();
   assert.equal(first.snapshot().pendingCount, 0);
   await second.refreshInbox(); assert.equal(second.snapshot().pendingCount, 0);
   second.applyInbox(notification); assert.equal(second.snapshot().items[0]!.status, 'answered');
@@ -52,6 +54,7 @@ test('确认响应丢失后读事实，重复点击只发送一次且不会复�
   const store = new TaskRequestsStore(); store.applyInbox(notification);
   const first = store.decideItem(notification, 'acknowledge');
   await store.decideItem(notification, 'acknowledge'); release(); await first;
+  await store.refreshInbox();
   assert.equal(sent, 1); assert.equal(store.snapshot().pendingCount, 0);
   assert.equal(store.snapshot().items[0]!.status, 'answered');
 });
