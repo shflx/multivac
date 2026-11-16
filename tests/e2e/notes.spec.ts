@@ -2,6 +2,7 @@ import { expectNoteBody, replaceNoteBody } from './notes-helpers.js';
 import { expect, test, type Page, type APIRequestContext } from '@playwright/test';
 import { fakeApiRoot, openPanel } from './test-state.js';
 import type { Editor } from '@tiptap/core';
+import { MODEL_SELECTION_FALLBACK_MS } from '../../apps/web/src/features/assistant/model-selection-refresh.js';
 
 const document = (page: Page) => page.locator('.notes-open-document:visible');
 const markdown = (page: Page) => document(page).getByLabel('笔记正文', { exact: true });
@@ -108,7 +109,13 @@ test('段尾及空段落软换行可继续输入撤销重做，保存再加载�
   await openNotes(page);
   for (const first of ['段尾', '']) {
     const suffix = '\n\n\n末段 **保留**。 \n';
-    const id = await create(page, `软换行-${first || '空段落'}-${crypto.randomUUID()}`, (first || '&nbsp;') + suffix, false);
+    // 直接建立保留原始空白的服务端基线，避免创建时的富文本粘贴先规范化夹具。
+    const id = crypto.randomUUID(), title = `软换行-${first || '空段落'}-${id}`;
+    const original = (first || '&nbsp;') + suffix;
+    expect((await request.post(`${fakeApiRoot}/api/notes`, { data: { id, commandId: crypto.randomUUID(), title, body: original } })).ok()).toBeTruthy();
+    await page.getByRole('complementary', { name: '笔记库' }).getByRole('button').filter({ hasText: title }).click();
+    expect((await note(request, id)).body).toBe(original);
+    await expectNoteBody(page, original);
     const body = markdown(page), paragraph = body.locator('p').first();
     await body.focus(); await body.press('ControlOrMeta+Home');
     for (let i = 0; i < first.length; i++) await body.press('ArrowRight');
@@ -575,6 +582,7 @@ test('历史分页读取较早版本，快速切换时迟到内容不会替换�
 
 
 test('助手按需启动，收起及切换笔记暂停模型轮询并保留提问草稿', async ({ page, request }) => {
+  await page.clock.install();
   const titles = Array.from({ length: 6 }, (_, i) => `按需助手-${crypto.randomUUID()}-${i}`);
   for (const title of titles) expect((await request.post(`${fakeApiRoot}/api/notes`, { data: { id: crypto.randomUUID(), commandId: crypto.randomUUID(), title, body: title } })).ok()).toBeTruthy();
   let roots = 0, models = 0, globalModels = 0;
@@ -590,8 +598,15 @@ test('助手按需启动，收起及切换笔记暂停模型轮询并保留提�
     await expectNoteBody(page, title);
   };
   for (const title of titles) await choose(title);
-  let clock = globalModels;
-  await expect.poll(() => globalModels).toBeGreaterThanOrEqual(clock + 2);
+  // 事件驱动刷新以 30 秒低频轮询兜底，推进真实调度器时钟而非等待旧的高频计数。
+  const tickModels = async () => {
+    for (let i = 0; i < 2; i++) {
+      const before = globalModels;
+      await page.clock.runFor(MODEL_SELECTION_FALLBACK_MS + 100);
+      await expect.poll(() => globalModels).toBeGreaterThan(before);
+    }
+  };
+  await tickModels();
   expect(roots).toBe(0); expect(models).toBe(0);
   await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
   const question = companion(page).getByLabel('向梳理助手提问', { exact: true });
@@ -599,15 +614,15 @@ test('助手按需启动，收起及切换笔记暂停模型轮询并保留提�
   await expect(companion(page).getByRole('button', { name: '发送给梳理助手', exact: true })).toBeEnabled();
   expect(roots).toBe(1); expect(models).toBeGreaterThan(0);
   await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
-  let paused = models; clock = globalModels;
-  await expect.poll(() => globalModels).toBeGreaterThanOrEqual(clock + 2);
+  let paused = models;
+  await tickModels();
   expect(models).toBe(paused);
   await document(page).getByRole('button', { name: '梳理助手', exact: true }).click();
   await expect(question).toHaveValue('保留这条尚未发送的问题');
   await expect.poll(() => models).toBeGreaterThan(paused);
   await choose(titles[0]!);
-  paused = models; clock = globalModels;
-  await expect.poll(() => globalModels).toBeGreaterThanOrEqual(clock + 2);
+  paused = models;
+  await tickModels();
   expect(models).toBe(paused);
   await choose(titles.at(-1)!);
   await expect(companion(page).getByLabel('向梳理助手提问', { exact: true })).toHaveValue('保留这条尚未发送的问题');
@@ -703,7 +718,9 @@ test('删除需明确确认，并清理正文、全部版本、本机草稿与�
   expect((await request.get(`${fakeApiRoot}/api/notes/${id}`)).status()).toBe(404);
   expect((await request.get(`${fakeApiRoot}/api/notes/${id}/versions`)).status()).toBe(404);
   expect((await request.get(`${fakeApiRoot}/api/sessions/${root.sessionId}/session`)).status()).toBe(404);
-  expect((await request.post(`${fakeApiRoot}/api/sessions/${root.sessionId}/restore`)).status()).toBe(400);
+  // 删除会移除伴随会话，恢复入口按不存在返回，不能重新建立已删除笔记的讨论。
+  expect((await request.post(`${fakeApiRoot}/api/sessions/${root.sessionId}/restore`)).status()).toBe(404);
+  expect((await request.get(`${fakeApiRoot}/api/sessions/${root.sessionId}/session`)).status()).toBe(404);
   expect((await request.post(`${fakeApiRoot}/api/notes/${id}/contexts`, { data: { commandId: crypto.randomUUID(), id: snapshot.id, sessionId: root.sessionId, revision: current.revision, selection: null } })).status()).toBe(404);
   expect(await page.evaluate(id => {
     const keys = Object.keys(localStorage).filter(key => key.startsWith('multivac:note-draft:'));
