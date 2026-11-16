@@ -94,3 +94,37 @@ test('有效澄清恢复同一上下文，输入内容不扩大执行目录', { 
     assert.ok(prompts.some((call) => 'text' in call && call.text.includes('仅采用项目文档')));
   } finally { await app.taskExecution.idle(); app.close(); await rm(root, { recursive: true, force: true }); }
 });
+
+for (const inbox of [false, true]) test(`${inbox ? 'Inbox' : '人工请求'} HTTP 决定不等待模型准入，保存回执不冒充任务开始`, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-human-http-'));
+  const app = createMultivacApplication(testApplicationEnvironment(root), { coordinatorAdapter: new FakeCoordinatorAdapter() });
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await app.ready;
+    let admitting = false;
+    t.mock.method(app.agents, 'admit', async (id: string) => { admitting = true; await gate; return app.agents.get(id); });
+    const task = app.tasks.create({ commandId: 'http-create', title: '回执延迟', goal: '核对回答' }).task;
+    const request = app.humanRequests.create(task.taskId, 'clarification', '需要哪份来源？', 'http-ask');
+    await new Promise<void>(resolve => app.server.listen(0, '127.0.0.1', resolve));
+    const address = app.server.address() as import('node:net').AddressInfo;
+    const result = await fetch(`http://127.0.0.1:${address.port}/api/${inbox ? 'inbox' : 'task-requests'}/${request.requestId}/decision`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, signal: AbortSignal.timeout(2000),
+      body: JSON.stringify({ commandId: 'http-answer', revision: 1, decision: 'answer', answer: '来源 A' }),
+    });
+    assert.equal(result.status, 200);
+    const body = await result.json() as { item?: { status: string }; request?: { status: string } };
+    assert.equal((inbox ? body.item : body.request)?.status, 'answered');
+    assert.equal(admitting, true);
+    assert.equal(app.humanRequests.get(request.requestId).answer, '来源 A');
+    assert.equal(app.tasks.get(task.taskId).status, 'paused');
+    assert.equal(app.tasks.get(task.taskId).currentRunId, null);
+    release(); await app.taskExecution.idle();
+    assert.equal(app.tasks.detail(task.taskId).runs!.length, 1);
+  } finally {
+    release(); await app.taskExecution.idle();
+    app.server.closeAllConnections();
+    await new Promise<void>(resolve => app.server.close(() => resolve()));
+    await app.close(); await rm(root, { recursive: true, force: true });
+  }
+});

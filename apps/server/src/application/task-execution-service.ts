@@ -15,6 +15,7 @@ import { taskBudgetBalance, taskBudgetExhaustion, taskBudgetUsage } from './task
 import { diagnosticError } from './execution-diagnostics.js';
 import { assertCanStart, assertControllable, pauseUnfinishedChild, recordExecutionResult, releaseFromCancelledParent, requestStop, settleRun, type ExecutionOutcome, type TaskPauseSource } from '../modules/tasks/task-control.js';
 import type { TaskFacts } from '../modules/tasks/task-facts.js';
+import { humanResumeBoundary } from '../modules/tasks/human-resume.js';
 
 /** 待结算的一轮执行：终结结果之外，记录日志与清理的进行状态，仅存于内存。 */
 interface PendingFinalization extends ExecutionOutcome {
@@ -51,6 +52,8 @@ export interface TaskExecutionOptions {
   confirmedStopped?: (sessionId: string) => boolean;
   /** 启动或继续前核对执行智能体可用（存在且模型可用）；不可用时抛错，任务保持原状态。 */
   admitAgent?: (agentId: string) => Promise<void>;
+  /** 慢准入结束后同步复核智能体配置版本，拒绝使用等待期间失效的配置。 */
+  agentRevision?: (agentId: string) => number;
   /**
    * 运行确认停止并结算后固定本轮成果候选；由成果服务提供，完成或失败都已记录到任务后才返回。
    * 结算是必需的业务步骤，不经界面通知触发。
@@ -76,6 +79,7 @@ export class TaskExecutionService {
   private wakeScheduler: (() => void) | undefined;
   private assertOwner: (() => void) | undefined;
   private readonly budgetStops = new Set<string>();
+  private readonly humanResumes = new Map<string, Promise<void>>();
   private readonly finalizations = new Map<string, PendingFinalization>();
   private readonly finalizing = new Set<string>();
   private readonly reconciliationTimer: ReturnType<typeof setInterval>;
@@ -89,7 +93,7 @@ export class TaskExecutionService {
   attachScheduler(wake: () => void, assertOwner: () => void): void { this.wakeScheduler = wake; this.assertOwner = assertOwner; }
   async stopForHuman(taskId: string, expectedRunId?: string): Promise<void> {
     const task = this.options.tasks.get(taskId);
-    if (!this.options.tasks.pendingRequest(taskId) || (expectedRunId && task.currentRunId !== expectedRunId)) return;
+    if ((!this.options.tasks.pendingRequest(taskId) && !task.humanResumeIntent) || (expectedRunId && task.currentRunId !== expectedRunId)) return;
     const run = task.currentRunId ? this.options.runs.get(task.currentRunId) : null;
     if (!run || run.stopConfirmed || task.pauseSource === 'user') return;
     await this.control(taskId, { commandId: `human-stop:${run.runId}`, revision: task.revision, action: 'pause' }, UNKNOWN_CHANGE_ORIGIN, 'human');
@@ -221,6 +225,83 @@ export class TaskExecutionService {
     return children;
   }
 
+  /** 调度和决定回执共用此入口；只消费已落盘的意图，同一任务的慢准入不并行执行。 */
+  resumeAfterHuman(taskId: string): Promise<void> {
+    if (this.closing || this.disposed) return Promise.resolve();
+    const pending = this.humanResumes.get(taskId);
+    if (pending) return pending;
+    const work = Promise.resolve().then(() => this.consumeHumanResume(taskId))
+      .catch(() => { /* 事实存储暂不可读时保留持久意图，后续调度或重启继续核对。 */ })
+      .finally(() => { this.humanResumes.delete(taskId); });
+    this.humanResumes.set(taskId, work);
+    return work;
+  }
+
+  private validHumanResume(task: Task): boolean {
+    const intent = task.humanResumeIntent;
+    return Boolean(intent && task.pauseSource === 'human' && ['paused', 'waiting'].includes(task.status)
+      && task.currentRunId === intent.runId && humanResumeBoundary(task) === intent.boundary);
+  }
+
+  private assertHumanResumeReady(task: Task, previous: TaskRun | null): void {
+    assertControllable(task, previous, 'resume');
+    if (task.currentRunId && !previous) throw new TaskServiceError('TASK_CONFLICT', '原运行记录缺失，保持停止。');
+    assertCanStart(task, previous, { action: 'resume', pendingRequest: this.options.tasks.pendingRequest(task.taskId),
+      schedulerManaged: false, dependenciesSatisfied: () => task.dependencyIds.every(id => satisfiesTaskDependency(this.options.tasks.get(id).status)) });
+    const request = this.options.requests?.list(task.taskId).find(request => request.requestId === task.humanResumeIntent?.requestId);
+    if (!request || request.status !== 'answered' || request.decision === 'stop') throw new TaskServiceError('TASK_CONFLICT', '原人工决定已变化，保持停止。');
+    const budget = this.budget(this.root(task).taskId);
+    if (budget.remainingRuns < 1 || !(budget.remainingMillis > 0) || budget.remainingBytes < 1) throw new TaskServiceError('INVALID_REQUEST', '执行预算不足，需由用户决定是否补充额度。');
+  }
+
+  private async consumeHumanResume(taskId: string): Promise<void> {
+    const snapshot = this.options.tasks.get(taskId);
+    const intent = snapshot.humanResumeIntent;
+    if (!intent) return;
+    try {
+      this.assertOwner?.();
+      if (!this.validHumanResume(snapshot)) {
+        this.options.tasks.transition(taskId, { commandId: `${intent.commandId}:invalid`, key: fingerprint(intent), kind: 'human-resume-invalidated', summary: '原人工继续意图已失效，保留当前任务状态。' }, current =>
+          current.humanResumeIntent?.commandId === intent.commandId ? { ...current, humanResumeIntent: null } : current);
+        return;
+      }
+      this.assertHumanResumeReady(snapshot, snapshot.currentRunId ? this.options.runs.get(snapshot.currentRunId) : null);
+      const agentId = snapshot.agentId ?? DEFAULT_AGENT_ID;
+      const agentRevision = this.options.agentRevision?.(agentId);
+      await this.options.admitAgent?.(agentId);
+      // 慢准入期间可以暂停、取消或收到新决定；真正入队前再次核对全部持久事实。
+      if (this.closing || this.disposed) return;
+      this.assertOwner?.();
+      if (this.options.agentRevision?.(agentId) !== agentRevision) throw new TaskServiceError('TASK_CONFLICT', '执行智能体在准入期间已变化，请重新核对。');
+      const fresh = this.options.tasks.get(taskId);
+      if (fresh.humanResumeIntent?.commandId !== intent.commandId || !this.validHumanResume(fresh)) return;
+      let launch: { runId: string; children: Task[] } | undefined;
+      this.options.tasks.transition(taskId, { commandId: intent.commandId, key: fingerprint({ taskId, intent }), kind: 'resume', summary: '人工决定已保存，执行条件核对通过，受理继续。' }, (current, facts) => {
+        if (current.humanResumeIntent?.commandId !== intent.commandId || !this.validHumanResume(current)) throw new TaskServiceError('TASK_CONFLICT', '人工继续意图已变化。');
+        if (this.options.tasks.executionOwner(taskId)) throw new TaskServiceError('TASK_CONFLICT', '任务由父任务统一执行。');
+        const previous = current.currentRunId ? facts.runs.get(current.currentRunId) : null;
+        this.assertHumanResumeReady(current, previous);
+        const planned = this.planRun(current, previous, false, facts);
+        launch = { runId: planned.run.runId, children: planned.children };
+        return { ...planned.task, humanResumeIntent: null };
+      });
+      this.options.tasks.publishExecutionChildren(launch?.children ?? [], UNKNOWN_CHANGE_ORIGIN);
+      if (launch) { if (this.wakeScheduler) this.wakeScheduler(); else this.startQueued(launch.runId); }
+    } catch (error) {
+      if (this.closing || this.disposed) return;
+      // 回答已经保存；失败原因是可查询事实，不把准入失败改写成回答失败。
+      const reason = `回应已保存，自动继续等待核对：${error instanceof Error ? error.message : '执行条件暂不满足。'}`.slice(0, 16000);
+      const current = this.options.tasks.get(taskId);
+      if (current.humanResumeIntent?.commandId !== intent.commandId || !this.validHumanResume(current) || current.reason === reason) return;
+      try {
+        this.assertOwner?.();
+        this.options.tasks.transition(taskId, { commandId: `human-resume-wait:${randomUUID()}`, key: reason, kind: 'human-resume-wait', summary: reason }, task =>
+          task.humanResumeIntent?.commandId === intent.commandId && this.validHumanResume(task)
+            ? { ...task, reason, nextStep: '核对停止、请求、依赖、预算或模型配置后继续；也可由用户保持暂停。' } : task);
+      } catch { /* 所有权或存储不可用时保留原意图，重启后重新核对。 */ }
+    }
+  }
+
   async control(taskId: string, input: TaskControl, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, pauseSource: TaskPauseSource = 'user'): Promise<TaskReceipt> {
     if (this.closing) throw new TaskServiceError('TASK_CONFLICT', '任务执行器正在关闭。');
     this.assertOwner?.();
@@ -230,6 +311,8 @@ export class TaskExecutionService {
       await this.options.admitAgent(this.options.tasks.get(taskId).agentId ?? DEFAULT_AGENT_ID);
     }
 
+    if (this.closing || this.disposed) throw new TaskServiceError('TASK_CONFLICT', '任务执行器正在关闭。');
+    this.assertOwner?.();
     // 用户主动继续时补充执行额度；预算、人工或环境触发的继续不补充。
     const renewBudget = input.action === 'resume' && pauseSource === 'user';
     let launch = null as { runId: string; children: Task[] } | null;
@@ -262,7 +345,7 @@ export class TaskExecutionService {
       });
       if (decision.run) facts.runs.save(decision.run);
       if (decision.awaitStop) stopRunId = decision.run!.runId;
-      return decision.task;
+      return { ...decision.task, humanResumeIntent: pauseSource === 'human' ? task.humanResumeIntent ?? null : null };
     }, origin);
 
     // 以下均在事务提交之后：发布子任务绑定、释放取消后的子任务、启动或等待停止。
@@ -330,7 +413,7 @@ export class TaskExecutionService {
     facts.runs.save(run);
     const children = this.options.tasks.bindExecutionChildren(run);
     const { executionTaskId: _owner, executionProgress: _progress, ...rest } = task;
-    return { run, children, task: { ...rest, status: 'queued', pauseSource: null, currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '依赖与预算满足后启动。' } };
+    return { run, children, task: { ...rest, humanResumeIntent: null, status: 'queued', pauseSource: null, currentRunId: runId, sessionId: run.sessionId, reason: run.reason, nextStep: '依赖与预算满足后启动。' } };
   }
 
   /**
@@ -629,7 +712,11 @@ export class TaskExecutionService {
     }
   }
 
-  async idle(): Promise<void> { await Promise.all([...this.active.values()].map((entry) => entry.promise)); }
+  async idle(): Promise<void> {
+    do {
+      await Promise.all([...this.humanResumes.values(), ...[...this.active.values()].map(entry => entry.promise)]);
+    } while (this.humanResumes.size || this.active.size);
+  }
   requiredProcessesStopped(runId: string): boolean { return this.options.requiredProcessesStopped?.(runId) ?? true; }
   observeProgress(now = Date.now()): void {
     for (const run of this.options.runs.active()) {

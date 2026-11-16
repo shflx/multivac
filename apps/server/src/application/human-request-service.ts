@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Check } from 'typebox/value';
 import { ClarificationScopeSchema, type ClarificationScope, CompleteTaskSchema, type CompleteTask, DecideHumanRequestSchema, HumanRequestQuerySchema, UNKNOWN_CHANGE_ORIGIN, type DecideHumanRequest, type HumanRequest, type HumanRequestQuery, type HumanRequestList, type Task, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
+import { humanResumeBoundary } from '../modules/tasks/human-resume.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
 import { TaskService, fingerprint, type TaskChange } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
@@ -222,20 +223,22 @@ export class HumanRequestService {
       if (input.decision === 'restart' && run) facts.runs.save({ ...facts.runs.get(run.runId)!, redoRequested: true });
       const answer = input.decision === 'use_scope' ? `仅本次采用：${request.clarificationScope!.scope}。用途：${request.clarificationScope!.purpose}。不扩大文件访问权限。` : input.answer?.trim() ?? '';
       facts.requests.save({ ...fresh, status: 'answered', revision: fresh.revision + 1, decision: input.decision, answer, updatedAt: new Date().toISOString() });
-      if (review) return review(current, facts);
-      if (request.kind === 'recovery' && request.runId && !facts.runs.get(request.runId)?.stopConfirmed) {
-        return { ...current, status: 'recovery', pauseSource: 'user', reason: '保持停止请求已保存，旧执行停止尚未确认。', nextStep: '核对旧执行停止与副作用，不能启动新执行。' };
+      let next: Task;
+      if (review) next = review(current, facts);
+      else if (request.kind === 'recovery' && request.runId && !facts.runs.get(request.runId)?.stopConfirmed) {
+        next = { ...current, status: 'recovery', pauseSource: 'user', reason: '保持停止请求已保存，旧执行停止尚未确认。', nextStep: '核对旧执行停止与副作用，不能启动新执行。' };
+      } else {
+        const stay = current.pauseSource === 'user' || input.decision === 'stop';
+        next = { ...current, status: 'paused', pauseSource: stay ? 'user' : 'human', feedback: `${request.question}\n用户决定：${input.decision}\n${answer}${input.decision === 'restart' ? '\n从新会话核对已有文件变更，保留原目录，不重放旧工具或外部操作。' : ''}`, reason: stay ? '回应已保存，用户暂停保持。' : '用户回应已保存，准备按原边界继续。', nextStep: stay ? '由用户继续执行。' : '核对执行条件后继续。' };
       }
-      const stay = current.pauseSource === 'user' || input.decision === 'stop';
-      return { ...current, status: 'paused', pauseSource: stay ? 'user' : 'human', feedback: `${request.question}\n用户决定：${input.decision}\n${answer}${input.decision === 'restart' ? '\n从新会话核对已有文件变更，保留原目录，不重放旧工具或外部操作。' : ''}`, reason: stay ? '回应已保存，用户暂停保持。' : '用户回应已保存，准备按原边界继续。', nextStep: stay ? '由用户继续执行。' : '核对执行条件后继续。' };
+      // 决定和继续意图一起提交；其他请求尚未完成时保留意图，由后台重新核对。
+      return { ...next, humanResumeIntent: next.status === 'paused' && next.pauseSource === 'human'
+        ? { commandId: `decision-resume:${createHash('sha256').update(input.commandId).digest('hex')}`, requestId: id, runId: next.currentRunId, boundary: humanResumeBoundary(next) }
+        : null };
     }, origin);
     const decided = this.get(id);
     this.options.events.publish({ type: 'request.changed', origin, request: decided });
-    const updated = this.options.tasks.get(task.taskId);
-    if (updated.status === 'paused' && updated.pauseSource === 'human' && !this.pending(task.taskId)) {
-      try { await this.options.execution.control(task.taskId, { commandId: `decision-resume:${createHash('sha256').update(input.commandId).digest('hex')}`, revision: updated.revision, action: 'resume' }, origin, 'human'); }
-      catch { /* 回应已落盘；预算或旧执行仍不满足条件时保持停止，不伪造继续成功。 */ }
-    }
+    void this.options.execution.resumeAfterHuman(task.taskId);
     return decided;
   }
   supersedeReviews(taskId: string, versionId: string): void {

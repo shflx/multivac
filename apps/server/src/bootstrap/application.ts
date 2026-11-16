@@ -1108,6 +1108,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     describeDependencies: describeNodeDependencies,
     createSession: (input) => workspaceSessionService.createTaskSession(input),
     admitAgent: async (id) => { await agents.admit(id).catch(toTaskError); },
+    agentRevision: (id) => agents.requireExecutable(id).revision,
     settleArtifacts: (taskId) => artifacts.settle(taskId),
     runtime: (id) => {
       const record = sessionRegistry.get(id);

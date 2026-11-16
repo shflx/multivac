@@ -70,7 +70,7 @@ export interface StopDecision {
  */
 export function requestStop(request: StopRequest): StopDecision {
   const { task, run, action, pauseSource } = request;
-  if (action === 'pause' && !PAUSABLE.includes(task.status)) invalid('任务当前不能暂停。');
+  if (action === 'pause' && !PAUSABLE.includes(task.status) && !(task.status === 'paused' && task.pauseSource === 'human')) invalid('任务当前不能暂停。');
   const nextPauseSource = action === 'pause' ? pauseSource : null;
 
   if (!run || run.stopConfirmed) {

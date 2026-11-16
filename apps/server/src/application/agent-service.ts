@@ -103,6 +103,7 @@ export class AgentService {
   async admit(agentId: string): Promise<Agent> {
     const agent = this.requireExecutable(agentId);
     const state = await this.modelState(agent);
+    if (this.requireExecutable(agentId).revision !== agent.revision) throw new AgentServiceError('COMMAND_STATE_MISMATCH', '执行智能体在准入期间已变化，请重新核对。');
     if (state.status === 'review') invalid(`执行智能体「${agent.name}」的模型待核对：${state.message ?? '模型当前不可用。'}请修复模型或更换智能体后再启动。`);
     return agent;
   }

@@ -91,6 +91,17 @@ export class TaskScheduler {
     if (this.stopping) return;
     this.assertOwner();
     this.execution.observeProgress();
+    // 先收集再消费，避免状态变化影响分页；慢模型准入不阻塞其他任务调度。
+    const humanResumes: string[] = [];
+    for (const status of ['paused', 'waiting'] as const) {
+      let offset: number | null = 0;
+      do {
+        const page = this.tasks.list({ status, limit: 100, offset });
+        humanResumes.push(...page.tasks.filter(task => task.humanResumeIntent).map(task => task.taskId));
+        offset = page.nextOffset;
+      } while (offset !== null);
+    }
+    for (const id of humanResumes) void this.execution.resumeAfterHuman(id);
     const queued: Task[] = [];
     let offset = 0;
     do {

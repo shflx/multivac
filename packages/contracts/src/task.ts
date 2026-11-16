@@ -64,6 +64,11 @@ export const TaskSchema = Type.Object({
   deletedAt: Type.Optional(Type.String()),
   pauseSource: Type.Optional(Type.Union([Type.Literal('user'), Type.Literal('human'), Type.Literal('budget'), Type.Literal('environment'), Type.Null()])),
   feedback: Type.Optional(Text),
+  /** 已保存人工决定后的待继续意图；后台核对后与新 Run 原子结算，回执本身不表示执行开始。 */
+  humanResumeIntent: Type.Optional(Type.Union([Type.Null(), Type.Object({
+    commandId: TaskIdSchema, requestId: TaskIdSchema, runId: NullableId,
+    boundary: Type.String({ pattern: '^[a-f0-9]{64}$' }),
+  }, { additionalProperties: false })])),
   artifactVersionId: Type.Optional(NullableId),
   executionTaskId: Type.Optional(TaskIdSchema),
   executionProgress: Type.Optional(Type.Union([Type.Literal('pending'), Type.Literal('processing'), Type.Literal('ready'), Type.Literal('paused')])),

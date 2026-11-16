@@ -202,3 +202,16 @@ test('升级迁移为既有记录及命令回执补 delegable=false，重复执�
     assert.deepEqual(repository.command('old-create')!.result, { ...old, delegable: false });
   } finally { db.close(); }
 });
+
+test('模型准入等待期间修改智能体配置，旧配置准入结果失效', async () => {
+  const store = new SqliteAssistantStore(':memory:');
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const service = new AgentService({ repository: store.agents, modelSettings: { getSnapshot: async () => { await pending; return snapshot(); } } });
+  try {
+    const admission = service.admit(DEFAULT_AGENT_ID);
+    await service.update(DEFAULT_AGENT_ID, { commandId: 'changed-during-admit', revision: 1, patch: { instructions: '新的执行要求' } });
+    release(); await assert.rejects(admission, /准入期间已变化/);
+    assert.equal((await service.admit(DEFAULT_AGENT_ID)).revision, 2);
+  } finally { release(); store.close(); }
+});
