@@ -150,6 +150,8 @@ test('Inbox 回应在调度排队后仍从已保存的请求装配短消息', { 
     app.taskScheduler.stopScheduling();
     const request = app.humanRequests.create(task.taskId, 'clarification', '日志采用哪种格式？', 'ask');
     await app.inbox.decide(request.requestId, { commandId: 'answer', revision: 1, decision: 'answer', answer: '采用 JSON 格式。' });
+    // 回应保存与后台准入已分离，先等准入完成，再核对尚未启动的队列事实。
+    await app.taskExecution.idle();
     const queued = app.tasks.get(task.taskId);
     assert.equal(queued.status, 'queued'); assert.equal(prompts(adapter).length, 1);
     app.taskExecution.startQueued(queued.currentRunId!); await app.taskExecution.idle();
