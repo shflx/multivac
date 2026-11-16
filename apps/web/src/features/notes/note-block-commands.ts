@@ -1,4 +1,5 @@
 import type { Editor } from '@tiptap/core';
+import { Fragment } from '@tiptap/pm/model';
 import { Selection, type EditorState, type Transaction } from '@tiptap/pm/state';
 import { canSplit } from '@tiptap/pm/transform';
 import { closeHistory } from '@tiptap/pm/history';
@@ -74,7 +75,12 @@ export function noteBlockTransaction(state: EditorState, markdown: NoteMarkdown,
   if (action !== 'split') {
     const content = expected.flatMap((nodes, i) => i ? [state.schema.nodes.horizontalRule!.create(), ...nodes] : nodes);
     const intended = state.schema.nodes.doc!.create(null, content.length ? content : state.schema.nodes.paragraph!.create());
-    if (!next.doc.eq(intended)) throw new Error('块边界无法无损保存');
+    if (action === 'merge') {
+      // 合并后相邻列表可以按普通 Markdown 合为一个列表；只核对未参与合并的块。
+      const merged = noteBlocks(next.doc);
+      const same = (left: number, right: number) => Fragment.fromArray(blocks[left]!.nodes.map(({ node }) => node)).eq(Fragment.fromArray(merged[right]!.nodes.map(({ node }) => node)));
+      if (merged.length !== blocks.length - 1 || blocks.some((_, i) => i < index - 1 ? !same(i, i) : i > index ? !same(i, i - 1) : false)) throw new Error('块边界无法无损保存');
+    } else if (!next.doc.eq(intended)) throw new Error('块边界无法无损保存');
   }
   if (action !== 'split') {
     // 只替换实际变化的文档范围，保留无关节点和 ProseMirror 的位置映射。

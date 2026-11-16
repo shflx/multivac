@@ -63,6 +63,19 @@ test('逐篇加密、跨窗口隔离、密文草稿恢复、讨论、换密码�
   await expect(editor(page).getByLabel('笔记标题', { exact: true })).toHaveValue(title);
   await expect.poll(() => editor(page).locator('.note-image img').evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(16);
   expect((await request.get(`${fakeApiRoot}/api/notes/${id}/images/${image.id}/content`)).status()).toBe(423);
+  // 分块显示和块事务复用同一加密草稿通道，折叠偏好不存正文。
+  await editor(page).getByRole('button', { name: '分块模式', exact: true }).click();
+  await editor(page).getByRole('button', { name: '折叠块 1', exact: true }).click();
+  await expect(editor(page).locator('.note-block-folded')).toHaveCount(1);
+  await editor(page).getByRole('button', { name: '展开块 1', exact: true }).click();
+  await editor(page).locator('.note-block-chrome').first().locator('summary').click();
+  await editor(page).getByRole('button', { name: '复制块', exact: true }).click();
+  await expect(editor(page).locator('.note-block-chrome')).toHaveCount(2);
+  await expect(editor(page).getByText('加密草稿已保存', { exact: true })).toBeVisible();
+  expect(await page.evaluate(body => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }).includes(body), body)).toBe(false);
+  await editor(page).getByRole('button', { name: '撤销正文修改', exact: true }).click();
+  await expect(editor(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
+  await editor(page).getByRole('button', { name: '分块模式', exact: true }).click();
   await replaceNoteBody(page, `未保存密文草稿-${id}`);
   await expect.poll(() => page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith('multivac:note-vault:')).length)).toBeGreaterThan(0);
   // 等待草稿包已完成最新一轮写入；浏览器持久区不应出现标题、正文或未保存输入。

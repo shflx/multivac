@@ -30,7 +30,10 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
         'Alt-ArrowDown': () => action('down'),
         Backspace: () => {
           const { selection } = this.editor.state, block = current();
-          if (!noteBlocksPlugin.getState(this.editor.state)?.enabled || !block?.index || !selection.empty || selection.from !== block.from + 1) return false;
+          if (!noteBlocksPlugin.getState(this.editor.state)?.enabled || !block?.index || !selection.empty) return false;
+          const { $from } = selection;
+          const firstChildPath = Array.from({ length: Math.max(0, $from.depth - 1) }, (_, i) => $from.index(i + 1)).every(index => index === 0);
+          if ($from.depth < 1 || $from.parentOffset !== 0 || $from.before(1) !== block.from || !firstChildPath) return false;
           return run('merge', block.index);
         },
       };
@@ -65,6 +68,13 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
         }),
         props: {
           handleDOMEvents: {
+            pointerover: (view, event) => {
+              const target = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-note-block], .note-block-chrome') : null;
+              const index = target?.dataset.noteBlock ?? target?.dataset.block;
+              for (const chrome of view.dom.querySelectorAll<HTMLElement>('.note-block-chrome')) chrome.toggleAttribute('data-hovered', chrome.dataset.block === index);
+              return false;
+            },
+            pointerleave: view => { for (const chrome of view.dom.querySelectorAll('.note-block-chrome')) chrome.removeAttribute('data-hovered'); return false; },
             beforematch: (view, event) => {
               const element = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-note-block]') : null;
               if (element) view.dispatch(view.state.tr.setMeta('note-block-unfold', Number(element.dataset.noteBlock)).setMeta('addToHistory', false));
@@ -86,7 +96,7 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
               decorations.push(Decoration.widget(block.from, view => {
                 const chrome = document.createElement('span'); chrome.className = 'note-block-chrome'; chrome.contentEditable = 'false';
                 chrome.dataset.block = String(block.index);
-                const menu = document.createElement('details'); menu.className = 'note-block-menu';
+                const menu = document.createElement('details'); menu.className = 'note-block-menu'; menu.name = `note-block-menu-${noteId}`;
                 const trigger = document.createElement('summary'); trigger.addEventListener('mousedown', event => event.preventDefault()); trigger.textContent = '···'; trigger.setAttribute('aria-label', `块 ${block.index + 1} 操作`);
                 const items = document.createElement('span'); items.className = 'note-block-menu-items'; items.setAttribute('role', 'group'); items.setAttribute('aria-label', '块操作');
                 const actions: [NoteBlockAction, string][] = [['insert', '在下方插入块'], ['split', '在光标处拆分'], ['merge', '与上一块合并'], ['up', '上移'], ['down', '下移'], ['copy', '复制块'], ['delete', '删除块']];
@@ -112,7 +122,7 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
                 button.addEventListener('mousedown', event => event.preventDefault()); button.addEventListener('click', () => run('insert', block.index)); gap.append(button); return gap;
               }, { side: -1, stopEvent: () => true }));
               if (folded) decorations.push(Decoration.widget(block.from, () => {
-                const summary = document.createElement('button'); summary.type = 'button'; summary.className = 'note-block-folded';
+                const summary = document.createElement('button'); summary.type = 'button'; summary.className = 'note-block-folded'; summary.dataset.noteBlock = String(block.index);
                 const first = document.createElement('span'); first.className = 'note-block-preview'; first.textContent = preview.first;
                 const rest = document.createElement('small'); rest.textContent = `已折叠 · 还有 ${preview.remaining} 行`;
                 summary.append(first, rest); summary.setAttribute('aria-label', `展开块 ${block.index + 1}：${preview.first}`);

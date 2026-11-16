@@ -292,3 +292,7 @@
 .note-block-folded small { display: block; color: var(--faint); font-size: 12px; }
 .note-rich-editor > .note-block-hidden[hidden] { content-visibility: hidden; height: 0; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; }
 @media (pointer: coarse) { .note-block-fold { left: -24px; top: 16px; } }
+
+.note-format-tools .note-block-toggle { width: auto; display: inline-flex; align-items: center; gap: 5px; padding-inline: 8px; white-space: nowrap; font-size: 12px; }
+
+.note-block-chrome[data-hovered] summary, .note-block-chrome[data-hovered] .note-block-drag { opacity: 1; }

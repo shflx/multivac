@@ -26,9 +26,8 @@ export class NoteBlockDrag {
     const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
     if (at === undefined) return false;
     const block = blocks.find(block => at >= block.from && at <= block.to) ?? blocks.find(block => at < block.from) ?? blocks.at(-1)!;
-    const first = view.dom.querySelector<HTMLElement>(`[data-note-block="${block.index}"]`);
-    const all = view.dom.querySelectorAll<HTMLElement>(`[data-note-block="${block.index}"]`);
-    const last = all.item(all.length - 1);
+    const visible = [...view.dom.querySelectorAll<HTMLElement>(`[data-note-block="${block.index}"]`)].filter(element => element.getBoundingClientRect().height > 0);
+    const first = visible[0], last = visible.at(-1);
     if (!first || !last) return false;
     const top = first.getBoundingClientRect(), bottom = last.getBoundingClientRect();
     const after = event.clientY >= (top.top + bottom.bottom) / 2;

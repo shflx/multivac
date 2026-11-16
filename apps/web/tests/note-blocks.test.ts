@@ -24,8 +24,8 @@ test('本机模式按笔记隔离并在删除时清理', () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (key: string) => values.get(key) ?? null, removeItem: (key: string) => values.delete(key) } });
   try {
-    values.set(noteBlocksKey('a'), 'true'); values.set(noteBlocksKey('b'), 'false');
+    values.set(noteBlocksKey('a'), 'true'); values.set(`${noteBlocksKey('a')}.folded`, '["0:123"]'); values.set(noteBlocksKey('b'), 'false');
     assert.equal(loadNoteBlocks('a'), true); assert.equal(loadNoteBlocks('b'), false);
-    clearNoteBlocks('a'); assert.equal(loadNoteBlocks('a'), false); assert.equal(values.get(noteBlocksKey('b')), 'false');
+    clearNoteBlocks('a'); assert.equal(values.has(`${noteBlocksKey('a')}.folded`), false); assert.equal(loadNoteBlocks('a'), false); assert.equal(values.get(noteBlocksKey('b')), 'false');
   } finally { if (previous) Object.defineProperty(globalThis, 'localStorage', previous); else Reflect.deleteProperty(globalThis, 'localStorage'); }
 });

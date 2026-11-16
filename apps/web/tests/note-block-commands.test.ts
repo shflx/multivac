@@ -63,7 +63,7 @@ test('单块删除清空内容，边界空块也可复制、移动和删除', ()
   }
 });
 test('块事务仍受正文长度限制，上传占位存在时暂停整理', () => {
-  const ctx = setup('a'.repeat(110000));
+  const ctx = setup('a'.repeat(60000));
   const tr = noteBlockTransaction(ctx.state, ctx.markdown, 'copy', 0, serialize)!;
   const result = prepareNoteEdit(ctx.markdown, tr.doc, serialize, noteBlockTransactionSource(tr));
   assert.equal(result.ok, false);
@@ -91,4 +91,15 @@ test('未闭合围栏吞掉目标边界时拒绝操作，保留原文', () => {
     assert.throws(() => noteBlockTransaction(ctx.state, ctx.markdown, action, index, serialize), /无损/);
     assert.equal(ctx.markdown.source, source);
   }
+});
+
+test('合并相邻列表沿用普通 Markdown 语义，其余块原文不变', () => {
+  const original = '- 甲\n\n---\n\n- 乙\n\n---\n\n末块 _原文_。 \n';
+  const ctx = setup(original);
+  ctx.apply(noteBlockTransaction(ctx.state, ctx.markdown, 'merge', 1, serialize)!);
+  assert.equal(noteBlocks(ctx.state.doc).length, 2);
+  assert.equal(ctx.state.doc.firstChild!.type.name, 'bulletList');
+  assert.equal(ctx.state.doc.firstChild!.childCount, 2);
+  assert.ok(ctx.markdown.source.endsWith('末块 _原文_。 \n'));
+  assert.ok(undo(ctx.state, ctx.apply)); assert.equal(ctx.markdown.source, original);
 });
