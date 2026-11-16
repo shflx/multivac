@@ -50,6 +50,7 @@ import { TaskToolLifecycle } from './task-tool-lifecycle.js';
 import type { ExecutionDiagnostics } from '../../application/execution-diagnostics.js';
 import { observedModelRuntime } from './observed-model-runtime.js';
 import { usageModelRuntime } from './usage-model-runtime.js';
+import { retryGatewayTransientErrors } from './gateway-retryable-errors.js';
 import type { ModelUsageRecorder } from '../../modules/usage/model-usage.js';
 import {
   equalModelEndpoints,
@@ -719,6 +720,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         ...(customTools.length ? { customTools } : {}),
       });
       createdAgentSession = result.session;
+      retryGatewayTransientErrors(result.session);
       if (input.executionDiagnostics && input.assistantSessionId) {
         const diagnostics = input.executionDiagnostics, sessionId = input.assistantSessionId;
         unsubscribeExecutionDiagnostics = result.session.subscribe(event => diagnostics.agentEvent(sessionId, event as unknown as { type: string; [key: string]: unknown }));
