@@ -238,7 +238,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
           <div className="note-document-meta"><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
         </header>
         <div className="note-writing-surface" onPointerDown={selectionToolbar.onPointerDown} onKeyDown={selectionToolbar.onEditorKeyDown}>
-          <NoteRichText noteId={initial.id} active={active} imageInputRef={imageInput} onUploadsChange={uploadsChanged} body={draft.body} disabled={securing || deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={error => dispatchError({ type: 'edit-error', error })} onChange={body => {
+          <NoteRichText blocksDisabled={busy || securing || deleting || !!pendingDeletion} noteId={initial.id} active={active} imageInputRef={imageInput} onUploadsChange={uploadsChanged} body={draft.body} disabled={securing || deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={error => dispatchError({ type: 'edit-error', error })} onChange={body => {
             dispatchError({ type: 'edit-accepted' }); dismissedSelection.current = null; put({ ...current.current, body, edit: current.current.edit + 1 }); setSelection(null);
           }} onSelection={picked => {
             const dismissed = dismissedSelection.current;

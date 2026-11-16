@@ -265,3 +265,17 @@
 .note-rich-editor > hr.note-block-boundary { height: 22px; margin: 0; border: 0; background: transparent; }
 .note-block-empty { display: block; width: 100%; min-height: 52px; padding: 12px 22px; border: 1px dashed var(--line-strong); border-radius: 12px; background: transparent; color: var(--faint); text-align: left; font: inherit; cursor: text; }
 .note-rich-editor:has(.note-block-node)::before { display: none; }
+
+.note-block-chrome { display: block; height: 0; position: relative; z-index: 2; white-space: normal; user-select: none; }
+.note-block-menu { position: absolute; top: 10px; right: 10px; font-size: 13px; line-height: 1.4; }
+.note-block-menu > summary { width: 26px; height: 26px; display: grid; place-items: center; list-style: none; border-radius: 6px; cursor: pointer; color: var(--muted); background: var(--surface); opacity: 0; }
+.note-block-menu > summary::-webkit-details-marker { display: none; }
+.note-block-chrome:has(+ .note-block-node:hover) summary, .note-block-chrome:has(+ .note-block-focused) summary, .note-block-chrome:hover summary, .note-block-chrome:focus-within summary, .note-block-menu[open] summary { opacity: 1; }
+.note-block-menu-items { display: flex; flex-direction: column; position: absolute; top: 30px; right: 0; width: 180px; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
+.note-block-menu-items button { padding: 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.note-block-menu-items button:hover { background: var(--surface-subtle); }
+.note-block-menu-items button:disabled { opacity: .4; cursor: default; }
+.note-block-insert { display: block; height: 0; position: relative; text-align: center; user-select: none; }
+.note-block-insert button { position: absolute; top: 0; left: 50%; transform: translateX(-50%); height: 22px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--muted); font-size: 12px; white-space: nowrap; opacity: 0; cursor: pointer; z-index: 1; }
+.note-block-insert:hover button, .note-block-insert:focus-within button, .note-block-insert button:hover { opacity: 1; }
+@media (hover: none) { .note-block-menu > summary { opacity: 1; } }

@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
 import { Extension, type JSONContent } from '@tiptap/core';
+import { noteBlockTransactionSource } from './note-block-source-step.js';
+import { runNoteBlockAction } from './note-block-commands.js';
 import { noteBlockExtension, noteBlocksPlugin, toggleNoteBlocks } from './note-block-extension.js';
 import { NoteImageUploads } from './note-image-uploads.js';
 import { noteWithoutUploads, noteUploadCount, notePositionWithoutUploads } from './note-image-editing.js';
@@ -13,19 +15,22 @@ import type { NoteSelection } from '@multivac/contracts';
 import { prepareNoteEdit, type NoteEditError } from './note-edit-protection.js';
 import { parseNoteMarkdown, updateNoteMarkdown, noteMarkdownSelection, type NoteMarkdown } from './note-markdown.js';
 
-export function NoteRichText({ noteId, body, disabled, active = true, elementRef, imageInputRef, onUploadsChange, onReady, onChange, onSelection, onError, previewRoot }: {
-  noteId: string; body: string; disabled: boolean; active?: boolean; elementRef: RefObject<HTMLDivElement | null>;
+export function NoteRichText({ noteId, body, disabled, blocksDisabled = disabled, active = true, elementRef, imageInputRef, onUploadsChange, onReady, onChange, onSelection, onError, previewRoot }: {
+  noteId: string; body: string; disabled: boolean; blocksDisabled?: boolean; active?: boolean; elementRef: RefObject<HTMLDivElement | null>;
   imageInputRef?: RefObject<((files: File[]) => void) | null>; onUploadsChange?(count: number): void; previewRoot?: HTMLElement | null;
   onReady(editor: Editor | null): void; onChange(body: string): void; onSelection(selection: NoteSelection | null): void; onError(error: NoteEditError): void;
 }) {
-  const props = useRef({ body, disabled, onChange, onSelection, onError, onUploadsChange });
-  props.current = { body, disabled, onChange, onSelection, onError, onUploadsChange };
+  const props = useRef({ body, disabled, blocksDisabled, onChange, onSelection, onError, onUploadsChange });
+  props.current = { body, disabled, blocksDisabled, onChange, onSelection, onError, onUploadsChange };
   const [preview, setPreview] = useState<ImageSource | null>(null);
   const [images] = useState(() => new NoteImageUploads(noteId, () => !props.current.disabled, setPreview, message => props.current.onError({ kind: 'image', message })));
   const source = useRef<NoteMarkdown | null>(null);
   const pending = useRef(new WeakMap<Transaction, NoteMarkdown>());
-  const editor = useEditor({
-    extensions: [...images.extensions(), noteBlockExtension(noteId), Extension.create({
+  const editor: Editor | null = useEditor({
+    extensions: [...images.extensions(), noteBlockExtension(noteId, (action, index) => {
+      try { return runNoteBlockAction(editor!, source.current, action, index, props.current.blocksDisabled); }
+      catch { props.current.onError({ kind: 'conversion', message: '该块边界无法无损保存为 Markdown，本次操作未写入。请先检查代码围栏或相邻列表。' }); return false; }
+    }, () => props.current.blocksDisabled), Extension.create({
       name: 'noteSourceProtection',
       addKeyboardShortcuts() {
         const collapse = (end: boolean) => {
@@ -47,7 +52,9 @@ export function NoteRichText({ noteId, body, disabled, active = true, elementRef
           filterTransaction(transaction) {
             if (!transaction.docChanged || !source.current) return true;
             if (props.current.disabled) return false;
-            const pasted = transaction.getMeta('note-markdown-paste') as NoteMarkdown | undefined;
+            const blockSource = noteBlockTransactionSource(transaction);
+            const pasted = blockSource ?? transaction.getMeta('note-markdown-paste') as NoteMarkdown | undefined;
+            if (blockSource && !blockSource.doc.eq(noteWithoutUploads(transaction.doc))) { props.current.onError({ kind: 'conversion', message: '块内容无法无损转换，本次操作未写入。' }); return false; }
             const result = prepareNoteEdit(source.current, noteWithoutUploads(transaction.doc), content => owner.markdown!.serialize(content), pasted);
             if (!result.ok) { props.current.onError(result.error); return false; }
             pending.current.set(transaction, result.markdown);
@@ -86,6 +93,15 @@ export function NoteRichText({ noteId, body, disabled, active = true, elementRef
         return true;
       },
     },
+    onTransaction({ editor, transaction }) {
+      // 不同 Markdown 写法可解析成相同节点；Tiptap 不为这种原文变化触发 onUpdate。
+      const next = pending.current.get(transaction);
+      if (next && noteBlockTransactionSource(transaction) && source.current?.doc.eq(next.doc) && next.source !== source.current.source) {
+        source.current = next; props.current.onChange(next.source);
+        const { from, to } = editor.state.selection;
+        props.current.onSelection(noteMarkdownSelection(next, from, to));
+      }
+    },
     onUpdate({ editor, transaction, appendedTransactions }) {
       const doc = noteWithoutUploads(editor.state.doc);
       const applied = [transaction, ...appendedTransactions].map(item => pending.current.get(item)).findLast(item => item?.doc.eq(doc));
@@ -119,7 +135,7 @@ export function NoteRichText({ noteId, body, disabled, active = true, elementRef
     onReady(editor);
     return () => { images.dispose(); if (imageInputRef) imageInputRef.current = null; elementRef.current = null; onReady(null); };
   }, [editor, elementRef, onReady, images, imageInputRef]);
-  useLayoutEffect(() => { if (editor) { editor.setEditable(!disabled, false); editor.view.dispatch(editor.state.tr.setMeta('addToHistory', false)); } }, [editor, disabled]);
+  useLayoutEffect(() => { if (editor) { editor.setEditable(!disabled, false); editor.view.dispatch(editor.state.tr.setMeta('addToHistory', false)); } }, [editor, disabled, blocksDisabled]);
   useLayoutEffect(() => { if (!active) setPreview(null); }, [active]);
   return <><EditorContent editor={editor} />{preview && active && <ImagePreview sources={[preview]} start={0} close={() => setPreview(null)} portalRoot={previewRoot ?? null} />}</>;
 }
