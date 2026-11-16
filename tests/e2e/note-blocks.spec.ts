@@ -51,6 +51,7 @@ test('分块开关不改正文，各笔记切换刷新保持，空块和嵌套�
   await choose(page, b.title); await expect(current(page).getByRole('button', { name: '分块模式' })).toHaveAttribute('aria-pressed', 'false');
   await choose(page, a.title); await expect(current(page).getByRole('button', { name: '分块模式' })).toHaveAttribute('aria-pressed', 'true');
   await openNotes(page); await expect(current(page).locator('.note-block-chrome')).toHaveCount(4);
+  await expect(current(page).getByRole('button', { name: '分块模式', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await current(page).locator('.note-block-empty').first().click();
   await expect.poll(() => source(page)).toContain('&nbsp;'); await undo(page);
   await expect.poll(() => source(page)).toBe(original);
@@ -118,7 +119,7 @@ test('真实鼠标拖动第 3 块到第 1 块前，一次撤销，图片文件�
   expect((await upload).ok()).toBeTruthy(); await expect.poll(() => source(page)).toContain('note-image:');
 });
 
-test('本机折叠刷新保持，光标、首行编辑、查找进入时展开，正文不变', async ({ page, request }) => {
+test('本机折叠刷新保持，光标、首行编辑、查找进入时展开，正文不变', async ({ page, request }, testInfo) => {
   const original = '# 背景\n\n首段说明。\n\n---\n\n第二块首行\n第二行\n\n还有第三行\n\n---\n\n末块';
   const a = await create(request, original); await openNotes(page); await choose(page, a.title);
   await current(page).getByRole('button', { name: '分块模式' }).click();
@@ -126,7 +127,7 @@ test('本机折叠刷新保持，光标、首行编辑、查找进入时展开�
   await expect(current(page).locator('.note-block-folded')).toContainText('还有 2 行');
   await expect(current(page).getByRole('button', { name: '已保存', exact: true })).toBeVisible();
   await openNotes(page); await expect(current(page).locator('.note-block-folded')).toHaveCount(1);
-  await page.screenshot({ path: 'artifacts/blocks-desktop.png', animations: 'disabled' });
+  await page.screenshot({ path: testInfo.outputPath('blocks-desktop.png'), animations: 'disabled' });
   await setCursor(page, 1); await expect(current(page).locator('.note-block-folded')).toHaveCount(0);
   await current(page).getByRole('button', { name: '折叠块 2', exact: true }).click();
   await current(page).locator('[hidden="until-found"]').first().dispatchEvent('beforematch', { bubbles: true });
@@ -151,7 +152,7 @@ test('触屏通过菜单排序，禁编辑仍阻止块命令', async ({ browser,
   await noteBody(page).evaluate(element => { (element as HTMLElement & { editor: Editor }).editor.setEditable(false); });
   await current(page).locator('.note-block-chrome').first().locator('summary').click();
   await expect(current(page).locator('.note-block-menu[open]').getByRole('button', { name: '复制块', exact: true })).toBeDisabled();
-  await page.screenshot({ path: 'artifacts/blocks-touch.png', animations: 'disabled' }); await context.close();
+  await page.screenshot({ path: testInfo.outputPath('blocks-touch.png'), animations: 'disabled' }); await context.close();
 });
 
 test('相同文档节点仍移动原 Markdown，嵌套块首 Backspace 合并，历史保持普通只读', async ({ page, request }) => {
@@ -188,4 +189,3 @@ test('分块模式中的选区引用仍使用原 Markdown 的 UTF-16 偏移', as
   expect(snapshot.selection).toEqual({ start: original.indexOf('粗体'), end: original.indexOf('粗体') + 4, text: '粗体🙂' });
   expect((await saved(request, a.id)).body).toBe(original);
 });
-
