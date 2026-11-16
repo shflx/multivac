@@ -9,6 +9,26 @@ import { loadNoteBlocks, noteBlocks, noteBlocksKey } from './note-blocks.js';
 interface BlockDisplay { enabled: boolean; folded: Set<string> }
 // 控件消费按钮交互；拖放仍交给编辑器处理块排序和图片上传。
 const stopBlockControlEvent = (event: Event) => !['dragover', 'drop', 'dragend'].includes(event.type);
+
+/** 菜单在正文滚动区内选择空间较充足的一侧，长菜单自身滚动。 */
+function fitBlockMenu(trigger: HTMLElement, items: HTMLElement) {
+  const regions = ['.note-document-scroll', '.notes-detail'].map(selector => trigger.closest(selector)?.getBoundingClientRect());
+  const top = Math.max(0, ...regions.map(rect => rect?.top ?? 0)) + 8;
+  const bottom = Math.min(window.innerHeight, ...regions.map(rect => rect?.bottom ?? window.innerHeight)) - 8;
+  const anchor = trigger.getBoundingClientRect();
+  const below = Math.max(0, bottom - anchor.bottom - 4), above = Math.max(0, anchor.top - top - 4);
+  const upward = below < items.scrollHeight && above > below;
+  const height = Math.min(items.scrollHeight + 2, upward ? above : below);
+  // 浮层脱离正文滚动溢出，按实际 fixed 包含块原点换算坐标，不随容器样式猜测偏移。
+  items.style.position = 'fixed';
+  items.style.top = '0'; items.style.left = '0';
+  items.style.right = 'auto'; items.style.bottom = 'auto';
+  const origin = items.getBoundingClientRect();
+  items.style.top = `${(upward ? anchor.top - 4 - height : anchor.bottom + 4) - origin.top}px`;
+  items.style.left = `${Math.max(8, Math.min(anchor.right - origin.width, window.innerWidth - origin.width - 8)) - origin.left}px`;
+  items.style.maxHeight = `${height}px`;
+  items.style.overflowY = 'auto';
+}
 export const noteBlocksPlugin = new PluginKey<BlockDisplay>('noteBlocks');
 export function toggleNoteBlocks(editor: Editor, noteId: string): boolean {
   const enabled = !noteBlocksPlugin.getState(editor.state)?.enabled;
@@ -62,14 +82,28 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
             return { enabled: typeof mode === 'boolean' ? mode : display.enabled, folded };
           },
         },
-        view: () => ({
-          update(view, previous) {
-            if (noteBlocksPlugin.getState(previous)?.folded === noteBlocksPlugin.getState(view.state)?.folded) return;
-            try { localStorage.setItem(noteBlockFoldsKey(noteId), JSON.stringify([...noteBlocksPlugin.getState(view.state)!.folded])); }
-            catch { preferenceError('折叠显示已更新，但本机折叠设置未能保存。'); }
-          },
-          destroy: () => drag.clear(),
-        }),
+        view: view => {
+          const refit = () => {
+            for (const menu of view.dom.querySelectorAll<HTMLDetailsElement>('.note-block-menu[open]')) {
+              fitBlockMenu(menu.querySelector('summary')!, menu.querySelector<HTMLElement>('.note-block-menu-items')!);
+            }
+          };
+          const document = view.dom.ownerDocument;
+          document.addEventListener('scroll', refit, true);
+          window.addEventListener('resize', refit);
+          return {
+            update(view, previous) {
+              if (noteBlocksPlugin.getState(previous)?.folded === noteBlocksPlugin.getState(view.state)?.folded) return;
+              try { localStorage.setItem(noteBlockFoldsKey(noteId), JSON.stringify([...noteBlocksPlugin.getState(view.state)!.folded])); }
+              catch { preferenceError('折叠显示已更新，但本机折叠设置未能保存。'); }
+            },
+            destroy: () => {
+              drag.clear();
+              document.removeEventListener('scroll', refit, true);
+              window.removeEventListener('resize', refit);
+            },
+          };
+        },
         props: {
           handleDOMEvents: {
             pointerover: (view, event) => {
@@ -101,7 +135,9 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
                 const chrome = document.createElement('span'); chrome.className = 'note-block-chrome'; chrome.contentEditable = 'false';
                 chrome.dataset.block = String(block.index);
                 const menu = document.createElement('details'); menu.className = 'note-block-menu'; menu.name = `note-block-menu-${noteId}`;
-                const trigger = document.createElement('summary'); trigger.addEventListener('mousedown', event => event.preventDefault()); trigger.textContent = '···'; trigger.setAttribute('aria-label', `块 ${block.index + 1} 操作`);
+                const trigger = document.createElement('summary'); trigger.addEventListener('mousedown', event => event.preventDefault()); trigger.textContent = '···'; trigger.title = '块操作'; trigger.setAttribute('aria-label', `块 ${block.index + 1} 操作`);
+                // 保留正文选区，同时让 Escape 和 Tab 从实际打开的菜单开始。
+                trigger.addEventListener('click', () => trigger.focus({ preventScroll: true }));
                 const items = document.createElement('span'); items.className = 'note-block-menu-items'; items.setAttribute('role', 'group'); items.setAttribute('aria-label', '块操作');
                 const actions: [NoteBlockAction, string][] = [['insert', '在下方插入块'], ['split', '在光标处拆分'], ['merge', '与上一块合并'], ['up', '上移'], ['down', '下移'], ['copy', '复制块'], ['delete', '删除块']];
                 for (const [action, label] of actions) {
@@ -111,11 +147,12 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
                   button.addEventListener('click', () => { menu.open = false; run(action, block.index); });
                   items.append(button);
                 }
+                menu.addEventListener('toggle', () => { if (menu.open) fitBlockMenu(trigger, items); });
                 menu.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); menu.open = false; trigger.focus(); } });
                 const handle = document.createElement('button'); handle.type = 'button'; handle.className = 'note-block-drag'; handle.textContent = '⠿'; handle.setAttribute('aria-label', `拖动块 ${block.index + 1}`); handle.title = '拖动排序；也可用菜单上移、下移'; handle.draggable = true; handle.disabled = !view.editable || blocked();
                 handle.addEventListener('dragstart', event => drag.start(view, block.index, event));
                 handle.addEventListener('dragend', () => drag.clear());
-                const fold = document.createElement('button'); fold.type = 'button'; fold.className = 'note-block-fold'; fold.textContent = folded ? '›' : '⌄'; fold.setAttribute('aria-label', `${folded ? '展开' : '折叠'}块 ${block.index + 1}`); fold.setAttribute('aria-expanded', String(!folded)); fold.disabled = !block.nodes.length;
+                const fold = document.createElement('button'); fold.type = 'button'; fold.className = 'note-block-fold'; fold.textContent = folded ? '›' : '⌄'; fold.setAttribute('aria-label', `${folded ? '展开' : '折叠'}块 ${block.index + 1}`); fold.setAttribute('aria-expanded', String(!folded)); fold.title = folded ? '展开块' : '折叠块'; fold.disabled = !block.nodes.length;
                 fold.addEventListener('mousedown', event => event.preventDefault());
                 fold.addEventListener('click', () => { view.dispatch(view.state.tr.setMeta('note-block-fold', preview.key).setMeta('addToHistory', false)); });
                 menu.append(trigger, items); chrome.append(handle, fold, menu); return chrome;

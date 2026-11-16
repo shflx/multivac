@@ -95,6 +95,20 @@ test('真实拖动到开头空块可以排序并一次撤销', async ({ page }, 
   await expect(current(page).locator('.note-block-first').first()).toHaveText('甲');
 });
 
+test('鼠标打开块菜单后可用 Escape 关闭并从触发器用键盘继续操作', async ({ page }) => {
+  await create(page, '甲\n\n---\n\n乙');
+  const trigger = current(page).getByLabel('块 2 操作', { exact: true });
+  await trigger.click(); await expect(trigger).toBeFocused();
+  const menu = current(page).getByRole('group', { name: '块操作', exact: true });
+  await page.keyboard.press('Escape'); await expect(menu).toBeHidden();
+  await expect(trigger).toBeFocused(); await page.keyboard.press('Enter');
+  await expect(menu).toBeVisible(); await page.keyboard.press('Tab');
+  await expect(menu.getByRole('button', { name: '在下方插入块', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter'); await expect(current(page).locator('.note-block-chrome')).toHaveCount(3);
+  await current(page).getByRole('button', { name: '撤销正文修改', exact: true }).click();
+  await expect(current(page).locator('.note-block-chrome')).toHaveCount(2);
+});
+
 for (const folded of [true, false]) {
   test(`原生文件拖放到${folded ? '折叠卡片' : '空块'}仍上传图片`, async ({ page }, info) => {
     await create(page, folded ? '甲\n\n---\n\n乙' : '---\n\n甲');
@@ -116,3 +130,24 @@ for (const folded of [true, false]) {
     await page.screenshot({ path: info.outputPath('native-file-uploaded.png') });
   });
 }
+
+test('长文末块折叠后的操作菜单不会被正文滚动区裁剪', async ({ page }, info) => {
+  await create(page, Array.from({ length: 31 }, (_, i) => `## 甲：第 ${i + 1} 块\n\n${'长正文与换行布局。'.repeat(12)}`).join('\n\n---\n\n'));
+  await body(page).getByText('甲：第 31 块', { exact: true }).click(); await page.mouse.wheel(0, 10000);
+  await current(page).getByRole('button', { name: '折叠块 31', exact: true }).click();
+  await current(page).getByLabel('块 31 操作', { exact: true }).click();
+  const menu = current(page).getByRole('group', { name: '块操作', exact: true });
+  const remove = menu.getByRole('button', { name: '删除块', exact: true });
+  const field = await body(page).boundingBox();
+  await page.mouse.move(field!.x + 30, 200); await page.mouse.wheel(0, -80);
+  await expect.poll(() => menu.evaluate(element => [element.firstElementChild!, element.lastElementChild!].every(button => {
+    const rect = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+  }))).toBe(true);
+  await expect.poll(async () => {
+    const popup = (await menu.boundingBox())!, trigger = (await current(page).getByLabel('块 31 操作', { exact: true }).boundingBox())!;
+    return Math.abs(popup.x + popup.width - trigger.x - trigger.width);
+  }).toBeLessThan(2);
+  await page.screenshot({ path: info.outputPath('last-block-menu.png') });
+  await page.keyboard.press('Escape');
+  await expect(remove).toBeHidden();
+});
