@@ -27,8 +27,8 @@ export function NoteRichText({ noteId, body, disabled, blocksDisabled = disabled
   const source = useRef<NoteMarkdown | null>(null);
   const pending = useRef(new WeakMap<Transaction, NoteMarkdown>());
   const editor: Editor | null = useEditor({
-    extensions: [...images.extensions(), noteBlockExtension(noteId, (action, index) => {
-      try { return runNoteBlockAction(editor!, source.current, action, index, props.current.blocksDisabled); }
+    extensions: [...images.extensions(), noteBlockExtension(noteId, (action, index, destination) => {
+      try { return runNoteBlockAction(editor!, source.current, action, index, props.current.blocksDisabled, destination); }
       catch { props.current.onError({ kind: 'conversion', message: '该块边界无法无损保存为 Markdown，本次操作未写入。请先检查代码围栏或相邻列表。' }); return false; }
     }, () => props.current.blocksDisabled), Extension.create({
       name: 'noteSourceProtection',

@@ -1,6 +1,7 @@
 import { Extension, type Editor } from '@tiptap/core';
 import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
+import { NoteBlockDrag } from './note-block-drag.js';
 import type { NoteBlockAction } from './note-block-commands.js';
 import { loadNoteBlocks, noteBlocks, noteBlocksKey } from './note-blocks.js';
 
@@ -11,7 +12,7 @@ export function toggleNoteBlocks(editor: Editor, noteId: string): boolean {
   try { localStorage.setItem(noteBlocksKey(noteId), String(enabled)); return true; } catch { return false; }
 }
 
-export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction, index: number) => boolean, blocked: () => boolean) {
+export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction | 'move', index: number, destination?: number) => boolean, blocked: () => boolean) {
   return Extension.create({
     name: 'noteBlocks',
     addKeyboardShortcuts() {
@@ -33,6 +34,7 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
     },
     addProseMirrorPlugins() {
       const owner = this.editor;
+      const drag = new NoteBlockDrag(() => blocked() || !noteBlocksPlugin.getState(owner.state), (index, target) => run('move', index, target));
       let cached: { state: EditorState; blocked: boolean; decorations: DecorationSet } | undefined;
       return [new Plugin<boolean>({
         key: noteBlocksPlugin,
@@ -40,7 +42,13 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
           init: () => loadNoteBlocks(noteId),
           apply: (tr, enabled) => typeof tr.getMeta(noteBlocksPlugin) === 'boolean' ? tr.getMeta(noteBlocksPlugin) as boolean : enabled,
         },
+        view: () => ({ destroy: () => drag.clear() }),
         props: {
+          handleDOMEvents: {
+            dragover: (view, event) => drag.over(view, event),
+            drop: (view, event) => drag.drop(view, event),
+            dragend: () => { drag.clear(); return false; },
+          },
           decorations(state) {
             if (!noteBlocksPlugin.getState(state)) return DecorationSet.empty;
             const unavailable = !owner.isEditable || blocked();
@@ -63,7 +71,10 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
                   items.append(button);
                 }
                 menu.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); menu.open = false; trigger.focus(); } });
-                menu.append(trigger, items); chrome.append(menu); return chrome;
+                const handle = document.createElement('button'); handle.type = 'button'; handle.className = 'note-block-drag'; handle.textContent = '⠿'; handle.setAttribute('aria-label', `拖动块 ${block.index + 1}`); handle.title = '拖动排序；也可用菜单上移、下移'; handle.draggable = true; handle.disabled = !view.editable || blocked();
+                handle.addEventListener('dragstart', event => drag.start(view, block.index, event));
+                handle.addEventListener('dragend', () => drag.clear());
+                menu.append(trigger, items); chrome.append(handle, menu); return chrome;
               }, { side: -1, stopEvent: () => true }));
               if (block.index < blocks.length - 1) decorations.push(Decoration.widget(block.to, view => {
                 const gap = document.createElement('span'); gap.className = 'note-block-insert'; gap.contentEditable = 'false';

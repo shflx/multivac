@@ -279,3 +279,8 @@
 .note-block-insert button { position: absolute; top: 0; left: 50%; transform: translateX(-50%); height: 22px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--surface); color: var(--muted); font-size: 12px; white-space: nowrap; opacity: 0; cursor: pointer; z-index: 1; }
 .note-block-insert:hover button, .note-block-insert:focus-within button, .note-block-insert button:hover { opacity: 1; }
 @media (hover: none) { .note-block-menu > summary { opacity: 1; } }
+
+.note-block-drag { position: absolute; top: 16px; left: -29px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--faint); cursor: grab; opacity: 0; }
+.note-block-chrome:has(+ .note-block-node:hover) .note-block-drag, .note-block-chrome:has(+ .note-block-focused) .note-block-drag, .note-block-chrome:hover .note-block-drag, .note-block-drag:focus-visible { opacity: 1; }
+.note-block-drop-line { position: fixed; height: 2px; z-index: 100; border-radius: 1px; background: var(--accent); pointer-events: none; }
+@media (pointer: coarse) { .note-block-drag { display: none; } }
