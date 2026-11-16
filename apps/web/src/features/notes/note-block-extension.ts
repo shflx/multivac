@@ -3,59 +3,86 @@ import { Plugin, PluginKey, type EditorState } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { NoteBlockDrag } from './note-block-drag.js';
 import type { NoteBlockAction } from './note-block-commands.js';
+import { loadNoteBlockFolds, noteBlockFoldsKey, noteBlockPreview, reconcileNoteBlockFolds } from './note-block-folding.js';
 import { loadNoteBlocks, noteBlocks, noteBlocksKey } from './note-blocks.js';
 
-export const noteBlocksPlugin = new PluginKey<boolean>('noteBlocks');
+interface BlockDisplay { enabled: boolean; folded: Set<string> }
+export const noteBlocksPlugin = new PluginKey<BlockDisplay>('noteBlocks');
 export function toggleNoteBlocks(editor: Editor, noteId: string): boolean {
-  const enabled = !noteBlocksPlugin.getState(editor.state);
+  const enabled = !noteBlocksPlugin.getState(editor.state)?.enabled;
   editor.view.dispatch(editor.state.tr.setMeta(noteBlocksPlugin, enabled).setMeta('addToHistory', false));
   try { localStorage.setItem(noteBlocksKey(noteId), String(enabled)); return true; } catch { return false; }
 }
 
-export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction | 'move', index: number, destination?: number) => boolean, blocked: () => boolean) {
+export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction | 'move', index: number, destination?: number) => boolean, blocked: () => boolean, preferenceError: (message: string) => void) {
   return Extension.create({
     name: 'noteBlocks',
     addKeyboardShortcuts() {
       const current = () => noteBlocks(this.editor.state.doc).find(block => this.editor.state.selection.from >= block.from && this.editor.state.selection.from <= block.to);
       const action = (name: NoteBlockAction) => {
         const block = current();
-        return !!noteBlocksPlugin.getState(this.editor.state) && !!block && run(name, block.index);
+        return !!noteBlocksPlugin.getState(this.editor.state)?.enabled && !!block && run(name, block.index);
       };
       return {
+        'Mod-f': () => { if (noteBlocksPlugin.getState(this.editor.state)?.enabled) this.editor.view.dispatch(this.editor.state.tr.setMeta('note-block-unfold', 'all').setMeta('addToHistory', false)); return false; },
         'Mod-Shift-Enter': () => action('split'),
         'Alt-ArrowUp': () => action('up'),
         'Alt-ArrowDown': () => action('down'),
         Backspace: () => {
           const { selection } = this.editor.state, block = current();
-          if (!noteBlocksPlugin.getState(this.editor.state) || !block?.index || !selection.empty || selection.from !== block.from + 1) return false;
+          if (!noteBlocksPlugin.getState(this.editor.state)?.enabled || !block?.index || !selection.empty || selection.from !== block.from + 1) return false;
           return run('merge', block.index);
         },
       };
     },
     addProseMirrorPlugins() {
       const owner = this.editor;
-      const drag = new NoteBlockDrag(() => blocked() || !noteBlocksPlugin.getState(owner.state), (index, target) => run('move', index, target));
-      let cached: { state: EditorState; blocked: boolean; decorations: DecorationSet } | undefined;
-      return [new Plugin<boolean>({
+      const drag = new NoteBlockDrag(() => blocked() || !noteBlocksPlugin.getState(owner.state)?.enabled, (index, target) => run('move', index, target));
+      let cached: { state: EditorState; folded: Set<string>; blocked: boolean; decorations: DecorationSet } | undefined;
+      return [new Plugin<BlockDisplay>({
         key: noteBlocksPlugin,
         state: {
-          init: () => loadNoteBlocks(noteId),
-          apply: (tr, enabled) => typeof tr.getMeta(noteBlocksPlugin) === 'boolean' ? tr.getMeta(noteBlocksPlugin) as boolean : enabled,
+          init: (_config, state) => ({ enabled: loadNoteBlocks(noteId), folded: reconcileNoteBlockFolds(loadNoteBlockFolds(noteId), state.doc) }),
+          apply: (tr, display) => {
+            const mode = tr.getMeta(noteBlocksPlugin) as unknown;
+            let folded = display.folded;
+            const toggle = tr.getMeta('note-block-fold') as string | undefined;
+            if (toggle) { folded = new Set(folded); if (folded.has(toggle)) folded.delete(toggle); else folded.add(toggle); }
+            const unfold = tr.getMeta('note-block-unfold') as number | 'all' | undefined;
+            if (unfold === 'all') folded = new Set();
+            else if (typeof unfold === 'number') folded = new Set([...folded].filter(key => !key.startsWith(`${unfold}:`)));
+            if (tr.docChanged || tr.selectionSet) folded = reconcileNoteBlockFolds(folded, tr.doc, tr.selection);
+            return { enabled: typeof mode === 'boolean' ? mode : display.enabled, folded };
+          },
         },
-        view: () => ({ destroy: () => drag.clear() }),
+        view: () => ({
+          update(view, previous) {
+            if (noteBlocksPlugin.getState(previous)?.folded === noteBlocksPlugin.getState(view.state)?.folded) return;
+            try { localStorage.setItem(noteBlockFoldsKey(noteId), JSON.stringify([...noteBlocksPlugin.getState(view.state)!.folded])); }
+            catch { preferenceError('折叠显示已更新，但本机折叠设置未能保存。'); }
+          },
+          destroy: () => drag.clear(),
+        }),
         props: {
           handleDOMEvents: {
+            beforematch: (view, event) => {
+              const element = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-note-block]') : null;
+              if (element) view.dispatch(view.state.tr.setMeta('note-block-unfold', Number(element.dataset.noteBlock)).setMeta('addToHistory', false));
+              return false;
+            },
             dragover: (view, event) => drag.over(view, event),
             drop: (view, event) => drag.drop(view, event),
             dragend: () => { drag.clear(); return false; },
           },
           decorations(state) {
-            if (!noteBlocksPlugin.getState(state)) return DecorationSet.empty;
+            const display = noteBlocksPlugin.getState(state);
+            if (!display?.enabled) return DecorationSet.empty;
             const unavailable = !owner.isEditable || blocked();
-            if (cached && cached.state.doc === state.doc && cached.state.selection.eq(state.selection) && cached.blocked === unavailable) return cached.decorations;
+            if (cached && cached.state.doc === state.doc && cached.state.selection.eq(state.selection) && cached.blocked === unavailable && cached.folded === display.folded) return cached.decorations;
             const decorations: Decoration[] = [];
             const blocks = noteBlocks(state.doc);
             for (const block of blocks) {
+              const preview = noteBlockPreview(block), folded = display.folded.has(preview.key);
               decorations.push(Decoration.widget(block.from, view => {
                 const chrome = document.createElement('span'); chrome.className = 'note-block-chrome'; chrome.contentEditable = 'false';
                 chrome.dataset.block = String(block.index);
@@ -74,17 +101,29 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
                 const handle = document.createElement('button'); handle.type = 'button'; handle.className = 'note-block-drag'; handle.textContent = '⠿'; handle.setAttribute('aria-label', `拖动块 ${block.index + 1}`); handle.title = '拖动排序；也可用菜单上移、下移'; handle.draggable = true; handle.disabled = !view.editable || blocked();
                 handle.addEventListener('dragstart', event => drag.start(view, block.index, event));
                 handle.addEventListener('dragend', () => drag.clear());
-                menu.append(trigger, items); chrome.append(handle, menu); return chrome;
+                const fold = document.createElement('button'); fold.type = 'button'; fold.className = 'note-block-fold'; fold.textContent = folded ? '›' : '⌄'; fold.setAttribute('aria-label', `${folded ? '展开' : '折叠'}块 ${block.index + 1}`); fold.setAttribute('aria-expanded', String(!folded)); fold.disabled = !block.nodes.length;
+                fold.addEventListener('mousedown', event => event.preventDefault());
+                fold.addEventListener('click', () => { view.dispatch(view.state.tr.setMeta('note-block-fold', preview.key).setMeta('addToHistory', false)); });
+                menu.append(trigger, items); chrome.append(handle, fold, menu); return chrome;
               }, { side: -1, stopEvent: () => true }));
               if (block.index < blocks.length - 1) decorations.push(Decoration.widget(block.to, view => {
                 const gap = document.createElement('span'); gap.className = 'note-block-insert'; gap.contentEditable = 'false';
                 const button = document.createElement('button'); button.type = 'button'; button.textContent = '+ 插入块'; button.setAttribute('aria-label', `在块 ${block.index + 1} 后插入`); button.disabled = !view.editable || blocked();
                 button.addEventListener('mousedown', event => event.preventDefault()); button.addEventListener('click', () => run('insert', block.index)); gap.append(button); return gap;
               }, { side: -1, stopEvent: () => true }));
+              if (folded) decorations.push(Decoration.widget(block.from, () => {
+                const summary = document.createElement('button'); summary.type = 'button'; summary.className = 'note-block-folded';
+                const first = document.createElement('span'); first.className = 'note-block-preview'; first.textContent = preview.first;
+                const rest = document.createElement('small'); rest.textContent = `已折叠 · 还有 ${preview.remaining} 行`;
+                summary.append(first, rest); summary.setAttribute('aria-label', `展开块 ${block.index + 1}：${preview.first}`);
+                summary.addEventListener('mousedown', event => event.preventDefault());
+                summary.addEventListener('click', () => owner.view.dispatch(owner.state.tr.setMeta('note-block-unfold', block.index).setMeta('addToHistory', false)));
+                return summary;
+              }, { side: -1, stopEvent: () => true }));
               const focused = state.selection.from >= block.from && state.selection.from <= block.to;
               block.nodes.forEach(({ node, pos }, index) => decorations.push(Decoration.node(pos, pos + node.nodeSize, {
                 class: ['note-block-node', index === 0 ? 'note-block-first' : '', index === block.nodes.length - 1 ? 'note-block-last' : '', focused ? 'note-block-focused' : ''].filter(Boolean).join(' '),
-                'data-note-block': String(block.index),
+                'data-note-block': String(block.index), ...(folded ? { hidden: 'until-found', class: 'note-block-hidden' } : {}),
               })));
               if (!block.nodes.length) decorations.push(Decoration.widget(block.from, view => {
                 const placeholder = document.createElement('button');
@@ -98,7 +137,7 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
               if (block.index < blocks.length - 1) decorations.push(Decoration.node(block.to, block.to + 1, { class: 'note-block-boundary' }));
             }
             const result = DecorationSet.create(state.doc, decorations);
-            cached = { state, blocked: unavailable, decorations: result };
+            cached = { state, folded: display.folded, blocked: unavailable, decorations: result };
             return result;
           },
         },

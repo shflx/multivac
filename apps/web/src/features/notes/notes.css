@@ -284,3 +284,11 @@
 .note-block-chrome:has(+ .note-block-node:hover) .note-block-drag, .note-block-chrome:has(+ .note-block-focused) .note-block-drag, .note-block-chrome:hover .note-block-drag, .note-block-drag:focus-visible { opacity: 1; }
 .note-block-drop-line { position: fixed; height: 2px; z-index: 100; border-radius: 1px; background: var(--accent); pointer-events: none; }
 @media (pointer: coarse) { .note-block-drag { display: none; } }
+
+.note-block-fold { position: absolute; top: 41px; left: -29px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--faint); cursor: pointer; }
+.note-block-fold:disabled { opacity: .35; cursor: default; }
+.note-block-folded { box-sizing: border-box; display: block; width: 100%; padding: 18px 44px 18px 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.note-block-preview { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.note-block-folded small { display: block; color: var(--faint); font-size: 12px; }
+.note-rich-editor > .note-block-hidden[hidden] { content-visibility: hidden; height: 0; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; }
+@media (pointer: coarse) { .note-block-fold { left: -24px; top: 16px; } }

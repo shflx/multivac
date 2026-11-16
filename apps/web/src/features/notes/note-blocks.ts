@@ -21,5 +21,5 @@ export function loadNoteBlocks(noteId: string): boolean {
   try { return localStorage.getItem(noteBlocksKey(noteId)) === 'true'; } catch { return false; }
 }
 export function clearNoteBlocks(noteId: string) {
-  try { localStorage.removeItem(noteBlocksKey(noteId)); } catch { /* 删除结果仍以服务端为准。 */ }
+  try { localStorage.removeItem(noteBlocksKey(noteId)); localStorage.removeItem(`${noteBlocksKey(noteId)}.folded`); } catch { /* 删除结果仍以服务端为准。 */ }
 }

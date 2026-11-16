@@ -15,22 +15,22 @@ import type { NoteSelection } from '@multivac/contracts';
 import { prepareNoteEdit, type NoteEditError } from './note-edit-protection.js';
 import { parseNoteMarkdown, updateNoteMarkdown, noteMarkdownSelection, type NoteMarkdown } from './note-markdown.js';
 
-export function NoteRichText({ noteId, body, disabled, blocksDisabled = disabled, active = true, elementRef, imageInputRef, onUploadsChange, onReady, onChange, onSelection, onError, previewRoot }: {
-  noteId: string; body: string; disabled: boolean; blocksDisabled?: boolean; active?: boolean; elementRef: RefObject<HTMLDivElement | null>;
+export function NoteRichText({ noteId, body, disabled, blocksDisabled = disabled, blockModeAvailable = true, active = true, elementRef, imageInputRef, onUploadsChange, onReady, onChange, onSelection, onError, onPreferenceError, previewRoot }: {
+  noteId: string; body: string; disabled: boolean; blocksDisabled?: boolean; blockModeAvailable?: boolean; active?: boolean; elementRef: RefObject<HTMLDivElement | null>;
   imageInputRef?: RefObject<((files: File[]) => void) | null>; onUploadsChange?(count: number): void; previewRoot?: HTMLElement | null;
-  onReady(editor: Editor | null): void; onChange(body: string): void; onSelection(selection: NoteSelection | null): void; onError(error: NoteEditError): void;
+  onPreferenceError?(message: string): void; onReady(editor: Editor | null): void; onChange(body: string): void; onSelection(selection: NoteSelection | null): void; onError(error: NoteEditError): void;
 }) {
-  const props = useRef({ body, disabled, blocksDisabled, onChange, onSelection, onError, onUploadsChange });
-  props.current = { body, disabled, blocksDisabled, onChange, onSelection, onError, onUploadsChange };
+  const props = useRef({ body, disabled, blocksDisabled, onChange, onSelection, onError, onUploadsChange, onPreferenceError });
+  props.current = { body, disabled, blocksDisabled, onChange, onSelection, onError, onUploadsChange, onPreferenceError };
   const [preview, setPreview] = useState<ImageSource | null>(null);
   const [images] = useState(() => new NoteImageUploads(noteId, () => !props.current.disabled, setPreview, message => props.current.onError({ kind: 'image', message })));
   const source = useRef<NoteMarkdown | null>(null);
   const pending = useRef(new WeakMap<Transaction, NoteMarkdown>());
   const editor: Editor | null = useEditor({
-    extensions: [...images.extensions(), noteBlockExtension(noteId, (action, index, destination) => {
+    extensions: [...images.extensions(), ...(blockModeAvailable ? [noteBlockExtension(noteId, (action, index, destination) => {
       try { return runNoteBlockAction(editor!, source.current, action, index, props.current.blocksDisabled, destination); }
       catch { props.current.onError({ kind: 'conversion', message: '该块边界无法无损保存为 Markdown，本次操作未写入。请先检查代码围栏或相邻列表。' }); return false; }
-    }, () => props.current.blocksDisabled), Extension.create({
+    }, () => props.current.blocksDisabled, message => props.current.onPreferenceError?.(message))] : []), Extension.create({
       name: 'noteSourceProtection',
       addKeyboardShortcuts() {
         const collapse = (end: boolean) => {
@@ -140,13 +140,13 @@ export function NoteRichText({ noteId, body, disabled, blocksDisabled = disabled
   return <><EditorContent editor={editor} />{preview && active && <ImagePreview sources={[preview]} start={0} close={() => setPreview(null)} portalRoot={previewRoot ?? null} />}</>;
 }
 
-export function NoteRichTextTools({ editor, disabled = false, onImages, noteId, onPreferenceError }: { editor: Editor | null; disabled?: boolean; noteId: string; onPreferenceError(message: string): void; onImages?(files: File[]): void }) {
+export function NoteRichTextTools({ editor, disabled = false, onImages, noteId, onPreferenceError }: { editor: Editor | null; disabled?: boolean; noteId: string; onPreferenceError?(message: string): void; onImages?(files: File[]): void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const state = useEditorState({ editor, selector: ({ editor }) => editor ? {
     bold: editor.isActive('bold'), italic: editor.isActive('italic'), strike: editor.isActive('strike'), code: editor.isActive('code'),
     bullet: editor.isActive('bulletList'), ordered: editor.isActive('orderedList'), quote: editor.isActive('blockquote'),
     heading: editor.isActive('heading') ? String(editor.getAttributes('heading').level) : '0',
-    undo: editor.can().undo(), redo: editor.can().redo(), editable: editor.isEditable, blocks: !!noteBlocksPlugin.getState(editor.state),
+    undo: editor.can().undo(), redo: editor.can().redo(), editable: editor.isEditable, blocks: !!noteBlocksPlugin.getState(editor.state)?.enabled,
   } : null });
   const buttons = [
     { label: '粗体', icon: Bold, active: state?.bold, run: () => editor?.chain().focus().toggleBold().run() },
@@ -165,7 +165,7 @@ export function NoteRichTextTools({ editor, disabled = false, onImages, noteId, 
     }}><option value="0">正文</option>{[1, 2, 3, 4, 5, 6].map(level => <option key={level} value={String(level)}>标题 {level}</option>)}</select>
     {onImages && <><input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label="选择笔记图片" onChange={event => { onImages(Array.from(event.target.files ?? [])); event.target.value = ''; }} /><button type="button" aria-label="插入图片" title="插入图片" disabled={disabled || !state?.editable} onMouseDown={event => event.preventDefault()} onClick={() => fileInput.current?.click()}><ImagePlus size={15} aria-hidden="true" /></button></>}
     {buttons.map(button => <button key={button.label} type="button" aria-label={button.label} title={button.label} aria-pressed={!!button.active} disabled={disabled || !state?.editable} onMouseDown={event => event.preventDefault()} onClick={button.run}><button.icon size={15} aria-hidden="true" /></button>)}
-    <button type="button" aria-label="分块模式" title="分块模式（按顶层分割线分块，仅本笔记）" aria-pressed={!!state?.blocks} disabled={!editor} onMouseDown={event => event.preventDefault()} onClick={() => { if (editor && !toggleNoteBlocks(editor, noteId)) onPreferenceError('分块显示已切换，但本机设置未能保存。'); }}><PanelsTopLeft size={15} aria-hidden="true" /><span>分块</span></button>
+    <button type="button" aria-label="分块模式" title="分块模式（按顶层分割线分块，仅本笔记）" aria-pressed={!!state?.blocks} disabled={!editor} onMouseDown={event => event.preventDefault()} onClick={() => { if (editor && !toggleNoteBlocks(editor, noteId)) onPreferenceError?.('分块显示已切换，但本机设置未能保存。'); }}><PanelsTopLeft size={15} aria-hidden="true" /><span>分块</span></button>
     <button type="button" aria-label="撤销正文修改" title="撤销（Ctrl/⌘+Z）" disabled={disabled || !state?.editable || !state.undo} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().undo().run()}><Undo2 size={15} aria-hidden="true" /></button>
     <button type="button" aria-label="重做正文修改" title="重做" disabled={disabled || !state?.editable || !state.redo} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().redo().run()}><Redo2 size={15} aria-hidden="true" /></button>
   </div>;
