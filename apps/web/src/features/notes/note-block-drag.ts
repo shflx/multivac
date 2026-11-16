@@ -25,7 +25,9 @@ export class NoteBlockDrag {
     const blocks = noteBlocks(view.state.doc);
     const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
     if (at === undefined) return false;
-    const block = blocks.find(block => at >= block.from && at <= block.to) ?? blocks.find(block => at < block.from) ?? blocks.at(-1)!;
+    // 折叠和空块由 widget 呈现，坐标映射可能落到相邻正文，优先使用实际命中的块。
+    const element = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-note-block]') : null;
+    const block = blocks.find(block => element?.dataset.noteBlock === String(block.index)) ?? blocks.find(block => at >= block.from && at <= block.to) ?? blocks.find(block => at < block.from) ?? blocks.at(-1)!;
     const visible = [...view.dom.querySelectorAll<HTMLElement>(`[data-note-block="${block.index}"]`)].filter(element => element.getBoundingClientRect().height > 0);
     const first = visible[0], last = visible.at(-1);
     if (!first || !last) return false;

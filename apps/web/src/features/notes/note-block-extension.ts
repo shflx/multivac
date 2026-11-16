@@ -7,6 +7,8 @@ import { loadNoteBlockFolds, noteBlockFoldsKey, noteBlockPreview, reconcileNoteB
 import { loadNoteBlocks, noteBlocks, noteBlocksKey } from './note-blocks.js';
 
 interface BlockDisplay { enabled: boolean; folded: Set<string> }
+// 控件消费按钮交互；拖放仍交给编辑器处理块排序和图片上传。
+const stopBlockControlEvent = (event: Event) => !['dragover', 'drop', 'dragend'].includes(event.type);
 export const noteBlocksPlugin = new PluginKey<BlockDisplay>('noteBlocks');
 export function toggleNoteBlocks(editor: Editor, noteId: string): boolean {
   const enabled = !noteBlocksPlugin.getState(editor.state)?.enabled;
@@ -34,7 +36,9 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
           const { $from } = selection;
           const firstChildPath = Array.from({ length: Math.max(0, $from.depth - 1) }, (_, i) => $from.index(i + 1)).every(index => index === 0);
           if ($from.depth < 1 || $from.parentOffset !== 0 || $from.before(1) !== block.from || !firstChildPath) return false;
-          return run('merge', block.index);
+          // 已命中块首合并，即使保存或上传保护拒绝，也不能回退到默认删除边界。
+          run('merge', block.index);
+          return true;
         },
       };
     },
@@ -115,12 +119,12 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
                 fold.addEventListener('mousedown', event => event.preventDefault());
                 fold.addEventListener('click', () => { view.dispatch(view.state.tr.setMeta('note-block-fold', preview.key).setMeta('addToHistory', false)); });
                 menu.append(trigger, items); chrome.append(handle, fold, menu); return chrome;
-              }, { side: -1, stopEvent: () => true }));
+              }, { side: -1, stopEvent: stopBlockControlEvent }));
               if (block.index < blocks.length - 1) decorations.push(Decoration.widget(block.to, view => {
                 const gap = document.createElement('span'); gap.className = 'note-block-insert'; gap.contentEditable = 'false';
                 const button = document.createElement('button'); button.type = 'button'; button.textContent = '+ 插入块'; button.setAttribute('aria-label', `在块 ${block.index + 1} 后插入`); button.disabled = !view.editable || blocked();
                 button.addEventListener('mousedown', event => event.preventDefault()); button.addEventListener('click', () => run('insert', block.index)); gap.append(button); return gap;
-              }, { side: -1, stopEvent: () => true }));
+              }, { side: -1, stopEvent: stopBlockControlEvent }));
               if (folded) decorations.push(Decoration.widget(block.from, () => {
                 const summary = document.createElement('button'); summary.type = 'button'; summary.className = 'note-block-folded'; summary.dataset.noteBlock = String(block.index);
                 const first = document.createElement('span'); first.className = 'note-block-preview'; first.textContent = preview.first;
@@ -129,7 +133,7 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
                 summary.addEventListener('mousedown', event => event.preventDefault());
                 summary.addEventListener('click', () => owner.view.dispatch(owner.state.tr.setMeta('note-block-unfold', block.index).setMeta('addToHistory', false)));
                 return summary;
-              }, { side: -1, stopEvent: () => true }));
+              }, { side: -1, stopEvent: stopBlockControlEvent }));
               const focused = state.selection.from >= block.from && state.selection.from <= block.to;
               block.nodes.forEach(({ node, pos }, index) => decorations.push(Decoration.node(pos, pos + node.nodeSize, {
                 class: ['note-block-node', index === 0 ? 'note-block-first' : '', index === block.nodes.length - 1 ? 'note-block-last' : '', focused ? 'note-block-focused' : ''].filter(Boolean).join(' '),
@@ -143,7 +147,7 @@ export function noteBlockExtension(noteId: string, run: (action: NoteBlockAction
                 placeholder.addEventListener('mousedown', event => event.preventDefault());
                 placeholder.addEventListener('click', () => run('activate', block.index));
                 return placeholder;
-              }, { side: -1, stopEvent: () => true }));
+              }, { side: -1, stopEvent: stopBlockControlEvent }));
               if (block.index < blocks.length - 1) decorations.push(Decoration.node(block.to, block.to + 1, { class: 'note-block-boundary' }));
             }
             const result = DecorationSet.create(state.doc, decorations);
