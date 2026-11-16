@@ -20,6 +20,8 @@ import { TASK_COLUMNS, columnLabel, taskColumn, taskLabel, splitCompleted, match
 const STATUS_TONES: Partial<Record<TaskColumn, string>> = { running: 'info', waiting: 'warn', review: 'info', done: 'success' };
 const STATUS_ICONS = { idle: CircleDashed, running: LoaderCircle, waiting: CircleAlert, review: CheckCircle2, paused: Pause, done: CheckCircle2, cancelled: CircleX };
 const abnormalTask = (task: Task) => ['failed', 'recovery'].includes(task.status);
+/** 人工回应待继续时仍可保持暂停，不把慢准入当成已开始执行。 */
+const pendingHumanResume = (task: Task) => Boolean(task.humanResumeIntent && task.pauseSource === 'human' && ['paused', 'waiting'].includes(task.status));
 export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active: boolean; onOpenSession: (id: string) => void; onSelectionChange?: (id: string | null) => void }) {
   const { store, tasks: cachedTasks, panelIds, selected, total, nextOffset, loading, error, openVersion, relations } = useTasks();
   const { requests, error: requestError, store: requestStore } = useTaskRequests();
@@ -229,7 +231,7 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
   }
   const actions = (task: Task, compact = false) => {
     const pending = requests.find((request) => request.taskId === task.taskId && request.status === 'pending');
-    const canResume = task.status === 'paused' || (['waiting', 'recovery'].includes(task.status) && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed);
+    const canResume = !pendingHumanResume(task) && (task.status === 'paused' || (['waiting', 'recovery'].includes(task.status) && detail?.task.taskId === task.taskId && detail.runs?.[0]?.stopConfirmed));
     // 卡片上需要你处理的动作保留文字；常规动作只留图标，悬停或聚焦卡片时浮现。
     const button = (label: string, Icon: typeof Play, onClick: () => void, { attention = false, requiresInputs = false } = {}) => {
       const disabled = busy === task.taskId || requiresInputs && attachmentBlocks.has(task.taskId);
@@ -247,14 +249,14 @@ export function TaskPanel({ active, onOpenSession, onSelectionChange }: { active
         : canResume ? button('继续任务', Play, () => void act(task, 'resume'), { requiresInputs: true })
         // 阻塞卡片先了解卡在哪里；暂停仍可在详情里操作。
         : compact && taskColumn(task, requests) === 'waiting' ? button('查看原因', CircleAlert, () => selectTask(task), { attention: true })
-        : ['queued', 'running', 'waiting'].includes(task.status) ? button('暂停任务', Pause, () => void act(task, 'pause'))
+        : pendingHumanResume(task) || ['queued', 'running', 'waiting'].includes(task.status) ? button('暂停任务', Pause, () => void act(task, 'pause'))
         : compact ? button('查看详情', ArrowRight, () => selectTask(task)) : null}
       {!compact && canResume && !task.humanOnly && !pending && <small className="task-resume-hint">继续任务会按当前偏好补充执行额度，已有工作和历史记录保留。{task.parentTaskId && '父子任务共享补充后的额度。'}</small>}
       {!compact && task.sessionId && <button type="button" className="inline-link" aria-label={`打开任务会话：${task.title}`} onClick={() => onOpenSession(task.sessionId!)}><MessageSquare />打开任务会话</button>}
     </div>;
   };
   const management = (task: Task) => <>
-    {['queued', 'running', 'waiting'].includes(task.status) && <button type="button" disabled={busy === task.taskId} onClick={() => void act(task, 'pause')}><Pause />暂停任务</button>}
+    {(pendingHumanResume(task) || ['queued', 'running', 'waiting'].includes(task.status)) && <button type="button" disabled={busy === task.taskId} onClick={() => void act(task, 'pause')}><Pause />暂停任务</button>}
     {!['done', 'cancelled'].includes(task.status) && <button type="button" className="task-cancel-action" aria-label={`取消任务：${task.title}`} disabled={busy === task.taskId} onClick={() => void act(task, 'cancel')}><CircleX />取消任务</button>}
     <button type="button" className="task-cancel-action" title={['idle', 'paused', 'failed', 'done', 'cancelled'].includes(task.status) ? '删除任务' : '请先取消任务并等待执行停止'} aria-label={`删除任务：${task.title}`} disabled={busy === task.taskId || !['idle', 'paused', 'failed', 'done', 'cancelled'].includes(task.status)} onClick={() => void removeTask(task)}><Trash2 />删除任务</button>
   </>;
