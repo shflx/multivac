@@ -108,7 +108,7 @@ export class TaskRequestsStore {
   decideItem = async (item: InboxItem, decision: InboxDecision['decision'], effects?: McpEffect[]) => {
     if (item.human && !item.authorization && !this.inboxOnly) {
       if (decision === 'acknowledge') return;
-      await this.decide(item.human, decision); await this.refreshInbox().catch(() => undefined); return;
+      await this.decide(item.human, decision); return;
     }
     if (this.state.pending.has(item.id)) return;
     const input = { revision: item.revision, decision, answer: decision === 'acknowledge' ? '' : this.state.drafts[item.id] ?? '', ...(effects?.length ? { effects } : {}) };
@@ -119,8 +119,8 @@ export class TaskRequestsStore {
     } catch (error) {
       this.replace({ ...this.state, errors: { ...this.state.errors, [item.id]: error instanceof Error ? error.message : '决定结果未知，请核对。' } });
     } finally {
-      await this.refreshInbox().catch(() => undefined);
       this.replace({ ...this.state, pending: new Set([...this.state.pending].filter((id) => id !== item.id)) });
+      void this.refreshInbox().catch(() => undefined);
     }
   };
   /** inboxOnly：只经 Inbox 接口读取与决定，用于读不到任务请求列表的远程入口；决定仍由服务端委托原业务服务。 */
@@ -143,7 +143,11 @@ export class TaskRequestsStore {
     const existing = this.state.requests.find((item) => item.requestId === request.requestId);
     if (existing && (existing.revision > request.revision || (existing.status !== 'pending' && request.status === 'pending'))) return;
     const merged = existing?.stopConfirmed && !request.stopConfirmed ? { ...request, stopConfirmed: true } : request;
-    this.replace({ ...this.state, requests: [...this.state.requests.filter((item) => item.requestId !== request.requestId), merged] });
+    // 请求事件和决定回执直接更新当前条目，历史分页不能阻塞已确认结果。
+    const items = this.state.items.map((item) => item.human?.requestId === merged.requestId
+      && item.revision <= merged.revision && (item.status === 'pending' || merged.status !== 'pending')
+      ? { ...item, human: merged, revision: merged.revision, status: merged.status, updatedAt: merged.updatedAt } : item);
+    this.replace({ ...this.state, items, requests: [...this.state.requests.filter((item) => item.requestId !== request.requestId), merged] });
   };
   refresh = async () => {
     const read = ++this.read;
@@ -180,8 +184,11 @@ export class TaskRequestsStore {
       this.apply(result.request);
     } catch (error) {
       this.replace({ ...this.state, errors: { ...this.state.errors, [request.requestId]: error instanceof Error ? error.message : '回应未提交。' } });
-      await this.refresh().catch(() => undefined);
-    } finally { this.replace({ ...this.state, pending: new Set([...this.state.pending].filter((id) => id !== request.requestId)) }); }
+      void this.refresh().catch(() => undefined);
+    } finally {
+      this.replace({ ...this.state, pending: new Set([...this.state.pending].filter((id) => id !== request.requestId)) });
+      void this.refreshInbox().catch(() => undefined);
+    }
   };
 }
 const Context = createContext<TaskRequestsStore | null>(null);

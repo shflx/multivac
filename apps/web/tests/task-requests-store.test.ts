@@ -82,3 +82,64 @@ test('未编辑时的保存不会锁住后续输入，编辑期间远端更新�
   assert.equal(store.snapshot().drafts.conflict, '本窗口输入');
   assert.match(store.snapshot().errors.conflict!, /另一窗口/);
 });
+
+const inboxItem = (id: string): InboxItem => ({ id, kind: 'clarification', revision: 1, status: 'pending', title: '问题', createdAt: '', updatedAt: '', blocksWork: true, taskId: 'task', sessionId: null, artifactVersionId: null, human: request(id), authorization: null, state: { revision: 0, draft: '', seen: false } });
+const turn = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+for (const remote of [false, true]) test(`${remote ? '远程' : '本机'}成功回执不等待百条历史的后续分页，旧快照和刷新失败不撤回结果`, async (t) => {
+  const item = inboxItem('receipt');
+  const answered = { ...request(item.id), revision: 2, status: 'answered' as const, decision: 'answer' as const, answer: '已保存' };
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let laterPage = false;
+  t.mock.method(globalThis, 'fetch', async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') return response(remote ? { item: { ...item, revision: 2, status: 'answered', human: answered } } : { request: answered });
+    if (url.includes('offset=100')) { laterPage = true; await gate; return response({ error: { code: 'INTERNAL_ERROR', message: '历史读取失败' } }, 503); }
+    return response({ items: [item, ...Array.from({ length: 99 }, (_, i) => inboxItem(`history-${i}`))], total: 101, pendingCount: 101, unseenCount: 101, nextOffset: 100 });
+  });
+  const store = new TaskRequestsStore(remote); store.applyInbox(item);
+  let finished = false;
+  const decision = store.decideItem(item, 'answer').then(() => { finished = true; });
+  await turn();
+  assert.equal(laterPage, true);
+  assert.equal(finished, true);
+  assert.equal(store.snapshot().pending.has(item.id), false);
+  assert.equal(store.snapshot().items.find(value => value.id === item.id)?.human?.answer, '已保存');
+  assert.equal(store.snapshot().items.find(value => value.id === item.id)?.status, 'answered');
+  store.applyInbox(item);
+  assert.equal(store.snapshot().items.find(value => value.id === item.id)?.status, 'answered');
+  release(); await decision; await turn();
+  assert.equal(store.snapshot().inboxError, '历史读取失败');
+  assert.equal(store.snapshot().items.find(value => value.id === item.id)?.status, 'answered');
+});
+
+for (const remote of [false, true]) test(`${remote ? '远程' : '本机'}决定失败和响应丢失保留输入，历史挂起仍可沿用命令身份重试`, async (t) => {
+  const item = inboxItem('unknown');
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const ids: string[] = [];
+  t.mock.method(globalThis, 'fetch', async (_url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') {
+      ids.push(JSON.parse(String(init.body)).commandId);
+      if (ids.length === 1) throw new Error('响应丢失');
+      return response({ error: { code: 'TASK_CONFLICT', message: '请核对决定' } }, 409);
+    }
+    await gate;
+    return response(_url.includes('/api/inbox') ? { items: [item], total: 1, pendingCount: 1, unseenCount: 1, nextOffset: null } : { requests: [item.human], total: 1, nextOffset: null });
+  });
+  const store = new TaskRequestsStore(remote); store.applyInbox(item); store.draft(item.id, '保留输入');
+  let finished = false;
+  const first = store.decideItem(item, 'answer').then(() => { finished = true; });
+  await store.decideItem(item, 'answer');
+  await turn();
+  assert.equal(finished, true);
+  assert.equal(ids.length, 1);
+  assert.equal(store.snapshot().items[0]?.status, 'pending');
+  assert.equal(store.snapshot().drafts[item.id], '保留输入');
+  await store.decideItem(item, 'answer');
+  assert.equal(ids.length, 2); assert.equal(ids[0], ids[1]);
+  assert.equal(store.snapshot().items[0]?.status, 'pending');
+  release(); await first;
+  // 结束草稿自动保存定时器；保留模拟中的输入和错误事实。
+  await store.saveDraft(item.id);
+});
