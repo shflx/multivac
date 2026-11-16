@@ -1,3 +1,4 @@
+import { clearNoteBlocks } from './note-blocks.js';
 import { onNoteAccessChange, unlockedNote, hasNoteAccess, protectedNote, markProtected, markOrdinary, forgetNoteAccess, noteUserActivity } from '../../data/note-access.js';
 import { clearNoteVaultMemory, protectionMarker, restoreOwnOrdinaryVault } from './note-vault.js';
 import { LockedNote, convertingNotes } from './note-security.js';
@@ -59,6 +60,7 @@ export function NotesApp({ active }: { active: boolean }) {
     if (removed.current.has(id)) return;
     removed.current.add(id);
     forgetNoteAccess(id);
+    clearNoteBlocks(id);
     const next = new Map(openedRef.current); next.delete(id);
     openedRef.current = next; setOpened(next);
     setNotes(previous => previous?.filter(note => note.id !== id) ?? null);

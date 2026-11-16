@@ -1,13 +1,14 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { EditorContent, useEditor, useEditorState, type Editor } from '@tiptap/react';
 import { Extension, type JSONContent } from '@tiptap/core';
+import { noteBlockExtension, noteBlocksPlugin, toggleNoteBlocks } from './note-block-extension.js';
 import { NoteImageUploads } from './note-image-uploads.js';
 import { noteWithoutUploads, noteUploadCount, notePositionWithoutUploads } from './note-image-editing.js';
 import { ImagePreview, type ImageSource } from '../assistant/image-gallery.js';
 import { Plugin, EditorState, AllSelection, Selection } from '@tiptap/pm/state';
 import type { Transaction } from '@tiptap/pm/state';
 import { Slice } from '@tiptap/pm/model';
-import { Bold, Italic, Strikethrough, List, ListOrdered, Quote, Code, Undo2, Redo2, ImagePlus } from 'lucide-react';
+import { Bold, Italic, Strikethrough, List, ListOrdered, Quote, Code, Undo2, Redo2, ImagePlus, PanelsTopLeft } from 'lucide-react';
 import type { NoteSelection } from '@multivac/contracts';
 import { prepareNoteEdit, type NoteEditError } from './note-edit-protection.js';
 import { parseNoteMarkdown, updateNoteMarkdown, noteMarkdownSelection, type NoteMarkdown } from './note-markdown.js';
@@ -24,7 +25,7 @@ export function NoteRichText({ noteId, body, disabled, active = true, elementRef
   const source = useRef<NoteMarkdown | null>(null);
   const pending = useRef(new WeakMap<Transaction, NoteMarkdown>());
   const editor = useEditor({
-    extensions: [...images.extensions(), Extension.create({
+    extensions: [...images.extensions(), noteBlockExtension(noteId), Extension.create({
       name: 'noteSourceProtection',
       addKeyboardShortcuts() {
         const collapse = (end: boolean) => {
@@ -118,18 +119,18 @@ export function NoteRichText({ noteId, body, disabled, active = true, elementRef
     onReady(editor);
     return () => { images.dispose(); if (imageInputRef) imageInputRef.current = null; elementRef.current = null; onReady(null); };
   }, [editor, elementRef, onReady, images, imageInputRef]);
-  useLayoutEffect(() => { editor?.setEditable(!disabled, false); }, [editor, disabled]);
+  useLayoutEffect(() => { if (editor) { editor.setEditable(!disabled, false); editor.view.dispatch(editor.state.tr.setMeta('addToHistory', false)); } }, [editor, disabled]);
   useLayoutEffect(() => { if (!active) setPreview(null); }, [active]);
   return <><EditorContent editor={editor} />{preview && active && <ImagePreview sources={[preview]} start={0} close={() => setPreview(null)} portalRoot={previewRoot ?? null} />}</>;
 }
 
-export function NoteRichTextTools({ editor, disabled = false, onImages }: { editor: Editor | null; disabled?: boolean; onImages?(files: File[]): void }) {
+export function NoteRichTextTools({ editor, disabled = false, onImages, noteId, onPreferenceError }: { editor: Editor | null; disabled?: boolean; noteId: string; onPreferenceError(message: string): void; onImages?(files: File[]): void }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const state = useEditorState({ editor, selector: ({ editor }) => editor ? {
     bold: editor.isActive('bold'), italic: editor.isActive('italic'), strike: editor.isActive('strike'), code: editor.isActive('code'),
     bullet: editor.isActive('bulletList'), ordered: editor.isActive('orderedList'), quote: editor.isActive('blockquote'),
     heading: editor.isActive('heading') ? String(editor.getAttributes('heading').level) : '0',
-    undo: editor.can().undo(), redo: editor.can().redo(), editable: editor.isEditable,
+    undo: editor.can().undo(), redo: editor.can().redo(), editable: editor.isEditable, blocks: !!noteBlocksPlugin.getState(editor.state),
   } : null });
   const buttons = [
     { label: '粗体', icon: Bold, active: state?.bold, run: () => editor?.chain().focus().toggleBold().run() },
@@ -148,6 +149,7 @@ export function NoteRichTextTools({ editor, disabled = false, onImages }: { edit
     }}><option value="0">正文</option>{[1, 2, 3, 4, 5, 6].map(level => <option key={level} value={String(level)}>标题 {level}</option>)}</select>
     {onImages && <><input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden aria-label="选择笔记图片" onChange={event => { onImages(Array.from(event.target.files ?? [])); event.target.value = ''; }} /><button type="button" aria-label="插入图片" title="插入图片" disabled={disabled || !state?.editable} onMouseDown={event => event.preventDefault()} onClick={() => fileInput.current?.click()}><ImagePlus size={15} aria-hidden="true" /></button></>}
     {buttons.map(button => <button key={button.label} type="button" aria-label={button.label} title={button.label} aria-pressed={!!button.active} disabled={disabled || !state?.editable} onMouseDown={event => event.preventDefault()} onClick={button.run}><button.icon size={15} aria-hidden="true" /></button>)}
+    <button type="button" aria-label="分块模式" title="分块模式（按顶层分割线分块，仅本笔记）" aria-pressed={!!state?.blocks} disabled={!editor} onMouseDown={event => event.preventDefault()} onClick={() => { if (editor && !toggleNoteBlocks(editor, noteId)) onPreferenceError('分块显示已切换，但本机设置未能保存。'); }}><PanelsTopLeft size={15} aria-hidden="true" /><span>分块</span></button>
     <button type="button" aria-label="撤销正文修改" title="撤销（Ctrl/⌘+Z）" disabled={disabled || !state?.editable || !state.undo} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().undo().run()}><Undo2 size={15} aria-hidden="true" /></button>
     <button type="button" aria-label="重做正文修改" title="重做" disabled={disabled || !state?.editable || !state.redo} onMouseDown={event => event.preventDefault()} onClick={() => editor?.chain().focus().redo().run()}><Redo2 size={15} aria-hidden="true" /></button>
   </div>;

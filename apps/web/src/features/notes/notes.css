@@ -253,3 +253,15 @@
   .note-versions-content { grid-template-columns: 170px minmax(0, 1fr); }
   .note-version-preview { padding: 22px; }
 }
+
+/* 卡片只使用文档直属节点的装饰，Markdown 和编辑器结构保持不变。 */
+.note-rich-editor > .note-block-node { box-sizing: border-box; margin: 0; padding: 6px 22px; border-inline: 1px solid var(--line); background: var(--surface); }
+.note-rich-editor > .note-block-first { padding-top: 18px; border-top: 1px solid var(--line); border-radius: 12px 12px 0 0; }
+.note-rich-editor > .note-block-last { padding-bottom: 18px; border-bottom: 1px solid var(--line); border-radius: 0 0 12px 12px; }
+.note-rich-editor > .note-block-first.note-block-last { border-radius: 12px; }
+.note-rich-editor > .note-block-focused { border-color: var(--accent-line); }
+.note-rich-editor > :is(ul, ol).note-block-node { padding-left: 44px; }
+.note-rich-editor > blockquote.note-block-node { color: var(--muted); }
+.note-rich-editor > hr.note-block-boundary { height: 22px; margin: 0; border: 0; background: transparent; }
+.note-block-empty { display: block; width: 100%; min-height: 52px; padding: 12px 22px; border: 1px dashed var(--line-strong); border-radius: 12px; background: transparent; color: var(--faint); text-align: left; font: inherit; cursor: text; }
+.note-rich-editor:has(.note-block-node)::before { display: none; }
