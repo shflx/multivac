@@ -431,7 +431,7 @@ test('原地编辑：在“配置”小节里编辑，下方 API Key 与连接�
   const edit = page.getByRole('button', { name: '编辑', exact: true });
   await edit.click();
 
-  // 详情头保留（名称仍是已保存的），“编辑”隐藏；表单就在“配置”小节里，焦点在显示名称上。
+  // 详情头保留（名称仍是已保存的），“编辑”原位换成“取消 / 保存”；表单就在“配置”小节里，焦点在显示名称上。
   await expect(page.getByRole('heading', { name: 'GPT Fixture', level: 2 })).toBeVisible();
   await expect(edit).toHaveCount(0);
   const config = page.locator('.model-section').filter({ has: page.getByRole('heading', { name: '配置', exact: true }) });
@@ -451,13 +451,13 @@ test('原地编辑：在“配置”小节里编辑，下方 API Key 与连接�
   await expect(keySection).toContainText('正在编辑配置：保存或取消后才能配置或撤销 API Key。');
   await expect(checkSection).toContainText('正在编辑配置：保存或取消后才能检查连接。');
 
-  // 表单底部：说明 + “取消 / 保存”；没有改动时不能保存。
-  const actions = config.locator('.model-form-actions');
-  await expect(actions.locator('.model-edit-note')).toHaveText('改了提供方、协议、模型 ID 或端点，保存后需要重新检查连接。');
+  // 详情头右侧：“取消 / 保存”，编辑期间吸顶；没有改动时不能保存。改连接的影响写在端点说明里。
+  const actions = page.locator('.model-detail-heading .model-detail-actions');
+  await expect(page.locator('.model-detail-heading')).toHaveClass(/editing/);
   await expect(actions.getByRole('button')).toHaveText(['取消', '保存']);
   const save = actions.getByRole('button', { name: '保存' });
   await expect(save).toBeDisabled();
-  expect((await actions.boundingBox())!.y).toBeLessThan((await keySection.boundingBox())!.y);
+  await expect(config).toContainText('改了提供方、协议、模型 ID 或端点，保存后需要重新检查连接。');
 
   // 推理能力：分段单选，按目录判断时如实写来源；方向键切换并选中，只有选中项在 Tab 序列里。
   const reasoning = page.getByRole('radiogroup', { name: '推理能力' });
@@ -470,35 +470,33 @@ test('原地编辑：在“配置”小节里编辑，下方 API Key 与连接�
   await expect(auto).toHaveAttribute('tabindex', '0');
   await expect(supported).toHaveAttribute('tabindex', '-1');
   await expect(page.locator('.reasoning-source')).toHaveText('来源：Pi 目录');
-  // 可选推理等级：Pi 给出的等级，只读小标签，放在单选组之外、单选组下方。
-  const levels = page.locator('.reasoning-levels');
-  await expect(levels.locator('span').first()).toHaveText('可选推理等级');
-  await expect(levels.locator('em')).toHaveText(['关闭', '极简', '低', '中', '高']);
-  await expect(reasoning.locator('.reasoning-levels')).toHaveCount(0);
-  await expect(levels.getByRole('button')).toHaveCount(0);
-  expect((await levels.boundingBox())!.y).toBeGreaterThan((await reasoning.boundingBox())!.y);
+  // 默认推理等级：“未设置”加 Pi 给出的可选等级，一组分段单选，放在推理能力下方。
+  const levels = page.getByRole('radiogroup', { name: '默认推理等级' }).getByRole('radio');
+  const levelHint = page.locator('.model-field').filter({ has: page.getByRole('radiogroup', { name: '默认推理等级' }) }).locator('small');
+  await expect(levels).toHaveText(['未设置', '关闭', '极简', '低', '中', '高']);
+  expect((await levels.first().boundingBox())!.y).toBeGreaterThan((await reasoning.boundingBox())!.y);
   await auto.focus();
   await page.keyboard.press('ArrowRight');
   await expect(supported).toHaveAttribute('aria-checked', 'true');
   await expect(supported).toBeFocused();
   await expect(page.locator('.reasoning-source')).toHaveText('来源：手动设置');
   // 目录已支持推理时手动设为“支持”，等级不变。
-  await expect(levels.locator('em')).toHaveText(['关闭', '极简', '低', '中', '高']);
+  await expect(levels).toHaveText(['未设置', '关闭', '极简', '低', '中', '高']);
   await page.keyboard.press('ArrowRight');
   await expect(unsupported).toHaveAttribute('aria-checked', 'true');
   await expect(auto).toHaveAttribute('aria-checked', 'false');
   await expect(save).toBeEnabled();
-  // 不支持时不显示等级。
-  await expect(levels).toHaveCount(0);
+  // 不支持时只能选关闭。
+  await expect(levels).toHaveText(['未设置', '关闭']);
 
   // 改了连到的模型时，自动模式的来源与可选等级都要等保存后由 Pi 判断。
   await auto.click();
   await page.getByLabel('模型 ID').fill('gpt-fixture-next');
   await expect(page.locator('.reasoning-source')).toHaveText('来源：保存后由 Pi 判断');
-  await expect(levels).toHaveText('可选推理等级保存后由 Pi 给出');
-  await expect(levels.locator('em')).toHaveCount(0);
+  await expect(levels).toHaveText(['未设置']);
+  await expect(levelHint).toHaveText('可选等级保存后由 Pi 给出。');
   await page.getByLabel('模型 ID').fill('gpt-fixture');
-  await expect(levels.locator('em')).toHaveCount(5);
+  await expect(levels).toHaveCount(6);
 
   // 保存：“配置”标题旁出现“已保存”，回到只读，焦点回到“编辑”。
   await unsupported.click();
@@ -510,15 +508,15 @@ test('原地编辑：在“配置”小节里编辑，下方 API Key 与连接�
   await expect(page.locator('.model-key-section')).not.toContainText('正在编辑配置');
   await expect(page.locator('.model-check-section')).not.toContainText('正在编辑配置');
 
-  // 只读的“配置”里不列等级（与原型一致）。
-  await expect(page.locator('.reasoning-levels')).toHaveCount(0);
+  // 只读的“配置”里不列可选等级（与原型一致）。
+  await expect(levels).toHaveCount(0);
 
   // 取消同样回到只读，焦点回到“编辑”，草稿丢弃。
   await page.getByRole('button', { name: '编辑', exact: true }).click();
-  // 已保存为“不支持”：不显示等级；改为“支持”后 Pi 会给出哪些等级要保存后才知道。
-  await expect(levels).toHaveCount(0);
+  // 已保存为“不支持”：只能选关闭；改为“支持”后 Pi 会给出哪些等级要保存后才知道。
+  await expect(levels).toHaveText(['未设置', '关闭']);
   await supported.click();
-  await expect(levels).toHaveText('可选推理等级保存后由 Pi 给出');
+  await expect(levelHint).toHaveText('可选等级保存后由 Pi 给出。');
   await page.getByLabel('显示名称').fill('不会保存');
   await page.getByRole('button', { name: '取消', exact: true }).click();
   await expect(page.getByRole('button', { name: '编辑', exact: true })).toBeFocused();
@@ -531,7 +529,7 @@ test('原地编辑：在“配置”小节里编辑，下方 API Key 与连接�
   await expect(config.locator('.model-metadata')).toContainText('推理能力支持（手动设置）');
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await expect(supported).toHaveAttribute('aria-checked', 'true');
-  await expect(levels.locator('em')).toHaveText(['关闭', '极简', '低', '中', '高']);
+  await expect(levels).toHaveText(['未设置', '关闭', '极简', '低', '中', '高']);
   await page.getByRole('button', { name: '取消', exact: true }).click();
 });
 
@@ -540,14 +538,14 @@ test('模型默认推理等级可编辑并持久恢复，新会话采用默认�
   const before = await (await request.get(`${fakeApiRoot}/api/assistant/model-selection`)).json();
   await page.getByRole('button', { name: '编辑', exact: true }).click();
   await page.getByRole('radiogroup', { name: '推理能力' }).getByRole('radio', { name: '支持', exact: true }).click();
-  await page.getByLabel('默认推理等级', { exact: true }).selectOption('high');
+  await page.getByRole('radiogroup', { name: '默认推理等级' }).getByRole('radio', { name: '高', exact: true }).click();
   await page.getByRole('button', { name: '保存', exact: true }).click();
   await expect(page.locator('.model-metadata')).toContainText('默认推理等级高');
   await page.reload();
   await openModelSettings(page);
   await expect(page.locator('.model-metadata')).toContainText('默认推理等级高');
   await page.getByRole('button', { name: '编辑', exact: true }).click();
-  await expect(page.getByLabel('默认推理等级', { exact: true })).toHaveValue('high');
+  await expect(page.getByRole('radiogroup', { name: '默认推理等级' }).getByRole('radio', { name: '高', exact: true })).toHaveAttribute('aria-checked', 'true');
   await page.getByRole('button', { name: '取消', exact: true }).click();
   const existing = await (await request.get(`${fakeApiRoot}/api/assistant/model-selection`)).json();
   expect(existing.selection.thinkingLevel).toBe(before.selection.thinkingLevel);

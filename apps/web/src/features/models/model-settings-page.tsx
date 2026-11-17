@@ -8,7 +8,7 @@ import {
   Plus,
   RefreshCw,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type {
   ModelAvailability,
   ModelProfile,
@@ -27,7 +27,7 @@ import { ManagementPageActions } from '../../app/management-layout.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { useSavedFlash } from '../../components/saved-mark.js';
 import { ModelAccessPanel } from './model-access-panel.js';
-import { ModelProfileForm } from './model-profile-form.js';
+import { ModelFormActions, ModelProfileForm, modelProfileSaveDisabled } from './model-profile-form.js';
 import { ModelSection, type ModelSavedPart } from './model-section.js';
 import {
   authenticationTypeLabel,
@@ -157,6 +157,7 @@ export function ModelSettingsPage({
   }, [active, loadAccess]);
   const handledDiscardSignalRef = useRef(discardSignal);
   const commandLocked = saving || accessBusy || pendingCommand !== null;
+  const formId = useId();
   const refreshAuthentication = useCallback(async () => {
     const request = ++authenticationRequestRef.current;
     const next = await getModelSettings();
@@ -534,13 +535,20 @@ export function ModelSettingsPage({
   );
   const form = draft && (
     <ModelProfileForm
+      formId={formId}
       draft={draft}
       saved={creating ? null : selected}
-      dirty={dirty}
       locked={commandLocked}
       issue={issue}
       onChange={updateDraft}
       onSave={() => void submitSave()}
+    />
+  );
+  const formActions = draft && (
+    <ModelFormActions
+      formId={formId}
+      saveDisabled={modelProfileSaveDisabled(draft, creating, dirty, commandLocked)}
+      locked={commandLocked}
       onDiscard={discard}
     />
   );
@@ -608,12 +616,13 @@ export function ModelSettingsPage({
         <section className="model-detail-pane" aria-live="polite">
           {creating && form ? (
             <>
-              <div className="model-detail-heading">
+              <div className="model-detail-heading editing">
                 <div>
                   <span className="model-availability">新配置</span>
                   <h2>添加模型</h2>
                   <p>填写连到哪个模型；保存后再配置 API Key 并检查连接。</p>
                 </div>
+                {formActions}
               </div>
               <ModelSection title="配置" saved={saved} target="config">
                 {form}
@@ -625,7 +634,7 @@ export function ModelSettingsPage({
                 profile={selected}
                 view={availabilityView(selectedAvailability)}
                 isDefault={snapshot.defaultProfileId === selected.profileId}
-                editing={draft !== null}
+                editActions={formActions}
                 locked={commandLocked}
                 defaultBusy={saving && pendingCommand?.kind === 'default'}
                 editButtonRef={editButtonRef}
@@ -663,7 +672,8 @@ interface ModelDetailHeadingProps {
   profile: ModelProfile;
   view: AvailabilityView;
   isDefault: boolean;
-  editing: boolean;
+  /** 编辑中的“取消 / 保存”；不在编辑时为 null，显示“编辑 / 设为默认”。 */
+  editActions: ReactNode;
   locked: boolean;
   defaultBusy: boolean;
   editButtonRef: RefObject<HTMLButtonElement | null>;
@@ -673,13 +683,14 @@ interface ModelDetailHeadingProps {
 
 /**
  * 详情头（按原型）：可用状态小标签 + 名称 + 一句说明（可用时是 Pi 的确认，不可用时是原因）；
- * 右侧“编辑”（编辑时隐藏）与“设为默认 / 当前默认”都是次要按钮。只有可用的模型才能设为默认。
+ * 右侧“编辑”与“设为默认 / 当前默认”都是次要按钮，只有可用的模型才能设为默认。
+ * 编辑时右侧原位换成“取消 / 保存”，详情头吸顶。
  */
 function ModelDetailHeading({
   profile,
   view,
   isDefault,
-  editing,
+  editActions,
   locked,
   defaultBusy,
   editButtonRef,
@@ -687,19 +698,17 @@ function ModelDetailHeading({
   onSetDefault,
 }: ModelDetailHeadingProps) {
   return (
-    <div className="model-detail-heading">
+    <div className={`model-detail-heading${editActions ? ' editing' : ''}`}>
       <div>
         <span className={`model-availability ${view.state}`}>{view.label}</span>
         <h2>{profile.displayName}</h2>
         <p>{view.message}</p>
       </div>
-      <div className="model-detail-actions">
-        {!editing && (
-          <button ref={editButtonRef} type="button" className="secondary-button" onClick={onEdit} disabled={locked}>
-            <Pencil aria-hidden="true" />
-            编辑
-          </button>
-        )}
+      {editActions || <div className="model-detail-actions">
+        <button ref={editButtonRef} type="button" className="secondary-button" onClick={onEdit} disabled={locked}>
+          <Pencil aria-hidden="true" />
+          编辑
+        </button>
         <button
           type="button"
           className="secondary-button"
@@ -710,7 +719,7 @@ function ModelDetailHeading({
           {defaultBusy && <LoaderCircle className="spin" aria-hidden="true" />}
           {isDefault ? '当前默认' : '设为默认'}
         </button>
-      </div>
+      </div>}
     </div>
   );
 }
