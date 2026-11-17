@@ -112,6 +112,14 @@ export class SessionModelSelectionService {
       : value.selection.availability.reason === 'SELECTION_RECOVERY_UNAVAILABLE' ? value.selection.availability.message : null };
   }
 
+  /** 配置变更或运行结束后更新已打开的空闲会话；不初始化未打开的运行时。 */
+  async refreshForIdle(): Promise<void> {
+    await this.options.lock.run(async () => {
+      if (!this.options.repository.getSelection(this.sessionId) || !this.options.adapter.readModelSelection(this.sessionId).ok) return;
+      await this.refreshModelOverrides();
+    });
+  }
+
   async validateForSend(): Promise<void> {
     // 调用方已持共享 handoff 锁；这里不重复获取锁。
     await this.reconcilePending();
@@ -300,7 +308,10 @@ export class SessionModelSelectionService {
       profileId: record.model.profileId,
       revision: record.revision,
     }, true);
-    return result.status === 'succeeded';
+    if (result.status !== 'succeeded') throw new AssistantSessionServiceError(
+      'ASSISTANT_SESSION_UNAVAILABLE', '模型手动能力尚未成功换用，消息未发送；请核对模型配置或原选模操作后重试。',
+    );
+    return true;
   }
 
   private async reconcilePending(): Promise<void> {

@@ -96,6 +96,8 @@ export class AssistantSessionRuntime implements SessionRuntime {
   readonly context: SessionContextManagementService | undefined;
   private readonly projector: AssistantEventProjector;
   private readonly lock = new AssistantOperationLock();
+  private readonly unsubscribeModelSettings: () => void;
+  private disposed = false;
 
   constructor(
     private readonly dependencies: AssistantSessionRuntimeDependencies,
@@ -130,12 +132,13 @@ export class AssistantSessionRuntime implements SessionRuntime {
         this.session.seedFileSources();
         this.commands.reconcileStartupReceipts();
         this.projector.start();
+        this.refreshIdleModelOverrides();
       },
     });
     this.context = dependencies.contextCompactions ? new SessionContextManagementService({
       sessionId: options.sessionId, adapter: dependencies.adapter, repository: dependencies.contextCompactions,
       bindings: dependencies.bindingRepository, lock, supported: options.supportsContextManagement ?? (() => options.kind === 'coordinator'),
-      isRunning: () => this.commands.isRunning(), onChanged: () => dependencies.onModelSelectionChanged?.(options.sessionId),
+      isRunning: () => this.commands.isRunning(), onChanged: () => { dependencies.onModelSelectionChanged?.(options.sessionId); this.refreshIdleModelOverrides(); },
     }) : undefined;
     this.commands = new AssistantTurnCommandService({
       ...(options.resolveBookQuote ? { resolveBookQuote: options.resolveBookQuote } : {}),
@@ -156,7 +159,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       eventStream: dependencies.eventStream,
       assistantSessionId: options.sessionId,
       operationLock: lock,
-      onRunningChanged: () => dependencies.onModelSelectionChanged?.(options.sessionId),
+      onRunningChanged: () => { dependencies.onModelSelectionChanged?.(options.sessionId); this.refreshIdleModelOverrides(); },
       ...(options.resolveAgentExecution ? {
         resolveAgentExecution: options.resolveAgentExecution,
         withAgentSelectionForSend: async <T,>(execution: AssistantAgentExecution, dispatch: (prepared?: CoordinatorTurnPreparation) => T) => {
@@ -210,6 +213,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
       isRunning: () => this.commands.isRunning() || Boolean(this.context?.blocksExecution()),
       ...(dependencies.onModelSelectionChanged ? { onChanged: dependencies.onModelSelectionChanged } : {}),
     });
+    this.unsubscribeModelSettings = dependencies.modelSettingsService.onConfigurationChanged(() => this.refreshIdleModelOverrides());
     this.projector = new AssistantEventProjector({
       adapter: dependencies.adapter,
       eventRepository: dependencies.eventRepository,
@@ -218,6 +222,12 @@ export class AssistantSessionRuntime implements SessionRuntime {
       currentPromptCommandId: () => this.commands.currentPromptCommandId(),
       onHistoryChanged: () => { if (options.canReadContent?.() !== false) this.session.captureFileSources(); },
     });
+  }
+
+  private refreshIdleModelOverrides(): void {
+    if (this.disposed) return;
+    // 后台刷新失败不伪造生效；下一次发送仍须完整准入，未知选模结果只走原账本核对。
+    void this.selection.refreshForIdle().catch(() => {});
   }
 
   initialize(): Promise<unknown> {
@@ -247,6 +257,8 @@ export class AssistantSessionRuntime implements SessionRuntime {
 
   /** 关闭事件投影并释放该会话的 Pi session；不影响其他会话。 */
   dispose(): void {
+    this.disposed = true;
+    this.unsubscribeModelSettings();
     this.session.close();
     this.projector.close();
     this.dependencies.adapter.disposeSession(this.sessionId);

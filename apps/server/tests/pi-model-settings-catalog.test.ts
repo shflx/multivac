@@ -440,3 +440,25 @@ test('上下文窗口与推理覆盖合并，目录和自定义模型均交给�
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('相同 provider/modelId 的配置独立解析窗口和推理覆盖，不污染默认模型', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-profile-window-isolation-'));
+  try {
+    const authPath = join(root, 'auth.json');
+    await writeFile(authPath, '{}');
+    const factory = new PiModelSettingsCatalogFactory({ authPath, candidateRoot: root });
+    const first: ModelProfileInput = { ...profile, profileId: 'first', reasoning: 'enabled', contextWindow: 1_000_000, defaultThinkingLevel: 'high' };
+    const second: ModelProfileInput = { ...profile, profileId: 'second', contextWindow: 500_000 };
+    const third: ModelProfileInput = { ...profile, profileId: 'third' };
+    const profiles = [first, second, third];
+    const catalog = await factory.create(profiles);
+    const inspection = await catalog.inspect(profiles);
+    assert.equal(inspection.capabilities.get('first')?.contextWindow, 1_000_000);
+    assert.equal(inspection.capabilities.get('first')?.reasoning, true);
+    assert.ok(inspection.capabilities.get('first')?.thinkingLevels?.includes('high'));
+    assert.equal(inspection.capabilities.get('second')?.contextWindow, 500_000);
+    assert.equal(inspection.capabilities.get('second')?.reasoning, false);
+    assert.equal(inspection.capabilities.get('third')?.contextWindow, 128_000);
+    assert.equal((await catalog.inspect([first])).capabilities.get('first')?.contextWindow, 1_000_000);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

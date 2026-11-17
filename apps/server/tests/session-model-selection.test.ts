@@ -428,3 +428,16 @@ test('仅修改窗口不预告额外推理等级', async () => {
     assert.deepEqual((await h.selection.getOptions()).selection.availableThinkingLevels, ['off']);
   } finally { h.close(); }
 });
+
+for (const fault of ['begin', 'setter'] as const) test(`窗口换用 ${fault} 失败时拒绝发送，不能沿用旧窗口`, async () => {
+  const h = await harness();
+  try {
+    await h.selection.setModel(model('before-refresh-failure', 0));
+    await h.settings.save({ commandId: 'window-refresh-failure', revision: 0, profile: { ...initial.profiles[0]!, contextWindow: 1_000_000 } });
+    if (fault === 'begin') h.store.selections.beginSelection = () => { throw new Error('controlled write failure'); };
+    else h.adapter.setModel = () => { throw new Error('controlled setter failure'); };
+    await assert.rejects(h.commands.send(send('failed-refresh-send')), /尚未成功换用/u);
+    assert.equal(h.adapter.calls.some(call => call.method === 'prompt'), false);
+    assert.equal(h.store.selections.getSelection(id)?.model.contextWindow, undefined);
+  } finally { h.close(); }
+});

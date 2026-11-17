@@ -323,6 +323,27 @@ export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactor
     profiles: readonly ModelProfileInput[],
     options: { strictProfileIds?: readonly string[] } = {},
   ): Promise<ModelSettingsCatalog> {
+    // Pi 覆盖按 provider/modelId 索引；同一模型的不同配置必须独立解析，避免互相串值。
+    const overrides = new Map<string, string>();
+    const needsIsolation = profiles.some(profile => {
+      const key = `${profile.provider}\0${profile.modelId}`;
+      const value = JSON.stringify([modelReasoningOverride(profile.reasoning), profile.contextWindow]);
+      const previous = overrides.get(key);
+      overrides.set(key, value);
+      return previous !== undefined && previous !== value;
+    });
+    if (needsIsolation) {
+      const catalogs = new Map(await Promise.all(profiles.map(async profile =>
+        [profile.profileId, await this.create([profile], options)] as const)));
+      return { inspect: async requested => {
+        const results = await Promise.all(requested.map(profile => catalogs.get(profile.profileId)!.inspect([profile])));
+        return {
+          capabilities: new Map(results.flatMap(result => [...result.capabilities])),
+          availability: results.flatMap(result => result.availability),
+          resolvedModels: new Map(results.flatMap(result => [...result.resolvedModels])),
+        };
+      } };
+    }
     await mkdir(this.options.candidateRoot, { recursive: true });
     const directory = await mkdtemp(join(this.options.candidateRoot, 'candidate-'));
     try {
