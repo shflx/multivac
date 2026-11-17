@@ -128,6 +128,8 @@ export interface CoordinatorModelConfig {
   profileId?: string;
   /** 模型配置中手动设置的推理能力；缺省按 Pi 目录判断。 */
   reasoning?: boolean;
+  /** 受控配置中的手动上下文窗口；缺省沿用 Pi。 */
+  contextWindow?: number;
 }
 
 export interface CoordinatorRetryConfig {

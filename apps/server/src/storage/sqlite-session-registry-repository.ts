@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { runInTransaction } from './sqlite-transaction.js';
 import type { NewSessionRecord, SessionOrigin, SessionRecord, SessionRegistryRepository, SessionWorkspaceMove } from '../modules/sessions/session-registry.js';
 import type { CoordinatorModelConfig, WorkingDirectory, WorkspaceSessionKind } from '@multivac/contracts';
-import { COORDINATOR_THINKING_LEVELS, FileQuoteSourceSchema, WorkingDirectorySchema } from '@multivac/contracts';
+import { COORDINATOR_THINKING_LEVELS, ModelContextWindowSchema, FileQuoteSourceSchema, WorkingDirectorySchema } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import { Type } from 'typebox';
 
@@ -81,6 +81,7 @@ const InitialModelSchema = Type.Object({
   endpoint: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   endpointMode: Type.Optional(Type.Union([Type.Literal('fixed'), Type.Literal('pi-native-dynamic')])),
   resolvedEndpoint: Type.Optional(Type.Union([Type.String(), Type.Null()])), reasoning: Type.Optional(Type.Boolean()),
+  contextWindow: Type.Optional(ModelContextWindowSchema),
 }, { additionalProperties: false });
 
 /** 已保存的继承快照损坏时明确拒绝读取，不能把损坏解释为没有快照并套用新默认。 */

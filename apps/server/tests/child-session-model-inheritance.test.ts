@@ -339,8 +339,10 @@ test('快照列迁移可重放且旧顶层无继承值；损坏快照拒绝读�
   store = new SqliteAssistantStore(path);
   try {
     assert.equal(store.sessions.get('global-coordinator')?.initialModel, undefined);
-    store.sessions.insertIfAbsent({ sessionId: 'child', title: '子会话', kind: 'work', workspaceId: 'default', createdAt: '2026-10-06T00:00:00.000Z', parentSessionId: 'parent', initialModel: config.model, workingDirectory: { kind: 'session-temp', path: join(root, 'child') } });
+    store.sessions.insertIfAbsent({ sessionId: 'child', title: '子会话', kind: 'work', workspaceId: 'default', createdAt: '2026-10-06T00:00:00.000Z', parentSessionId: 'parent', initialModel: { ...config.model, source: 'controlled', contextWindow: 1_000_000 }, workingDirectory: { kind: 'session-temp', path: join(root, 'child') } });
   } finally { store.close(); }
+  store = new SqliteAssistantStore(path);
+  try { assert.equal(store.sessions.get('child')?.initialModel?.contextWindow, 1_000_000); } finally { store.close(); }
   const corrupt = new DatabaseSync(path);
   corrupt.prepare('UPDATE assistant_session_registry SET initial_model_json = ? WHERE session_id = ?').run('{broken', 'child');
   corrupt.close();

@@ -391,3 +391,40 @@ for (const stage of ['begin', 'finish'] as const) test(`选模${stage}已提交�
     assert.equal(h.adapter.calls.filter(call => call.method === 'setModel').length, stage === 'begin' ? 0 : 1);
   } finally { h.close(); }
 });
+
+test('窗口覆盖在运行中保持旧快照，空闲发送前更新并可清除，不重置当前推理等级', async () => {
+  const entered = gate(); const finished = gate();
+  const h = await harness(new FakeCoordinatorAdapter({ promptBarrier: entered.promise, promptCompletionBarrier: finished.promise }), 'claude', 'high');
+  let run: ReturnType<AssistantTurnCommandService['send']> | undefined;
+  try {
+    run = h.commands.send(send('window-running'));
+    while (!h.adapter.calls.some(call => call.method === 'prompt')) await new Promise(resolve => setTimeout(resolve, 1));
+    const profile = { ...initial.profiles[0]!, contextWindow: 1_000_000, defaultThinkingLevel: 'low' as const };
+    await h.settings.save({ commandId: 'window-change', revision: 0, profile });
+    assert.equal((await h.selection.getOptions()).selection.availability.available, true);
+    assert.equal(h.store.selections.getSelection(id)?.model.contextWindow, undefined);
+    assert.equal(h.adapter.calls.filter(call => call.method === 'setModel').length, 0);
+    entered.resolve(); finished.resolve(); await run;
+    await h.selection.validateForSend();
+    assert.equal(h.store.selections.getSelection(id)?.model.contextWindow, 1_000_000);
+    assert.equal((await h.selection.getOptions()).selection.thinkingLevel, 'high');
+    await h.settings.save({ commandId: 'window-clear', revision: 1, profile: initial.profiles[0]! });
+    await h.selection.validateForSend();
+    assert.equal(h.store.selections.getSelection(id)?.model.contextWindow, undefined);
+    assert.equal(h.adapter.calls.filter(call => call.method === 'setModel').length, 2);
+    // 端点变化不能借窗口覆盖绕过明确重新选模。
+    await h.settings.save({ commandId: 'window-endpoint', revision: 2, profile: { ...profile, endpoint: 'https://other.example' } });
+    await assert.rejects(h.selection.validateForSend());
+    assert.equal(h.adapter.calls.filter(call => call.method === 'setModel').length, 2);
+  } finally { entered.resolve(); finished.resolve(); await run; h.close(); }
+});
+
+
+test('仅修改窗口不预告额外推理等级', async () => {
+  const h = await harness();
+  try {
+    await h.selection.setModel(model('window-only-select', 0, 'gpt'));
+    await h.settings.save({ commandId: 'window-only', revision: 0, profile: { ...initial.profiles[1]!, contextWindow: 500_000 } });
+    assert.deepEqual((await h.selection.getOptions()).selection.availableThinkingLevels, ['off']);
+  } finally { h.close(); }
+});

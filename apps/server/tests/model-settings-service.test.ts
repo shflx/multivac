@@ -523,8 +523,8 @@ test('手动推理能力随配置保存：auto 不写入文件，会话启动配
     assert.equal((await service.getModelProfileRuntimeConfig('profile-main')).reasoning, true);
     await service.setDefault({ commandId: 'default', revision: 2, profileId: 'profile-main' });
     assert.equal((await service.getDefaultModelForNewSession())?.reasoning, true);
-    assert.deepEqual(await service.getProfileReasoning('profile-main'), { reasoning: true });
-    assert.equal(await service.getProfileReasoning('missing'), null);
+    assert.deepEqual(await service.getProfileOverrides('profile-main'), { reasoning: true });
+    assert.equal(await service.getProfileOverrides('missing'), null);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

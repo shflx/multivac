@@ -57,10 +57,13 @@ function validateDefaultThinking(profile: ModelProfileInput, capabilities: Model
   );
 }
 
-/** 会话模型快照中的手动推理能力；auto 时不带该字段。 */
-function reasoningConfig(profile: ModelProfileInput): { reasoning?: boolean } {
+/** 会话模型快照中的手动能力；未设置时不带字段。 */
+function modelOverrides(profile: ModelProfileInput): { reasoning?: boolean; contextWindow?: number } {
   const reasoning = modelReasoningOverride(profile.reasoning);
-  return reasoning === undefined ? {} : { reasoning };
+  return {
+    ...(reasoning === undefined ? {} : { reasoning }),
+    ...(profile.contextWindow === undefined ? {} : { contextWindow: profile.contextWindow }),
+  };
 }
 
 function normalizeEndpoint(endpoint: string): string {
@@ -247,16 +250,16 @@ export class ModelSettingsService {
       ...(applyDefaultThinking && profile.defaultThinkingLevel !== undefined ? { thinkingLevel: profile.defaultThinkingLevel } : {}),
       source: 'controlled' as const, profileId, provider: profile.provider, modelId: profile.modelId,
       protocol: profile.protocol, endpoint: profile.endpoint, resolvedEndpoint: normalizeEndpoint(resolved.endpoint),
-      ...reasoningConfig(profile),
+      ...modelOverrides(profile),
     };
   }
-  /** 选中配置当前的手动推理能力（auto 时不带字段）；配置不存在或无效时返回 null。 */
-  async getProfileReasoning(profileId: string): Promise<{ reasoning?: boolean } | null> {
+  /** 选中配置当前的手动能力（未设置时不带字段）；配置不存在或无效时返回 null。 */
+  async getProfileOverrides(profileId: string): Promise<{ reasoning?: boolean; contextWindow?: number } | null> {
     await this.ensureInitialized();
     const captured = this.capture();
     const profile = captured.state.profiles.find((candidate) => candidate.profileId === profileId);
     if (!profile || captured.invalidProfileIds.has(profileId)) return null;
-    return reasoningConfig(profile);
+    return modelOverrides(profile);
   }
 
   private notifyConfigurationChanged(): void {
@@ -274,6 +277,7 @@ export class ModelSettingsService {
     resolvedEndpoint: string;
     profileId: string;
     reasoning?: boolean;
+    contextWindow?: number;
     thinkingLevel?: CoordinatorThinkingLevel;
   } | null> {
     try {
@@ -304,7 +308,7 @@ export class ModelSettingsService {
         endpoint: profile.endpoint,
         resolvedEndpoint: normalizeEndpoint(resolved.endpoint),
         profileId: profile.profileId,
-        ...reasoningConfig(profile),
+        ...modelOverrides(profile),
       };
     } catch (error) {
       throw new ModelSettingsServiceError(

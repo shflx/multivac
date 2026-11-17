@@ -6,7 +6,7 @@ import {
 } from '@multivac/contracts';
 import type { CoordinatorAdapter, CoordinatorSelectionSnapshot } from '../modules/sessions/coordinator-adapter.js';
 import type { SessionSelectionRepository, StoredSessionSelection, StoredSelectionCommand } from '../modules/sessions/session-model-selection.js';
-import { onlyReasoningDiffers, sameSessionModelConfig as sameConfig } from '../modules/sessions/session-model-selection.js';
+import { onlyModelOverridesDiffer, sameSessionModelConfig as sameConfig } from '../modules/sessions/session-model-selection.js';
 import { AssistantSessionServiceError, type AssistantSessionService } from './assistant-session-service.js';
 import type { ModelSettingsService, ModelSettingsReadVersion } from './model-settings-service.js';
 import type { ModelAccessService, ModelAccessReadVersion } from './model-access-service.js';
@@ -115,7 +115,7 @@ export class SessionModelSelectionService {
   async validateForSend(): Promise<void> {
     // 调用方已持共享 handoff 锁；这里不重复获取锁。
     await this.reconcilePending();
-    await this.refreshReasoning();
+    await this.refreshModelOverrides();
     const selection = await this.selection();
     if (!selection.availability.available) throw new AssistantSessionServiceError(
       'ASSISTANT_SESSION_UNAVAILABLE', selection.availability.message ?? '会话选择当前不可用。',
@@ -190,7 +190,7 @@ export class SessionModelSelectionService {
   }
 
   /** 选模命令的受理与执行；调用方须已持有会话操作锁。 */
-  private async apply(kind: 'model' | 'thinking', command: SetSessionModel | SetSessionThinkingLevel): Promise<SessionModelCommandResult> {
+  private async apply(kind: 'model' | 'thinking', command: SetSessionModel | SetSessionThinkingLevel, refreshOverrides = false): Promise<SessionModelCommandResult> {
     this.options.beforeMutation?.();
     const fingerprint = createHash('sha256').update(JSON.stringify({
       kind, commandId: command.commandId, sessionId: command.sessionId, revision: command.revision,
@@ -206,9 +206,9 @@ export class SessionModelSelectionService {
         : this.result(command.commandId, 'unknown', 'RESULT_UNKNOWN', true);
     }
     await this.reconcilePending();
-    // 调整推理等级前先换用模型配置中新的推理能力；客户端的 revision 仍以换用前为准。
+    // 调整推理等级前先换用模型配置中新的手动能力；客户端的 revision 仍以换用前为准。
     const revisionBefore = this.requireRecord().revision;
-    const refreshed = kind === 'thinking' && await this.refreshReasoning();
+    const refreshed = kind === 'thinking' && await this.refreshModelOverrides();
     const current = this.requireRecord();
     const selection = await this.selection();
     const expectedRevision = refreshed ? revisionBefore : current.revision;
@@ -221,7 +221,7 @@ export class SessionModelSelectionService {
       try {
         targetVersion = await this.readVersion();
         if ('profileId' in command) {
-          const configured = await this.options.settings.getModelProfileRuntimeConfig(command.profileId, { assertAdmission: () => this.assertVersionNow(targetVersion!) });
+          const configured = await this.options.settings.getModelProfileRuntimeConfig(command.profileId, { assertAdmission: () => this.assertVersionNow(targetVersion!), applyDefaultThinking: !refreshOverrides });
           target = { ...configured, thinkingLevel: configured.thinkingLevel ?? selection.thinkingLevel };
         } else {
           if (!selection.availability.available) rejection = 'MODEL_UNAVAILABLE';
@@ -282,24 +282,24 @@ export class SessionModelSelectionService {
   }
 
   /**
-   * 模型配置只改了手动推理能力时，在会话空闲时自动换用新配置：沿用选模命令的账本与对账流程，
+   * 模型配置只改了手动推理能力或上下文窗口时，在会话空闲时自动换用新配置：沿用选模命令的账本与对账流程，
    * 不需要用户重新选模。运行中不换用，等下一次发送。调用方须已持有会话操作锁。
    */
-  private async refreshReasoning(): Promise<boolean> {
+  private async refreshModelOverrides(): Promise<boolean> {
     if (this.options.isRunning()) return false;
     const record = this.requireRecord();
-    if (!record.model.profileId || record.pending || record.recoveryError) return false;
-    // 先只比较配置里的推理能力，未变化时不做额外的 Pi 检查。
-    const configured = await this.options.settings.getProfileReasoning(record.model.profileId);
-    if (!configured || configured.reasoning === record.model.reasoning) return false;
-    const { reasoningRefresh } = await this.inspect(record);
-    if (!reasoningRefresh || !record.model.profileId) return false;
+    if (record.model.source !== 'controlled' || !record.model.profileId || record.pending || record.recoveryError) return false;
+    // 先只比较配置里的手动能力，未变化时不做额外的 Pi 检查。
+    const configured = await this.options.settings.getProfileOverrides(record.model.profileId);
+    if (!configured || (configured.reasoning === record.model.reasoning && configured.contextWindow === record.model.contextWindow)) return false;
+    const { overridesRefresh } = await this.inspect(record);
+    if (!overridesRefresh || !record.model.profileId) return false;
     const result = await this.apply('model', {
-      commandId: `reasoning-refresh:${randomUUID()}`,
+      commandId: `model-overrides-refresh:${randomUUID()}`,
       sessionId: this.sessionId,
       profileId: record.model.profileId,
       revision: record.revision,
-    });
+    }, true);
     return result.status === 'succeeded';
   }
 
@@ -358,12 +358,12 @@ export class SessionModelSelectionService {
     return (await this.inspect(record)).selection;
   }
 
-  /** 读取公开选择；模型配置只改了推理能力时一并给出待换用的目标配置。 */
+  /** 读取公开选择；模型配置只改了手动能力时一并给出待换用的目标配置。 */
   private async inspect(record: StoredSessionSelection): Promise<{
     selection: SessionModelSelection;
-    reasoningRefresh: CoordinatorModelConfig | null;
+    overridesRefresh: CoordinatorModelConfig | null;
   }> {
-    let reasoningRefresh: CoordinatorModelConfig | null = null;
+    let overridesRefresh: CoordinatorModelConfig | null = null;
     let version: SelectionReadVersion | undefined;
     try { version = await this.readVersion(); } catch { /* 不能读取版本时只公布不可用引用。 */ }
     const snapshot = this.options.adapter.readModelSelection(record.sessionId);
@@ -380,7 +380,7 @@ export class SessionModelSelectionService {
         const configured = await this.options.settings.getModelProfileRuntimeConfig(record.model.profileId,
           { ...(version ? { assertAdmission: () => this.assertVersionNow(version) } : {}), applyDefaultThinking: false });
         const target = { ...configured, thinkingLevel: actual.thinkingLevel };
-        if (onlyReasoningDiffers(target, actual)) reasoningRefresh = target;
+        if (onlyModelOverridesDiffer(target, actual)) overridesRefresh = target;
         else if (!sameConfig(target, actual)) {
           reason = 'PROFILE_CONFIGURATION_CHANGED'; message = '选中配置已改变，与当前 Pi 模型快照不同；请明确重新选择模型。';
         }
@@ -393,15 +393,15 @@ export class SessionModelSelectionService {
       reason = 'MODEL_STATE_CHANGED'; message = '模型配置或认证在检查期间变化，当前结果不可用于发送，请重新读取。';
     }
     const currentLevels = snapshot.ok && sameSession(snapshot.value, record) ? snapshot.value.availableThinkingLevels : [];
-    if (reason) reasoningRefresh = null;
+    if (reason) overridesRefresh = null;
     return {
-      reasoningRefresh,
+      overridesRefresh,
       selection: {
         sessionId: this.sessionId, profileId: record.model.profileId ?? null,
         source: record.model.source ?? 'base', provider: actual.provider, modelId: actual.modelId,
         thinkingLevel: actual.thinkingLevel, revision: record.revision,
-        availableThinkingLevels: !reasoningRefresh ? currentLevels
-          : reasoningRefresh.reasoning === false ? ['off'] : currentLevels.length > 1 ? currentLevels : REASONING_PREVIEW_LEVELS,
+        availableThinkingLevels: !overridesRefresh || overridesRefresh.reasoning === actual.reasoning ? currentLevels
+          : overridesRefresh.reasoning === false ? ['off'] : currentLevels.length > 1 ? currentLevels : REASONING_PREVIEW_LEVELS,
         availability: { available: reason === null, reason, message },
       },
     };

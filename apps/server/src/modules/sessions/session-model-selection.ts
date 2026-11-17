@@ -13,14 +13,14 @@ export function sameSessionModelConfig(left: CoordinatorModelConfig, right: Coor
     left.protocol === right.protocol && sameEndpoint(left.endpoint, right.endpoint) &&
     sameEndpoint(left.resolvedEndpoint, right.resolvedEndpoint) &&
     (left.endpointMode ?? 'fixed') === (right.endpointMode ?? 'fixed') &&
-    left.reasoning === right.reasoning;
+    left.reasoning === right.reasoning && left.contextWindow === right.contextWindow;
 }
 
-/** 两份配置只差手动推理能力：可在会话空闲时自动换用新配置，不需要用户重新选模。 */
-export function onlyReasoningDiffers(left: CoordinatorModelConfig, right: CoordinatorModelConfig): boolean {
-  const { reasoning: leftReasoning, ...leftRest } = left;
-  const { reasoning: rightReasoning, ...rightRest } = right;
-  return leftReasoning !== rightReasoning && sameSessionModelConfig(leftRest, rightRest);
+/** 两份配置只差手动能力：可在会话空闲时自动换用新配置，不需要用户重新选模。 */
+export function onlyModelOverridesDiffer(left: CoordinatorModelConfig, right: CoordinatorModelConfig): boolean {
+  const { reasoning: leftReasoning, contextWindow: leftWindow, ...leftRest } = left;
+  const { reasoning: rightReasoning, contextWindow: rightWindow, ...rightRest } = right;
+  return (leftReasoning !== rightReasoning || leftWindow !== rightWindow) && sameSessionModelConfig(leftRest, rightRest);
 }
 
 export interface StoredSessionSelection {
