@@ -85,7 +85,7 @@ test('模型页的放弃确认：默认聚焦“继续编辑”，Esc 只关闭�
   const leave = page.locator('.logo-area');
   await leave.click();
   const card = page.getByRole('dialog', { name: '放弃未保存的更改？' });
-  await expect(card).toHaveAccessibleDescription('当前模型配置有未保存的更改，离开后这些更改会丢失。');
+  await expect(card).toHaveAccessibleDescription('当前有未保存的更改，离开后这些更改会丢失。');
   const keepEditing = card.getByRole('button', { name: '继续编辑' });
   const discard = card.getByRole('button', { name: '放弃并离开' });
 

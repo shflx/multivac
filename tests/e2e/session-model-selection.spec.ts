@@ -25,7 +25,7 @@ test('参考原型的四模型弹层保持完整分隔行、尺寸及选中状�
   await trigger.click();
   const popup = page.locator('#assistant-model-menu');
   await expect(popup).toHaveCSS('padding', '0px');
-  await expect(popup).toHaveCSS('border-radius', '6px');
+  await expect(popup).toHaveCSS('border-radius', '14px');
   const bounds = await popup.boundingBox();
   expect(bounds!.width).toBe(330);
   expect(bounds!.height).toBeGreaterThan(338);
