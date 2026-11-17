@@ -45,7 +45,12 @@ test('智能体发送未到达服务端：刷新后可按原命令重试，保�
   await expect(panel.getByRole('button', { name: '按原命令重试', exact: true })).toHaveCount(0);
   await expect(panel.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
   expect(commands).toHaveLength(2);
-  expect(commands[1]).toEqual(commands[0]);
+  // 视图只属于当次窗口，不写入刷新恢复快照；原命令及完整执行输入仍须逐字段相等。
+  const { view: originalView, ...originalCommand } = commands[0]!;
+  const { view: restoredView, ...restoredCommand } = commands[1]!;
+  expect(originalView).toMatchObject({ panel: 'workspace', narrow: false });
+  expect(restoredView).toBeUndefined();
+  expect(restoredCommand).toEqual(originalCommand);
   await expect(draft).toHaveValue('下一条消息');
   await draft.press('Enter');
   await expect.poll(() => commands.length).toBe(3);
