@@ -1180,6 +1180,11 @@ svg {
   margin-top: -12px;
 }
 
+/* 操作行已占用行间距，后续消息不能再上移并覆盖说明或复制按钮。 */
+.chat-row:has(> .chat-content > .message-actions) + .chat-row.continued {
+  margin-top: 0;
+}
+
 .chat-row.continued .avatar {
   visibility: hidden;
 }

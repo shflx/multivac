@@ -44,6 +44,7 @@ import { SessionModelContext } from './session-model.js';
 import { MarkdownBody } from './markdown-body';
 import { ImageDraftPreview } from './image-input.js';
 import { ImageGallery } from './image-gallery.js';
+import { isToolImageMessage, toolImageGroup } from './tool-image-timeline.js';
 import { imageContentUrl } from '@multivac/contracts';
 import {
   QUOTE_TOOLBAR_WIDTH_PX,
@@ -574,19 +575,11 @@ function AssistantSessionView({
   /** 工具读取的图片（如 read 读图）只展示图片：工具返回的提示文字是给模型的，不展示也不提供复制。 */
   function isToolImage(index: number): boolean {
     const item = timeline[index];
-    return item?.kind === 'message' && Boolean(item.message.toolName) && Boolean(item.message.imageIds?.length);
-  }
-
-  /** 连续的工具图片合成一组：组首返回组内下标，其余成员返回空数组不再单独渲染；中间插入任务请求回复时断开。 */
-  function toolImageGroup(index: number): number[] {
-    if (isToolImage(index - 1) && !taskReplies?.before.has(index)) return [];
-    const group = [index];
-    for (let next = index + 1; isToolImage(next) && !taskReplies?.before.has(next); next += 1) group.push(next);
-    return group;
+    return item?.kind === 'message' && isToolImageMessage(item.message);
   }
 
   function renderToolImages(index: number) {
-    const group = toolImageGroup(index);
+    const group = toolImageGroup(timeline, index, (position) => Boolean(taskReplies?.before.has(position)));
     const messages = group.flatMap((member) => {
       const entry = timeline[member];
       return entry?.kind === 'message' ? [entry.message] : [];
@@ -594,7 +587,13 @@ function AssistantSessionView({
     const first = messages[0];
     const last = messages.at(-1);
     if (!first || !last) return null;
-    const ids = messages.flatMap((message) => message.imageIds ?? []);
+    let position = 0;
+    const sources = messages.flatMap((message) => (message.imageIds ?? []).map((id, member) => ({
+      url: imageContentUrl(session.sessionId, id),
+      alt: `图片 ${++position}`,
+      // 每条历史消息的首张图片保留原锚点，合组后仍可恢复组内旧阅读位置。
+      ...(member === 0 && message.streamCursor === undefined ? { entryId: message.runtimeEntryId } : {}),
+    })));
     return <article
       className={['chat-row', 'assistant', continuesSpeaker(index) && !taskReplies?.before.has(index) ? 'continued' : ''].filter(Boolean).join(' ')}
       key={first.id}
@@ -602,8 +601,8 @@ function AssistantSessionView({
       <span className="avatar" aria-hidden="true"><MultivacIcon /></span>
       <div className="chat-content">
         <span className="message-author">工具 · {first.toolName}</span>
-        <ImageGallery sources={ids.map((id, position) => ({ url: imageContentUrl(session.sessionId, id), alt: `图片 ${position + 1}` }))} />
-        <MessageActions createdAt={last.createdAt} note={`工具读取了 ${ids.length} 张图片`} />
+        <ImageGallery sources={sources} />
+        <MessageActions createdAt={last.createdAt} note={`工具读取了 ${sources.length} 张图片`} />
       </div>
     </article>;
   }

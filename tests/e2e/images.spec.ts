@@ -14,7 +14,8 @@ test.beforeEach(async ({ page, request }) => {
 
 test('图片选择、预览、刷新恢复、纯图片发送与资源保留', async ({ page }) => {
   const choosing = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: '添加图片', exact: true }).click();
+  await page.getByRole('button', { name: '添加图片或文件', exact: true }).click();
+  await page.getByRole('menuitem', { name: '添加图片 PNG、JPEG、WebP、GIF', exact: true }).click();
   const chooser = await choosing;
   expect(chooser.isMultiple()).toBe(true);
   await chooser.setFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: png });
@@ -189,7 +190,8 @@ test('首页与 Multivac 侧栏共享附件草稿和消息', async ({ page }) =>
   await expect(sidebar.locator('.image-draft-item')).toHaveCount(1);
   await sidebar.getByLabel('移除 shared.png').click();
   const choosing = page.waitForEvent('filechooser');
-  await sidebar.getByRole('button', { name: '添加图片', exact: true }).click();
+  await sidebar.getByRole('button', { name: '添加图片或文件', exact: true }).click();
+  await page.getByRole('menuitem', { name: '添加图片 PNG、JPEG、WebP、GIF', exact: true }).click();
   await (await choosing).setFiles({ name: 'sidebar.png', mimeType: 'image/png', buffer: png });
   await expect(sidebar.getByLabel('发送消息')).toBeEnabled();
   await sidebar.getByLabel('发送消息').click();

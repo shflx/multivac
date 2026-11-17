@@ -15,6 +15,7 @@ import {
 import { getAssistantToolExecution } from '../../data/assistant-api.js';
 import { AUTHORIZATION_OUTCOMES } from './tool-authorizations.js';
 import type { VisibleAssistantMessage } from './streaming-messages';
+import { isToolImageMessage } from './tool-image-timeline.js';
 
 /** 会话内的工具执行记录：摘要随快照/事件到达，明细按需补齐。 */
 export interface ToolExecution {
@@ -597,6 +598,8 @@ function foldTurn(items: readonly AssistantGroupedTimelineItem[], hasUser: boole
     const item = items[index]!;
     if (item.kind === 'trace') toolsAfter ||= owns(item) && item.tools.length > 0;
     else {
+      // 工具图片保留为独立结果，避免收进只展示文字的过程说明并泄露模型提示。
+      if (isToolImageMessage(item.message)) continue;
       const cursor = item.message.runtimeMessageId ? messageCursors.get(item.message.runtimeMessageId) : undefined;
       if (cursor !== undefined ? cursor < lastToolCursor : hasUser && toolsAfter) notes.add(item);
     }

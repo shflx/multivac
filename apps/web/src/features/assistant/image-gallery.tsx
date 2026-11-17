@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, LoaderCircle, Maximize, RefreshCw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { focusableWithin, wrapFocusIndex } from '../../components/focus-trap.js';
 
-export interface ImageSource { url: string; alt: string }
+export interface ImageSource { url: string; alt: string; entryId?: string }
 
 function ImageThumbnail({ source, open }: { source: ImageSource; open: () => void }) {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -12,7 +12,7 @@ function ImageThumbnail({ source, open }: { source: ImageSource; open: () => voi
   useEffect(() => setStatus('loading'), [source.url]);
   const content = useImageContent(source.url, attempt);
   useEffect(() => { if (content.error) setStatus('error'); }, [content.error]);
-  return <span className="message-image-item">
+  return <span className="message-image-item" data-entry-id={source.entryId}>
     <button type="button" className="message-image" aria-label={`查看图片 ${source.alt}`} disabled={status !== 'ready'} onClick={open}>
       <img key={attempt} src={content.url} alt={source.alt} loading="lazy" referrerPolicy="no-referrer" onLoad={() => setStatus('ready')} onError={() => setStatus('error')} />
       {status === 'loading' && <span role="status"><LoaderCircle size={16} className="spin" />加载中</span>}
@@ -240,6 +240,7 @@ export function ImagePreview({ sources, start, close, portalRoot }: { sources: I
 }
 
 export function ImageGallery({ sources }: { sources: ImageSource[] }) {
-  const [selected, setSelected] = useState<number | null>(null);
-  return <span className="message-images">{sources.map((source, index) => <ImageThumbnail key={`${source.url}:${index}`} source={source} open={() => setSelected(index)} />)}{selected !== null && sources[selected] && <ImagePreview sources={sources} start={selected} close={() => setSelected(null)} />}</span>;
+  // 预览固定打开时的图片列表；迟到的任务回应可能拆组，不让正在查看的索引失效。
+  const [selected, setSelected] = useState<{ sources: ImageSource[]; start: number } | null>(null);
+  return <span className="message-images">{sources.map((source, index) => <ImageThumbnail key={`${source.url}:${index}`} source={source} open={() => setSelected({ sources, start: index })} />)}{selected && <ImagePreview sources={selected.sources} start={selected.start} close={() => setSelected(null)} />}</span>;
 }
