@@ -17,6 +17,10 @@ const codexMeta = { type: 'session_meta', payload: { id } };
 const codex = (text: string, role = 'assistant') => ({ type: 'response_item', timestamp: '2026-10-30', payload: { type: 'message', role,
   content: [{ type: role === 'user' ? 'input_text' : 'output_text', text }] } });
 const claude = (text: string, role = 'assistant') => ({ type: role, sessionId: id, message: { role, content: [{ type: 'text', text }] } });
+const agentsBootstrap = '# AGENTS.md instructions for /fixture\n\n<INSTRUCTIONS>\n隐藏约束\n</INSTRUCTIONS>';
+const environmentBootstrap = '<environment_context>\n  <cwd>/fixture</cwd>\n  <shell>zsh</shell>\n</environment_context>';
+const permissionsBootstrap = '<permissions instructions>\n隐藏权限\n</permissions instructions>';
+const userBootstrap = '<user_instructions>\n隐藏启动用户约束\n</user_instructions>';
 const jsonl = (entries: unknown[]) => entries.map(entry => JSON.stringify(entry)).join('\n') + '\n';
 
 function fixture(t: TestContext, kind: 'codex' | 'claude' = 'codex') {
@@ -34,8 +38,7 @@ function fixture(t: TestContext, kind: 'codex' | 'claude' = 'codex') {
 
 test('Codex 仅从 response_item 的可见正文读取，忽略镜像、系统、思考、工具、文件及未知块', t => {
   const f = fixture(t);
-  f.write([codexMeta, codex('用户正文', 'user'), codex('# AGENTS.md instructions for /private\n隐藏约束', 'user'),
-    codex('<environment_context>隐藏环境</environment_context>', 'user'),
+  f.write([codexMeta, ...[agentsBootstrap, environmentBootstrap, permissionsBootstrap, userBootstrap].map(text => codex(text, 'user')), codex('用户正文', 'user'),
     { type: 'response_item', payload: { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '隐藏系统' }] } },
     { type: 'response_item', payload: { type: 'reasoning', summary: [{ text: '隐藏思考' }] } },
     { type: 'response_item', payload: { type: 'function_call_output', output: '隐藏工具结果和文件内容' } },
@@ -45,6 +48,31 @@ test('Codex 仅从 response_item 的可见正文读取，忽略镜像、系统�
       { type: 'file', text: '隐藏文件' }, { type: 'future', text: '隐藏未知块' }, { type: 'tool_use', text: '隐藏工具' }] } }]);
   assert.deepEqual(f.reader.readMessages('terminal').map(m => [m.role, m.text]), [['user', '用户正文'], ['assistant', '助手正文']]);
   assert.doesNotMatch(JSON.stringify(transcriptPreview(f.reader, 'terminal', { limit: 20 })), /隐藏|重复镜像/u);
+});
+
+test('Codex 合法用户正文即使以启动标签或 AGENTS 标题开头也逐字保留，无需 event 镜像', t => {
+  const f = fixture(t);
+  const texts = ['# AGENTS.md instructions：请解释这个 Markdown 标题',
+    '# AGENTS.md instructions for /fixture\n请解释标题', '<environment_context>请解释这个标签',
+    '<permissions instructions>请解释权限', '<user_instructions>请解释此标签',
+    '<environment_context>合法单行示例</environment_context>',
+    '# AGENTS.md instructions for /fixture\n\n<INSTRUCTIONS>\n不完整包装',
+    agentsBootstrap + '\n请解释上述包装'];
+  for (const text of texts) {
+    f.write([codexMeta, codex(text, 'user')]);
+    assert.deepEqual(f.reader.readMessages('terminal').map(m => m.text), [text], text);
+  }
+});
+
+test('Codex 启动包装只在启动阶段排除；user_message 佐证真实用户输入且不重复镜像', t => {
+  const f = fixture(t);
+  f.write([codexMeta, codex(agentsBootstrap, 'user'), codex(environmentBootstrap, 'user'),
+    codex(userBootstrap, 'user'), { type: 'event_msg', payload: { type: 'user_message', message: userBootstrap } },
+    codex(permissionsBootstrap, 'user'), codex('助手正文')]);
+  assert.deepEqual(f.reader.readMessages('terminal').map(m => m.text), [userBootstrap, permissionsBootstrap, '助手正文']);
+  f.write([codexMeta, codex('普通用户输入', 'user'), codex(agentsBootstrap, 'user'),
+    { type: 'event_msg', payload: { type: 'user_message', message: agentsBootstrap } }]);
+  assert.deepEqual(f.reader.readMessages('terminal').map(m => m.text), ['普通用户输入', agentsBootstrap]);
 });
 
 test('Claude 核对 sessionId，只取正文和 text 块，关闭的终端也能读', t => {
@@ -183,8 +211,9 @@ for (const kind of ['codex', 'claude'] as const) test(`${kind} 长消息续读�
 test('终端工具只接受 terminalId，续读元数据正确，本机 query 可用且远程后台在碰磁盘前拒绝', async t => {
   const f = fixture(t);
   f.write([codexMeta, ...Array.from({ length: 9 }, (_, i) => codex(i === 8 ? 'read_session_history 正文😀'.repeat(3_000) : `消息${i}`))]);
+  // 直接装配的隔离 fixture 显式声明可信来源，不代表公共 JSON 可授予权限。
   const view: CurrentViewSnapshot = { panel: 'workspace', narrow: false, workspace: null, management: null };
-  let turn: InternalToolTurn | null = { commandId: 'turn', windowId: 'window', view };
+  let turn: InternalToolTurn | null = { commandId: 'turn', terminalAccessAllowed: true, windowId: 'window', view };
   let reads = 0;
   const services = testToolServices({ terminals: { get: () => f.record },
     terminalTranscripts: { readMessages: () => { throw new Error('应读快照'); }, readSnapshot: terminalId => { reads++; return f.reader.readSnapshot(terminalId); } },
@@ -231,8 +260,9 @@ test('终端工具只接受 terminalId，续读元数据正确，本机 query �
   assert.equal((await invoke(names[2]!, { terminalId: 'terminal', messageRef: 'forged' })).ok, false);
   assert.equal((await invoke(names[2]!, { terminalId: 'terminal', messageRef: 'forged', part: 'quote' })).ok, false);
   const previousReads = reads;
-  for (const nextTurn of [null, { commandId: 'remote', windowId: 'window', view: null }, { commandId: 'background', windowId: null, view },
-    { commandId: 'narrow', windowId: 'window', view: { ...view, narrow: true } }]) {
+  for (const nextTurn of [null, { commandId: 'unverified', windowId: 'window', view },
+    { commandId: 'remote', terminalAccessAllowed: true, windowId: 'window', view: null }, { commandId: 'background', terminalAccessAllowed: true, windowId: null, view },
+    { commandId: 'narrow', terminalAccessAllowed: true, windowId: 'window', view: { ...view, narrow: true } }]) {
     turn = nextTurn;
     for (const name of names) {
       const outcome = await invoke(name, { terminalId: 'terminal', ...(name.endsWith('message') ? { messageRef: 'forged' } : {}) });
@@ -260,7 +290,7 @@ test('Fake 工具链：先确认终端，完整分页读取 CLI 长草案，再�
       projects: { listWorkspaces: () => ({ workspaces: [{ workspaceId: 'project', name: '夹具项目', project: { projectId: 'project', name: '夹具项目' } }] }) },
       sessions: { list: () => ({ sessions: [] }) },
     } as unknown as InternalToolServices), calls: store.internalToolCalls,
-    currentTurn: () => ({ commandId: 'terminal-plan', windowId: 'window', view }) });
+    currentTurn: () => ({ commandId: 'terminal-plan', terminalAccessAllowed: true, windowId: 'window', view }) });
   const outcomes: Awaited<ReturnType<InternalToolService['invoke']>>[] = [];
   const called: string[] = [];
   const adapter = new FakeCoordinatorAdapter({ promptScenario: 'internalTools', promptDelayMs: 0, seedsHistory: () => false, sessionPathRoot: join(f.home, 'fake-sessions') });

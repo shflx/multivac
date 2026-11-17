@@ -17,6 +17,17 @@ function object(value: unknown): Json | null {
 function unavailable(message: string): never { throw new SessionTranscriptUnavailableError(message); }
 function digest(value: string): string { return createHash('sha256').update(value).digest('hex'); }
 
+/** 仅识别完整的 Codex 启动包装；相同前缀的普通 Markdown 或未闭合标签仍是正文。 */
+function codexBootstrap(text: string): boolean {
+  const value = text.trim();
+  if (/^# AGENTS\.md instructions for [^\n]+\n\s*<INSTRUCTIONS>\n[\s\S]+\n<\/INSTRUCTIONS>$/u.test(value)) return true;
+  if (/^<environment_context>\n[\s\S]+\n<\/environment_context>$/u.test(value)) {
+    return /<cwd>[^<\n]+<\/cwd>/u.test(value) && /<shell>[^<\n]+<\/shell>/u.test(value);
+  }
+  return /^<permissions instructions>\n[\s\S]+\n<\/permissions instructions>$/u.test(value) ||
+    /^<user_instructions>\n[\s\S]+\n<\/user_instructions>$/u.test(value);
+}
+
 /** 只允许固定用户目录内的普通路径，不跟随文件或目录链接。 */
 function checkedPath(path: string): string {
   const absolute = resolve(path);
@@ -96,6 +107,9 @@ export class TerminalTranscriptReader {
       }
       const messages: AssistantMessageView[] = [];
       const branchEntryIds: string[] = [];
+      const bootstrapEntries = new Set<string>();
+      const userEventTexts = new Set<string>();
+      let bootstrapPhase = true;
       let start = 0, lines = 0, identified = false;
       const runtimeSessionId = digest(`${kind}:${id}:${path}:${before.dev}:${before.ino}:${before.birthtimeMs}`);
       while (start < bytes.length) {
@@ -125,6 +139,11 @@ export class TerminalTranscriptReader {
           }
           if (entry.type === 'session_meta' && object(entry.payload)?.id !== id) unavailable('Codex 会话身份发生变化，请重新定位。');
           const payload = object(entry.payload);
+          // event 只佐证用户来源，不作为正文来源，也不重复收集镜像。
+          if (entry.type === 'event_msg' && payload?.type === 'user_message' && typeof payload.message === 'string') {
+            userEventTexts.add(payload.message);
+            bootstrapPhase = false;
+          }
           // response_item 是唯一正文来源；event_msg 的镜像文本不重复收集。
           if (entry.type === 'response_item' && payload?.type === 'message' && (payload.role === 'user' || payload.role === 'assistant')) {
             role = payload.role;
@@ -132,8 +151,9 @@ export class TerminalTranscriptReader {
               const item = object(block);
               return item?.type === (role === 'user' ? 'input_text' : 'output_text') && typeof item.text === 'string' ? [item.text] : [];
             }).join('\n');
-            // Codex 将启动约束包装成 user 消息写入；它们不是用户在 CLI 中发出的正文。
-            if (role === 'user' && /^(?:# AGENTS\.md instructions|<environment_context>|<permissions instructions>|<user_instructions>)/u.test(text.trimStart())) text = '';
+            // 启动阶段的完整包装可能由 CLI 注入；末尾再结合 user_message 佐证决定是否排除。
+            if (role === 'user' && bootstrapPhase && codexBootstrap(text)) bootstrapEntries.add(`line-${lines}`);
+            else if (text) bootstrapPhase = false;
           }
         } else {
           if (entry.sessionId !== undefined && entry.sessionId !== id) unavailable('Claude Code sessionId 与受管理会话不匹配。');
@@ -167,7 +187,8 @@ export class TerminalTranscriptReader {
           position += count;
         }
       }
-      return { runtimeSessionId, leafEntryId: null, messages, branchEntryIds };
+      return { runtimeSessionId, leafEntryId: null,
+        messages: messages.filter(message => !bootstrapEntries.has(message.id) || userEventTexts.has(message.text)), branchEntryIds };
     } finally { closeSync(fd); }
   }
 }

@@ -36,7 +36,7 @@
 
 来源由终端记录的 `agentSessionId` 决定，不按目录、时间或最近活动推断会话：
 
-- Codex：在固定用户目录 `~/.codex/sessions/**/rollout-*-<id>.jsonl` 与 `~/.codex/archived_sessions` 中定位，并核对首行 `session_meta.id`。只取 `response_item` 中 `message` 的用户 `input_text` 和助手 `output_text`，忽略 `event_msg` 镜像和启动约束消息。
+- Codex：在固定用户目录 `~/.codex/sessions/**/rollout-*-<id>.jsonl` 与 `~/.codex/archived_sessions` 中定位，并核对首行 `session_meta.id`。只取 `response_item` 中 `message` 的用户 `input_text` 和助手 `output_text`，不从 `event_msg` 取正文。仅在启动阶段排除完整的 AGENTS / 环境 / 权限 / 用户约束包装；普通 Markdown 标题、同前缀文本、单行示例与未闭合标签均原样保留。`event_msg/user_message` 可佐证同文消息来自用户，但不重复输出镜像。启动阶段若没有此佐证，逐字等同完整启动包装的用户输入与 CLI 注入无法仅靠记录区分，仍按启动包装排除。
 - Claude Code：在 `~/.claude/projects/*/<id>.jsonl` 定位，核对记录的 `sessionId`，只取用户和助手消息的字符串正文或 `text` 块。元消息、侧链、工具调用及结果、思考、文件块和系统事件不返回。
 
 CLI 退出或终端关闭后，只要受管理记录与文件仍在，就可以读取。终端内切换会话后仍只读启动时跟踪的 ID。缺 ID、文件缺失、格式不可解析、身份不符或存在多个文件来源会明确失败，不尝试其他会话。文件和目录链接不跟随。自定义 CLI 数据目录、只有事件镜像的 Codex 格式及未知正文块不在支持范围内；未知事件不当作正文。
