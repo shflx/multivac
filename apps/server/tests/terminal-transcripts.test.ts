@@ -164,6 +164,8 @@ for (const kind of ['codex', 'claude'] as const) test(`${kind} 长消息续读�
   assert.deepEqual(history.range, { start: 4, end: 6, total: 8, currentTotal: 9 });
   assert.equal(transcriptMessage(f.reader, 'terminal', ref, 'body').text, restored.slice(0, transcriptMessage(f.reader, 'terminal', ref, 'body').range.end));
   assert.throws(() => transcriptMessage(f.reader, 'terminal', ref + 'tampered', 'body'), /重新.*定位/u);
+  // Node 的宽松 base64 解码会忽略此字符，签名本身仍须使用规范编码。
+  assert.throws(() => transcriptMessage(f.reader, 'terminal', ref + '!', 'body'), /重新.*定位/u);
   assert.throws(() => transcriptMessage(f.reader, 'other-terminal', ref, 'body'), /重新.*定位/u);
   const next = transcriptMessage(f.reader, 'terminal', ref, 'body').next!;
   assert.throws(() => transcriptMessage(f.reader, 'terminal', ref, 'body', next.cursor + 'x'), /重新.*定位/u);

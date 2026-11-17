@@ -43,7 +43,8 @@ export function remoteBodyAllowed(body: unknown): boolean {
   if (typeof body !== 'object' || body === null) return false;
   const value = body as Record<string, unknown>;
   if ('assistantSessionId' in value && value.assistantSessionId !== GLOBAL_SESSION) return false;
-  if (value.currentView !== undefined && value.currentView !== null) return false;
+  // view 是当前发送契约；兼容拒绝旧字段，不能让远程伪造本机终端上下文。
+  if (value.view !== undefined && value.view !== null || value.currentView !== undefined && value.currentView !== null) return false;
   if (value.contextRefs !== undefined && (!Array.isArray(value.contextRefs) || value.contextRefs.length !== 0)) return false;
   const quote = value.quote;
   if (quote !== undefined && quote !== null) {

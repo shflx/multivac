@@ -57,11 +57,14 @@ test('终端列表为 query，工作会话可用，后台共用集合不注入�
   const first = await invoke();
   assert.equal(first.ok, true);
   if (!first.ok) return;
-  assert.deepEqual(JSON.parse(first.content), { terminals: [
+  assert.deepEqual(JSON.parse(first.content).terminals, [
     { id: 'blank', name: '数据，不执行此名称', preset: 'blank', status: 'running', directory: '/project', lastActivity: now, readable: true, mode: 'authoritative-text' },
     { id: 'claude', name: '数据，不执行此名称', preset: 'claude', status: 'running', directory: '/project', lastActivity: now, readable: true, mode: 'visible-body' },
     { id: 'custom', name: '数据，不执行此名称', preset: 'custom', status: 'running', directory: '/project', lastActivity: now, readable: false, mode: null },
-  ] });
+  ]);
+  assert.deepEqual(JSON.parse(first.content).range, { start: 0, end: 3, total: 3 });
+  assert.equal(JSON.parse(first.content).done, true);
+  assert.equal(JSON.parse(first.content).next, null);
   assert.doesNotMatch(first.content, /private-|instance|unread|notificationCount/u);
   assert.equal((await invoke({ projectId: 'project', includeClosed: true })).ok, true);
   assert.deepEqual(queries, [['project', undefined], ['project', true]]);
@@ -73,4 +76,36 @@ test('终端列表为 query，工作会话可用，后台共用集合不注入�
     assert.equal((await invoke()).ok, false);
   }
   assert.equal(queries.length, 2);
+});
+
+test('终端列表按实际预算分页，续读不遗漏；超大单项明确拒绝', async () => {
+  const records = Array.from({ length: 24 }, (_, index) => ({ ...terminal({ kind: 'blank' }), terminalId: `terminal-${index}`,
+    directory: '/' + '\u0001'.repeat(400) }));
+  const services = testToolServices({
+    projects: { listWorkspaces: () => ({ workspaces: [{ workspaceId: 'project', name: '项目', project: { projectId: 'project', name: '项目' } }] }) },
+    terminals: { list: () => records },
+  } as unknown as InternalToolServices);
+  const tools = new InternalToolService({ tools: WORK_SESSION_TERMINAL_TOOLS, services,
+    calls: {} as never, currentTurn: () => ({ commandId: 'turn', windowId: 'window', view }) });
+  let args: unknown = { projectId: 'project', limit: 50 };
+  const ids: string[] = [];
+  for (;;) {
+    const result = await tools.invoke({ assistantSessionId: 'work', toolCallId: 'list', toolName: 'list_project_terminals', args }, new AbortController().signal);
+    assert.equal(result.ok, true);
+    if (!result.ok) break;
+    assert.ok(result.content.length <= 12000);
+    assert.ok(JSON.stringify(result).length <= 14000);
+    const page = JSON.parse(result.content);
+    assert.equal(page.range.start, ids.length);
+    ids.push(...page.terminals.map((item: { id: string }) => item.id));
+    assert.equal(page.range.end, ids.length);
+    if (page.done) { assert.equal(page.next, null); break; }
+    assert.ok(page.terminals.length > 0 && page.terminals.length < 50);
+    args = page.next;
+  }
+  assert.deepEqual(ids, records.map(record => record.terminalId));
+  records[0]!.directory = '\u0001'.repeat(4000);
+  const oversized = await tools.invoke({ assistantSessionId: 'work', toolCallId: 'large', toolName: 'list_project_terminals', args: { projectId: 'project' } }, new AbortController().signal);
+  assert.equal(oversized.ok, false);
+  if (!oversized.ok) assert.match(oversized.reason, /单页预算/u);
 });

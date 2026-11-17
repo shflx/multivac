@@ -59,6 +59,14 @@ test('终端快照：可见且选中才报告，切回会话、管理、首页�
     expect((await inspectView(page, sidebar(page))).workspace?.terminalId).toBe(terminal.terminalId);
     await expect(sidebar(page).locator('article.chat-row.assistant').last()).toContainText('当前焦点终端：');
     await expect(sidebar(page).locator('article.chat-row.assistant').last()).not.toContainText('当前焦点会话：');
+    // 真实浏览器调用只读 query，直接阅读当前受管理 shell 的权威画面；不输入终端。
+    const screenTurn = page.waitForResponse(response => new URL(response.url()).pathname === '/api/assistant/turns' &&
+      response.request().postData()?.includes('read_terminal_screen') === true);
+    await sidebar(page).getByLabel('Multivac 草稿').fill(`内部工具：read_terminal_screen ${JSON.stringify({ terminalId: terminal.terminalId })}`);
+    await sidebar(page).getByLabel('Multivac 草稿').press('Enter');
+    expect((await screenTurn).ok()).toBe(true);
+    await expect(sidebar(page).locator('article.chat-row.assistant').last()).toContainText('authoritative-text');
+    await expect(sidebar(page).getByRole('button', { name: '取消当前处理', exact: true })).toHaveCount(0);
     await conversation.getByRole('heading', { name: '并排会话', exact: true }).click();
     expect((await inspectView(page, sidebar(page))).workspace?.terminalId).toBeUndefined();
     const workView = await inspectView(page, conversation, `/api/sessions/${sessionId}/turns`);

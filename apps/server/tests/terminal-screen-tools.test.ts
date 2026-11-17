@@ -9,6 +9,7 @@ import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS, 
   type InternalToolTurn } from '../src/application/internal-tools/index.js';
 import { testToolServices } from './fixtures/tool-services.js';
 import { TRANSCRIPT_PAGE_MAX_LENGTH, TRANSCRIPT_RETURN_MAX_LENGTH } from '../src/application/session-transcript-pages.js';
+import { TerminalProcess as RealTerminalProcess } from '../src/runtime/executors/terminal-process.js';
 
 const size = { cols: 80, rows: 24 };
 function fixture() {
@@ -81,6 +82,50 @@ test('读取等待期间结束或重开，不能发布旧实例快照；服务�
     await f.service.close();
     await assert.rejects(f.service.readScreen(record.terminalId, first.next!.cursor), /运行中/u);
   } finally { await f.close(); }
+});
+
+test('真实 PTY 输出经权威画面与 query 分页读至开头，无 ANSI 且不向终端输入', { skip: process.platform !== 'darwin' || process.arch !== 'arm64', timeout: 15000 }, async () => {
+  const store = new SqliteAssistantStore(':memory:');
+  const project = store.projects.create({ projectId: 'p', name: 'PTY读取验证', directories: [{ kind: 'mounted', path: process.cwd() }],
+    defaultConstraints: '', createdAt: new Date().toISOString() }).project;
+  const lines = Array.from({ length: 180 }, (_, index) => `第${index}行：${'中文😀'.repeat(15)}`);
+  const output = '\x1b[31mPTY-BEGIN\x1b[0m\r\n' + lines.join('\r\n') + '\r\nPTY-READY';
+  const script = `process.stdout.write(${JSON.stringify(output)});setInterval(()=>{},1000)`;
+  // 仅测试工厂固定已知输出；产品读取端口不接收命令，也不向终端写入。
+  const service = new TerminalService(store.terminals, () => project, new WorkbenchEvents(), directory =>
+    new RealTerminalProcess(directory, { kind: 'custom', executable: process.execPath, argv: ['-e', script] }, size));
+  try {
+    const record = service.create({ projectId: 'p', preset: { kind: 'blank' }, size });
+    const deadline = Date.now() + 5000;
+    while (!(await service.readScreen(record.terminalId)).text.includes('PTY-READY')) {
+      assert.ok(Date.now() < deadline, '等待已知输出超时');
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+    const view: CurrentViewSnapshot = { panel: 'workspace', narrow: false, workspace: null, management: null };
+    const tools = new InternalToolService({ tools: WORK_SESSION_TERMINAL_TOOLS,
+      services: testToolServices({ terminals: { readScreen: (id, cursor) => service.readScreen(id, cursor) } }),
+      calls: {} as never, currentTurn: () => ({ commandId: 'pty', windowId: 'window', view }) });
+    let args: { terminalId: string; cursor?: string } = { terminalId: record.terminalId };
+    let text = '', pages = 0;
+    for (;;) {
+      const result = await tools.invoke({ assistantSessionId: 'work', toolCallId: 'pty-read', toolName: 'read_terminal_screen', args }, new AbortController().signal);
+      assert.equal(result.ok, true);
+      if (!result.ok) break;
+      assert.ok(result.content.length <= TRANSCRIPT_PAGE_MAX_LENGTH);
+      assert.ok(JSON.stringify(result).length <= TRANSCRIPT_RETURN_MAX_LENGTH);
+      const page = JSON.parse(result.content);
+      text = page.text + text;
+      pages++;
+      if (page.done) { assert.equal(page.range.start, 0); break; }
+      assert.ok(pages < 30);
+      args = page.next;
+    }
+    assert.ok(pages > 1);
+    assert.match(text, /PTY-BEGIN/u);
+    assert.match(text, /PTY-READY/u);
+    assert.ok(!text.includes('\x1b'));
+    for (const line of lines) assert.ok(text.includes(line), `缺少已知行：${line.slice(0, 8)}`);
+  } finally { await service.close(); store.close(); }
 });
 
 test('read_terminal_screen 为本机 query：严格参数、预算、后台集合排除，来源检查先于端口读取', async () => {

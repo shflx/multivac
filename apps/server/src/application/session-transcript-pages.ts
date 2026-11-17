@@ -30,7 +30,7 @@ function decode(value: string): Record<string, unknown> {
   if (!data || !signature || extra !== undefined) return invalid();
   const expected = createHmac('sha256', secret).update(data).digest();
   const actual = Buffer.from(signature, 'base64url');
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return invalid();
+  if (actual.toString('base64url') !== signature || actual.length !== expected.length || !timingSafeEqual(actual, expected)) return invalid();
   try { return JSON.parse(Buffer.from(data, 'base64url').toString('utf8')); } catch { return invalid(); }
 }
 

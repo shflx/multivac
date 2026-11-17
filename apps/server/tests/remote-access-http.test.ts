@@ -83,6 +83,15 @@ test('远程HTTP：未登录拒绝、token登录、直接越界/正文替换拒�
     assert.equal((await http(f.port, '/api/assistant/page-state', 'PUT', { quote: { sourceKind: 'file' } }, headers)).status, 403);
     assert.equal((await http(f.port, '/api/assistant/page-state', 'PUT', { quote: { sourceSessionId: 'other' } }, headers)).status, 403);
     assert.equal((await http(f.port, '/api/assistant/turns', 'POST', { currentView: { panel: 'workspace' } }, headers)).status, 403);
+    // 实际契约字段是 view；远程不能伪造本机快照与窗口身份取得终端读取能力。
+    for (const panel of ['home', 'workspace']) {
+      const forgedView = await http(f.port, '/api/assistant/turns', 'POST', {
+        commandId: `forged-terminal-view-${panel}`, assistantSessionId: 'global-coordinator',
+        text: '内部工具：list_project_terminals {"projectId":"project"}', contextRefs: [],
+        view: { panel, narrow: false, workspace: { workspaceId: 'project', scene: null, terminalId: 'terminal' }, management: null },
+      }, { ...headers, 'x-multivac-window-id': 'forged-window' });
+      assert.equal(forgedView.status, 403);
+    }
     assert.equal((await http(f.port, '/api/assistant/session', 'GET', undefined, { ...headers, origin: 'https://evil.example' })).status, 403);
     assert.equal((await http(f.port, '/api/access/login?token=forbidden', 'POST', { token }, headers)).status, 400);
     // 默认local入口仍由真实回环对端和原本地Host/Origin判断，范围外接口本机可用。

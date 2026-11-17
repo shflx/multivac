@@ -22,6 +22,12 @@
 - Multivac 可以用 `list_project_terminals` 列出受管理终端；已跟踪的 Codex / Claude Code 可用只读工具读取保存的用户和助手正文。工具不读取 CLI 画面，也不能向终端输入；终端仍由用户操作，不受管控。
 - 只接受本机界面发起的一轮（远程对话不携带当前视图），窄屏时不启动；一轮最多启动 3 个，防止被网页或文件中夹带的指令诱导反复启动。
 
+## 只读定位终端
+
+用户提到“当前终端”时，先用 `get_current_view` 确认发送时可见且选中的终端，再将明确的 `terminalId` 传给读取工具。工作区快照兼容旧客户端；未报告终端时不从焦点会话、最近活动或列表顺序猜测。首页、管理、窄屏以及并排中未选中的终端不报告为当前焦点。快照只包含对象 ID，不授予权限；服务端核对受管理终端与工作区项目一致。
+
+`list_project_terminals({ projectId, includeClosed?, offset?, limit? })` 返回实时白名单元数据、读取方式与范围，默认最多 20 项、最多 50 项，并按 JSON 内容 12000 / 完整返回 14000 UTF-16 单元预算缩小实际页。`done` 表示已到当前列表末尾，`next` 可原样续读；活动变化可能改变实时排序，此时可重新查询。列表不返回 CLI 会话 ID 或正文。远程请求不能携带 `view` 或旧 `currentView` 伪造本机视图，后台不注入终端工具。
+
 ## 只读查看 CLI 正文
 
 全局 Multivac 与本机界面的工作会话可以调用 `read_terminal_recent` 查看最近消息预览、`read_terminal_history` 向前分页定位，再用 `read_terminal_message` 分段读取一条正文。工具只接受 `list_project_terminals` 返回的 `terminalId`，不接受路径或任意 CLI 会话 ID。远程、后台和窄屏调用在读取前拒绝。
