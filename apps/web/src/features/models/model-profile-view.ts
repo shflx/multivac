@@ -45,6 +45,21 @@ export function reasoningLabel(profile: ModelProfile): string {
   return `${profile.capabilities.reasoning ? '支持' : '不支持'}（${CAPABILITY_SOURCES[profile.capabilities.source]}）`;
 }
 
+/** 上下文窗口显示生效值和来源；手动值在目录暂不可用时仍可查看。 */
+export function contextWindowLabel(profile: ModelProfile): string {
+  if (profile.contextWindow !== undefined) return `${profile.contextWindow.toLocaleString('en-US')} token（手动设置）`;
+  const capabilities = profile.capabilities;
+  return capabilities ? `${capabilities.contextWindow.toLocaleString('en-US')} token（${CAPABILITY_SOURCES[capabilities.source]}）` : '未知';
+}
+
+/** 清除覆盖后的窗口，只使用与草稿连接模型一致的 Pi 数据。 */
+export function draftDefaultContextWindow(draft: ModelProfileInput, saved: ModelProfile | null): string {
+  if (!saved?.capabilities || !sameConnectedModel(draft, saved)) return '保存后由 Pi 给出';
+  const capabilities = saved.capabilities;
+  const window = capabilities.defaultContextWindow ?? (saved.contextWindow === undefined ? capabilities.contextWindow : undefined);
+  return window === undefined ? '保存后由 Pi 给出' : `${CAPABILITY_SOURCES[capabilities.source]}：${window.toLocaleString('en-US')} token`;
+}
+
 /** 草稿连到的模型（提供方、模型 ID、协议）是否仍是已保存配置的那个；端点不影响 Pi 目录中的能力。 */
 function sameConnectedModel(draft: ModelProfileInput, saved: ModelProfile): boolean {
   return draft.provider.trim() === saved.provider &&

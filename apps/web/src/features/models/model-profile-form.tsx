@@ -1,7 +1,9 @@
 import { Check, LoaderCircle } from 'lucide-react';
 import { useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
+import { MODEL_CONTEXT_WINDOW_MAX } from '@multivac/contracts';
 import type { CoordinatorThinkingLevel, ModelProfile, ModelProfileInput, ModelProtocol, ModelReasoningMode } from '@multivac/contracts';
 import {
+  draftDefaultContextWindow,
   draftReasoningLevels,
   draftReasoningSource,
   MODEL_PROTOCOLS,
@@ -39,6 +41,7 @@ export function ModelProfileForm({
   onDiscard,
 }: ModelProfileFormProps) {
   const creating = saved === null;
+  const contextHintId = useId();
   const levels = draftReasoningLevels(draft, saved);
   const availableLevels = levels.kind === 'levels' ? levels.levels : levels.kind === 'none' ? ['off' as const] : [];
   const saveDisabled = locked || (!creating && !dirty) || !draft.profileId.trim() ||
@@ -126,6 +129,18 @@ export function ModelProfileForm({
       />
 
       <div className="model-form-grid">
+        <label className="wide">
+          <span>上下文窗口（token）</span>
+          <input aria-label="上下文窗口（token）" type="number" min={1} max={MODEL_CONTEXT_WINDOW_MAX} step={1}
+            value={draft.contextWindow ?? ''} disabled={locked} placeholder="留空沿用 Pi"
+            aria-describedby={contextHintId}
+            onInvalid={event => event.currentTarget.setCustomValidity(`上下文窗口必须是 1 至 ${MODEL_CONTEXT_WINDOW_MAX.toLocaleString('en-US')} 的整数（token），或留空沿用 Pi。`)}
+            onChange={event => {
+              event.currentTarget.setCustomValidity('');
+              onChange('contextWindow', event.currentTarget.value === '' ? undefined : event.currentTarget.valueAsNumber);
+            }} />
+          <small id={contextHintId}>{draftDefaultContextWindow(draft, saved)}。留空沿用 Pi；已打开会话空闲时生效，运行中的会话会等待本轮结束。</small>
+        </label>
         <label className="wide">
           <span>默认推理等级</span>
           <select aria-label="默认推理等级" value={draft.defaultThinkingLevel ?? ''} disabled={locked}

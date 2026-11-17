@@ -9,6 +9,8 @@ import {
   draftReasoningSource,
   protocolLabel,
   reasoningLabel,
+  contextWindowLabel,
+  draftDefaultContextWindow,
 } from '../src/features/models/model-profile-view.js';
 
 function profile(patch: Partial<ModelProfile> = {}): ModelProfile {
@@ -148,4 +150,20 @@ test('默认模型失效的提示：写明原因、保留引用且不自动替�
   );
   // 读不到可用状态时同样提示（说明补上句号）。
   assert.match(defaultModelWarning(snapshot({ availability: [] })) ?? '', /^默认模型「GPT Fixture」当前不可用：还没有读到这个模型的可用状态。默认引用已保留/u);
+});
+
+
+test('上下文窗口显示手动值和 Pi 来源，清除草稿显示原始窗口且不复用别的模型能力', () => {
+  const catalog = profile();
+  assert.equal(contextWindowLabel(catalog), '1,000 token（Pi 目录）');
+  assert.equal(draftDefaultContextWindow(catalog, catalog), 'Pi 目录：1,000 token');
+  const manual = profile({ contextWindow: 1_000_000,
+    capabilities: { ...catalog.capabilities!, contextWindow: 1_000_000, defaultContextWindow: 1000 } });
+  assert.equal(contextWindowLabel(manual), '1,000,000 token（手动设置）');
+  assert.equal(draftDefaultContextWindow({ ...manual, contextWindow: undefined }, manual), 'Pi 目录：1,000 token');
+  assert.equal(draftDefaultContextWindow({ ...manual, modelId: 'other' }, manual), '保存后由 Pi 给出');
+  const defaults = profile({ capabilities: { ...catalog.capabilities!, source: 'pi-default' } });
+  assert.equal(contextWindowLabel(defaults), '1,000 token（Pi 默认）');
+  assert.equal(contextWindowLabel(profile({ capabilities: null })), '未知');
+  assert.equal(draftDefaultContextWindow(catalog, null), '保存后由 Pi 给出');
 });

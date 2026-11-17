@@ -387,8 +387,8 @@ test('模型页按原型排版：页头添加、列表的“默认”标签与�
 
   // “配置”小节：单列 dl，协议写名称；配置 ID 与认证类型隔开放在下方，字号与上方一致。
   const config = page.locator('.model-section').filter({ has: page.getByRole('heading', { name: '配置', exact: true }) });
-  await expect(config.locator('.model-metadata dt')).toHaveText(['提供方', '协议', '模型 ID', 'API 端点', '推理能力', '默认推理等级']);
-  await expect(config.locator('.model-metadata dd')).toHaveText(['fixture', 'OpenAI Responses', 'gpt-fixture', 'https://fixture.example/v1', '支持（Pi 目录）', '未设置']);
+  await expect(config.locator('.model-metadata dt')).toHaveText(['提供方', '协议', '模型 ID', 'API 端点', '上下文窗口', '推理能力', '默认推理等级']);
+  await expect(config.locator('.model-metadata dd')).toHaveText(['fixture', 'OpenAI Responses', 'gpt-fixture', 'https://fixture.example/v1', '128,000 token（Pi 目录）', '支持（Pi 目录）', '未设置']);
   await expect(config.locator('.model-technical dt')).toHaveText(['配置 ID', '认证类型']);
   await expect(config.locator('.model-technical dd')).toHaveText(['fixture-openai', 'API Key']);
   await expect(config.locator('.model-technical')).toHaveCSS('font-size', await config.locator('.model-metadata').evaluate((element) => getComputedStyle(element).fontSize));
@@ -555,4 +555,83 @@ test('模型默认推理等级可编辑并持久恢复，新会话采用默认�
   expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: '默认推理等级验证' } })).ok()).toBe(true);
   const created = await (await request.get(`${fakeApiRoot}/api/sessions/${sessionId}/model-selection`)).json();
   expect(created.selection.thinkingLevel).toBe('high');
+});
+
+test('上下文窗口可编辑、刷新恢复、清除和校验，gpt-6.1-sol 新会话使用配置', async ({ page, request }, info) => {
+  await openModels(page);
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  const input = page.getByLabel('上下文窗口（token）', { exact: true });
+  const save = page.getByRole('button', { name: '保存', exact: true });
+  await expect(input).toHaveValue('');
+  await expect(page.locator('.model-profile-form')).toContainText('Pi 目录：128,000 token');
+  let saves = 0;
+  page.on('request', req => { if (req.method() === 'POST' && req.url().endsWith('/api/model-settings/profiles')) saves++; });
+  for (const value of ['0', '-1', '1.5', '100000001']) {
+    await input.fill(value);
+    await save.click();
+    await expect(input).toHaveJSProperty('validationMessage', '上下文窗口必须是 1 至 100,000,000 的整数（token），或留空沿用 Pi。');
+  }
+  expect(saves).toBe(0);
+  await input.fill('1000000');
+  await page.getByLabel('模型 ID', { exact: true }).fill('gpt-6.1-sol');
+  await expect(page.locator('.model-profile-form')).toContainText('保存后由 Pi 给出');
+  await save.click();
+  await expect(page.locator('.model-metadata')).toContainText('上下文窗口1,000,000 token（手动设置）');
+  await page.reload();
+  await openModelSettings(page);
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await expect(input).toHaveValue('1000000');
+  await expect(page.locator('.model-profile-form')).toContainText('Pi 目录：128,000 token');
+  await page.screenshot({ path: info.outputPath('manual-context-window.png') });
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  const id = crypto.randomUUID();
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId: id, title: '窗口配置验证' } })).ok()).toBe(true);
+  const selected = await (await request.get(`${fakeApiRoot}/api/sessions/${id}/model-selection`)).json();
+  expect(selected.selection.modelId).toBe('gpt-6.1-sol');
+  expect(selected.selection.availability.available).toBe(true);
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await input.fill('');
+  await save.click();
+  await expect(page.locator('.model-metadata')).toContainText('上下文窗口128,000 token（Pi 目录）');
+  const snapshot = await (await request.get(`${fakeApiRoot}/api/model-settings`)).json();
+  expect(snapshot.profiles.find((item: { profileId: string }) => item.profileId === 'fixture-openai').contextWindow).toBeUndefined();
+  // 独立验证服务端边界，绕过浏览器约束仍须拒绝。
+  const { capabilities: _capabilities, ...profile } = snapshot.profiles[0];
+  const rejected = await request.post(`${fakeApiRoot}/api/model-settings/profiles`, { data: {
+    commandId: crypto.randomUUID(), revision: snapshot.revision, profile: { ...profile, contextWindow: 0 },
+  } });
+  expect(rejected.status()).toBe(400);
+  expect((await rejected.json()).error.message).toContain('上下文窗口必须是');
+});
+
+test('上下文窗口保存的服务端拒绝显示在表单且保留草稿', async ({ page }) => {
+  await openModels(page);
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByLabel('上下文窗口（token）', { exact: true }).fill('500000');
+  await page.route('**/api/model-settings/profiles', route => route.fulfill({ status: 400, json: {
+    error: { code: 'MODEL_SETTINGS_CANDIDATE_INVALID', message: '上下文窗口候选校验失败。' },
+  } }));
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByText('上下文窗口候选校验失败。', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('上下文窗口（token）', { exact: true })).toHaveValue('500000');
+});
+
+test('窗口保存结果未知时，重新加载不能把其它窗口值误认为原命令成功', async ({ page, request }) => {
+  await openModels(page);
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByLabel('上下文窗口（token）', { exact: true }).fill('500000');
+  await page.route('**/api/model-settings/profiles', async route => {
+    await route.fetch();
+    await route.abort('connectionfailed');
+  });
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByRole('button', { name: '重新加载确认结果' })).toBeVisible();
+  const snapshot = await (await request.get(`${fakeApiRoot}/api/model-settings`)).json();
+  const { capabilities: _capabilities, ...profile } = snapshot.profiles[0];
+  expect((await request.post(`${fakeApiRoot}/api/model-settings/profiles`, { data: {
+    commandId: crypto.randomUUID(), revision: snapshot.revision, profile: { ...profile, contextWindow: 750000 },
+  } })).ok()).toBe(true);
+  await page.getByRole('button', { name: '重新加载确认结果' }).click();
+  await expect(page.getByText('服务端已有其它更新，当前命令未能确认；草稿已保留。', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('上下文窗口（token）', { exact: true })).toHaveValue('500000');
 });
