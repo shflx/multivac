@@ -45,7 +45,11 @@ test('工作会话并行委派、委派行及只读会话视图，运行和用�
   await expect(cards.filter({ hasText: '已完成' })).toHaveCount(3);
   await expandTraces(panel);
   await expect(execute).toBeVisible();
-  await execute.click(); await expect(view.locator('.run-trace-tool').last()).toContainText('bash');
+  await execute.click();
+  const execution = view.locator('.run-trace-tool').last();
+  await expect(execution).toContainText("运行 printf '独立完整工具输出'");
+  await expect(execution).toHaveClass(/succeeded/);
+  await expect(view.locator('article').last()).toContainText('独立完整工具输出');
   await page.screenshot({ path: 'artifacts/subagent-session-desktop.png' });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(view).toBeVisible();
