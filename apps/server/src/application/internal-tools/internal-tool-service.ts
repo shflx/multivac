@@ -11,6 +11,7 @@ import {
   internalToolArgumentsFingerprint,
   internalToolCommandId,
   InternalToolError,
+  InternalToolOutcomeUnknownError,
   RESERVED_TOOL_NAMES,
   validateInternalToolArguments,
   type InternalToolCallRecord,
@@ -365,7 +366,7 @@ export class InternalToolService implements CoordinatorInternalTools {
       services: this.options.services as BoundToolServices<never>,
       signal,
     };
-    if (tool.effect === 'query') return this.execute(tool, checked.value, context);
+    if (tool.effect === 'query') return (await this.execute(tool, checked.value, context)).outcome;
 
     // 回执重放也须重新检查笔记保护状态，不能把加密前的成功结果当成读取旁路。
     if (tool.name === 'create_note' || tool.name === 'update_note') {
@@ -402,7 +403,9 @@ export class InternalToolService implements CoordinatorInternalTools {
       return replayedOutcome(begun.record, tool.name, fingerprint);
     }
 
-    const outcome = this.execute(tool, checked.value, context).then((result) => {
+    const outcome = this.execute(tool, checked.value, context).then(({ outcome: result, unknown }) => {
+      // 已进入副作用但未能核对时保留 running，后续调用只读账本，不把未知写成确定失败。
+      if (unknown) return result;
       try {
         this.options.calls.finish(commandId, result, this.now().toISOString());
       } catch {
@@ -418,16 +421,17 @@ export class InternalToolService implements CoordinatorInternalTools {
     tool: InternalToolDefinition,
     params: unknown,
     context: InternalToolCallContext,
-  ): Promise<InternalToolOutcome> {
+  ): Promise<{ outcome: InternalToolOutcome; unknown?: true }> {
     try {
       const success = tool.effect === 'propose'
         ? await tool.execute(params as never, { ...context, propose: (proposal) => this.propose(proposal, context) })
         : await tool.execute(params as never, context);
       if (success.images?.length && tool.effect !== 'query') throw new InternalToolError('图片内容只能通过只读工具交付，不能保存到副作用回执。');
-      return { ok: true, ...success };
+      return { outcome: { ok: true, ...success } };
     } catch (error) {
-      if (error instanceof InternalToolError) return { ok: false, reason: error.reason };
-      return { ok: false, reason: `${assistantToolDisplayName(tool.name)}执行失败，没有完成。可以稍后重试，或请用户在界面中操作。` };
+      if (error instanceof InternalToolOutcomeUnknownError) return { outcome: { ok: false, reason: error.reason }, unknown: true };
+      if (error instanceof InternalToolError) return { outcome: { ok: false, reason: error.reason } };
+      return { outcome: { ok: false, reason: `${assistantToolDisplayName(tool.name)}执行失败，没有完成。可以稍后重试，或请用户在界面中操作。` } };
     }
   }
 

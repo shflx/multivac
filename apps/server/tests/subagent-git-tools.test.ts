@@ -14,6 +14,7 @@ import { internalToolCommandId, type InternalToolOutcome } from '../src/modules/
 import { createPiInternalToolSet } from '../src/runtime/executors/pi-internal-tools.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { subagentRecord } from './fixtures/subagent-record.js';
+import { unusedCapability } from './fixtures/unused-capability.js';
 
 const exec = promisify(execFile);
 const signal = () => new AbortController().signal;
@@ -35,7 +36,13 @@ async function fixture() {
   const guard = new SubagentWriteCoordinator(store.subagents, async () => true);
   await guard.normalize(child); guard.admit(child); store.subagents.save(child);
   const channel = new ControlledGitChannel();
-  const state = { verified: false, exhausted: false, commits: 0, leases: [] as string[] };
+  const state = { verified: false, exhausted: false, commits: 0, leases: [] as string[], afterCommit: null as (() => void) | null };
+  const run = channel.run.bind(channel);
+  channel.run = (id, abort, options, action) => run(id, abort, options, (git, boundary) => action(async (args, allowMissing) => {
+    const text = await git(args, allowMissing);
+    if (args[0] === 'commit') state.afterCommit?.();
+    return text;
+  }, boundary));
   const create = () => {
     const currentGuard = new SubagentWriteCoordinator(store.subagents, async () => true);
     const service = new SubagentGitService(store.subagents, channel, currentGuard, [], (_id, phase) => {
@@ -44,7 +51,9 @@ async function fixture() {
       return 1024 * 1024;
     }, () => state.verified);
     return new InternalToolService({ tools: SUBAGENT_GIT_TOOLS, calls: store.subagentToolCalls, currentTurn: () => null,
-      services: { subagentGit: { inspect: (...args) => service.inspect(...args), commit: (...args) => {
+      services: { projects: unusedCapability('projects'), sessions: unusedCapability('sessions'),
+        transcripts: unusedCapability('transcripts'), windows: unusedCapability('windows'),
+        subagentGit: { inspect: (...args) => service.inspect(...args), commit: (...args) => {
         state.commits += 1;
         // 实际提交服务运行时，登记必须已落入真实 SQLite。
         const db = new DatabaseSync(path);
@@ -55,8 +64,8 @@ async function fixture() {
   };
   return { directory, path, child, baseline, git, state, create,
     store: () => store,
-    invoke: (tools: InternalToolService, toolCallId: string, args: unknown = input, toolName = 'commit_subagent_code') =>
-      tools.invoke({ assistantSessionId: child.run.sessionId, toolCallId, toolName, args }, signal()),
+    invoke: (tools: InternalToolService, toolCallId: string, args: unknown = input, toolName = 'commit_subagent_code', abort = signal()) =>
+      tools.invoke({ assistantSessionId: child.run.sessionId, toolCallId, toolName, args }, abort),
     change: (text = 'after') => writeFile(join(directory, 'code.txt'), text),
     inspect: (tools: InternalToolService) => tools.invoke({ assistantSessionId: child.run.sessionId, toolCallId: 'inspect', toolName: 'inspect_subagent_git', args: { paths: input.paths } }, signal()),
     reopen() { store.close(); store = new SqliteAssistantStore(path); return create(); },
@@ -135,6 +144,59 @@ test('提交已发生但回执写入失败，当前进程与重启后均只读�
     assert.equal(f.state.commits, 1);
     assert.equal(await f.git('rev-parse', 'HEAD'), hash);
     assert.equal(await f.git('rev-list', '--count', 'HEAD'), '2');
+  } finally { await f.close(); }
+});
+
+test('Git 已提交但子级元数据保存失败，保留未知且重启后不重放', mac, async () => {
+  const f = await fixture();
+  try {
+    const tools = f.create(); f.state.verified = true; await f.change();
+    assert.equal((await f.inspect(tools)).ok, true);
+    f.sql(`CREATE TRIGGER reject_commit_metadata BEFORE UPDATE ON subagent_run
+      WHEN json_array_length(json_extract(NEW.record_json, '$.run.commitHashes')) > json_array_length(json_extract(OLD.record_json, '$.run.commitHashes'))
+      BEGIN SELECT RAISE(ABORT, 'commit metadata unavailable'); END`);
+    const first = await f.invoke(tools, 'metadata-failed');
+    const hash = await f.git('rev-parse', 'HEAD');
+    assert.notEqual(hash, f.baseline);
+    assert.equal(first.ok, false); assert.match(reason(first), /结果未知/);
+    assert.doesNotMatch(reason(first), /没有完成|稍后重试/);
+    const commandId = internalToolCommandId(f.child.run.sessionId, 'metadata-failed');
+    assert.equal(f.store().subagentToolCalls.get(commandId)!.status, 'running');
+    assert.deepEqual(f.store().subagents.get(f.child.run.id)!.run.commitHashes, []);
+    f.sql('DROP TRIGGER reject_commit_metadata');
+    await f.change('new pending work');
+    const repeated = await f.invoke(tools, 'metadata-failed');
+    assert.equal(repeated.ok, false); assert.match(reason(repeated), /结果未知/);
+    assert.deepEqual(await f.invoke(f.reopen(), 'metadata-failed'), repeated);
+    assert.equal(f.state.commits, 1);
+    assert.equal(await f.git('rev-parse', 'HEAD'), hash);
+    assert.equal(await f.git('rev-list', '--count', 'HEAD'), '2');
+    assert.equal(await f.git('diff', '--name-only'), 'code.txt');
+  } finally { await f.close(); }
+});
+
+test('真实 Git 已提交、读取 SHA 前取消，回执保留未知且不重复提交', mac, async () => {
+  const f = await fixture();
+  try {
+    const tools = f.create(); f.state.verified = true; await f.change();
+    assert.equal((await f.inspect(tools)).ok, true);
+    const controller = new AbortController();
+    f.state.afterCommit = () => controller.abort();
+    const first = await f.invoke(tools, 'cancel-after-commit', input, 'commit_subagent_code', controller.signal);
+    const hash = await f.git('rev-parse', 'HEAD');
+    assert.notEqual(hash, f.baseline);
+    assert.equal(first.ok, false); assert.match(reason(first), /结果未知/);
+    assert.doesNotMatch(reason(first), /没有完成|稍后重试/);
+    assert.equal(f.store().subagentToolCalls.get(internalToolCommandId(f.child.run.sessionId, 'cancel-after-commit'))!.status, 'running');
+    assert.deepEqual(f.store().subagents.get(f.child.run.id)!.run.commitHashes, []);
+    f.state.afterCommit = null;
+    const repeated = await f.invoke(tools, 'cancel-after-commit');
+    assert.equal(repeated.ok, false); assert.match(reason(repeated), /结果未知/);
+    assert.deepEqual(await f.invoke(f.reopen(), 'cancel-after-commit'), repeated);
+    assert.equal(f.state.commits, 1);
+    assert.equal(await f.git('rev-parse', 'HEAD'), hash);
+    assert.equal(await f.git('rev-list', '--count', 'HEAD'), '2');
+    assert.equal(await f.git('diff', '--name-only'), '');
   } finally { await f.close(); }
 });
 

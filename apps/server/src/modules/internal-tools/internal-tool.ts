@@ -56,6 +56,14 @@ export class InternalToolError extends Error {
   }
 }
 
+/** 副作用可能已发生但未能核对；账本必须保留进行中，不能落为确定失败或重放执行。 */
+export class InternalToolOutcomeUnknownError extends InternalToolError {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'InternalToolOutcomeUnknownError';
+  }
+}
+
 /** 工具成功时交给模型的正文与公开的结果（白名单，见契约 AssistantToolResultSchema）。 */
 export interface InternalToolSuccess {
   /** 只读工具交给执行器的临时图片，不进入公开结果或副作用回执账本。 */

@@ -5,7 +5,7 @@ import type { SubagentRecord } from '../../src/modules/agents/subagent-run.js';
 /** 使用独立运行 ID 和会话 ID，避免测试把两类身份混为一谈。 */
 export function subagentRecord(id: string, directory: string, writeScope: string[] = []): SubagentRecord {
   return {
-    context: '', fingerprint: id, workingDirectory: { kind: 'temporary', path: directory },
+    context: '', fingerprint: id, workingDirectory: { kind: 'session-temp', path: directory },
     execution: null, runtimeConfig: null, markers: {},
     run: {
       id, sessionId: `subagent-session:${id}`, parentSessionId: GLOBAL_ASSISTANT_SESSION_ID,

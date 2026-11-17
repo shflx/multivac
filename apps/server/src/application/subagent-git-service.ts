@@ -7,6 +7,7 @@ import type { ControlledGit, ControlledGitChannel, GitBoundary } from './control
 import { workingGitBoundary } from './git-read-service.js';
 import { validateGitPaths } from './task-git-service.js';
 import type { ExecutionLeasePhase } from './execution-budget-lease.js';
+import { InternalToolOutcomeUnknownError } from '../modules/internal-tools/internal-tool.js';
 
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 
@@ -55,6 +56,7 @@ export class SubagentGitService {
   async commit(id: string, input: { paths: string[]; message: string }, signal: AbortSignal): Promise<string> {
     if (!input.paths.length || input.paths.length > 100 || !input.message.trim()) throw new Error('提交须明确列出文件和提交信息。');
     const release = this.guard.acquire(id, 'commit_subagent_code');
+    let commitAttempted = false;
     try {
       return await this.channel.run(id, signal, { boundary: () => this.boundary(id), lease: (phase, marker, bytes) => this.lease(id, phase, marker, bytes) }, async (git, boundary) => {
         const paths = await this.paths(id, boundary, input.paths);
@@ -63,6 +65,7 @@ export class SubagentGitService {
         if (!inspected || inspected.paths !== JSON.stringify(paths) || inspected.digest !== digest(snapshot.text)) throw new Error('先核对当前差异；核对后的文件或 HEAD 已变化时须重新核对。');
         if (!this.verified(id)) throw new Error('尚无本次执行成功的运行检查，请先完成验证。');
         await git(['add', '--', ...paths]);
+        commitAttempted = true;
         await git(['commit', '--only', '--no-gpg-sign', '--no-verify', '-m', input.message, '--', ...paths]);
         const hash = (await git(['rev-parse', '--verify', 'HEAD'])).trim();
         this.repository.transaction(() => {
@@ -74,6 +77,10 @@ export class SubagentGitService {
         this.inspected.delete(id);
         return `本地提交已创建：${hash}；未推送。`;
       });
+    } catch (error) {
+      if (commitAttempted) throw new InternalToolOutcomeUnknownError(
+        '本地提交已进入执行阶段，结果未知；提交可能已发生，但未能完整记录。请先只读核对当前 HEAD 与提交历史，不要更换调用身份重复提交。');
+      throw error;
     } finally { release(); }
   }
 }
