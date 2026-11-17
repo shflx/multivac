@@ -126,6 +126,7 @@ import {
   InternalToolService,
   MULTIVAC_INTERNAL_TOOLS,
   WORK_SESSION_TASK_TOOLS,
+  WORK_SESSION_TERMINAL_TOOLS,
   type InternalToolServices,
   type InternalToolTurn,
 } from '../application/internal-tools/index.js';
@@ -547,7 +548,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       isOpen: (windowId) => workbenchEvents.hasWindow(windowId),
     },
     // 终端服务在后面装配；工具调用发生在启动完成之后。
-    terminals: { open: (input) => terminals.open(input) },
+    terminals: { open: (input) => terminals.open(input), list: (projectId, includeClosed) => terminals.list(projectId, includeClosed), get: id => terminals.get(id) },
   };
   // 示例提议（给会话改名）只在测试控制开启时（E2E 服务与测试）注册，用来验证确认卡机制；正式环境没有它。
   const exampleProposals = environment.MULTIVAC_E2E_CONTROL === '1';
@@ -726,13 +727,14 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   // session，不能误接到工作会话上。工作会话运行时在首次访问时创建，归档后释放。
   const workConfig = workRuntimeConfig(baseRuntimeConfig);
   const workSessionTaskTools: InternalToolService = new InternalToolService({
-    tools: [...WORK_SESSION_TASK_TOOLS, ...webTools],
+    tools: [...WORK_SESSION_TASK_TOOLS, ...WORK_SESSION_TERMINAL_TOOLS, ...webTools],
     services: internalToolServices,
     calls: store.internalToolCalls,
     currentTurn: (id) => {
       const commands = sessionRuntimes.get(id)?.commands;
       const commandId = commands?.currentPromptCommandId();
-      return commands && commandId ? { commandId, windowId: commands.currentPromptWindowId() } : null;
+      return commands && commandId ? { commandId, windowId: commands.currentPromptWindowId(), view: commands.currentPromptView(),
+        updateView: view => commands.updatePromptView(commandId, view) } : null;
     },
   });
   const scheduleTools = new InternalToolService({
@@ -1463,7 +1465,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       if (record.host?.kind === 'note') throw new SkillError('笔记讨论不提供 Skill。', 403);
       const host = record.host?.kind === 'reading' ? 'reading' : store.taskRuns.bySession(id) ? 'task' : 'work';
       return { sessionId:id, projectId: record.kind === 'work' ? workspaceRepository.get(record.workspaceId)?.project?.projectId ?? null : null, host,
-        tools: host === 'reading' ? [] : ['read','write','edit','bash', ...(record.kind === 'coordinator' ? MULTIVAC_INTERNAL_TOOLS : host === 'task' ? [...WORK_SESSION_TASK_TOOLS,...TASK_EXECUTION_TOOLS] : WORK_SESSION_TASK_TOOLS).map(t => t.name)] };
+        tools: host === 'reading' ? [] : ['read','write','edit','bash', ...(record.kind === 'coordinator' ? MULTIVAC_INTERNAL_TOOLS : host === 'task' ? [...WORK_SESSION_TASK_TOOLS,...TASK_EXECUTION_TOOLS] : [...WORK_SESSION_TASK_TOOLS,...WORK_SESSION_TERMINAL_TOOLS]).map(t => t.name)] };
     },
     sessionLabel: id => {
       if (id === GLOBAL_ASSISTANT_SESSION_ID) return { title: 'Multivac 对话', available: true };

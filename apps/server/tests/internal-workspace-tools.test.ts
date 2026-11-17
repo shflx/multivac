@@ -101,6 +101,8 @@ async function setup(root: string) {
   // 假的终端服务：记录启动请求，不启动真实进程。
   const launched: CreateTerminal[] = [];
   const terminals: NonNullable<InternalToolServices['terminals']> = {
+    list: () => [],
+    get: () => { throw new Error('本用例不读取单个终端。'); },
     open: async (input) => {
       launched.push(input);
       const now = '2026-09-30T01:00:00.000Z';

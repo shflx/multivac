@@ -109,6 +109,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   switch_workspace: { displayName: '切换工作区', keyArgument: { argument: 'workspaceId', action: '切到工作区' } },
   open_session: { displayName: '在工作区打开会话', keyArgument: { argument: 'sessionId', action: '在工作区打开' } },
   open_terminal: { displayName: '启动终端', keyArgument: { argument: 'preset', action: '启动终端' } },
+  list_project_terminals: { displayName: '列出项目终端', keyArgument: { argument: 'projectId', action: '列出项目终端' } },
   set_parallel_count: { displayName: '调整并排数', keyArgument: { argument: 'count', action: '并排数调为' } },
   set_view_mode: { displayName: '切换并排 / 聚焦' },
   open_management_page: { displayName: '打开管理页' },
