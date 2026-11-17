@@ -54,10 +54,13 @@ function internalToolCallFromRow(row: InternalToolCallRow): InternalToolCallReco
  * 表结构与迁移由 SqliteAssistantStore 维护。
  */
 export class SqliteInternalToolCallRepository implements InternalToolCallRepository {
-  constructor(private readonly database: DatabaseSync) {}
+  constructor(
+    private readonly database: DatabaseSync,
+    private readonly table: 'internal_tool_call' | 'subagent_tool_call' = 'internal_tool_call',
+  ) {}
 
   get(commandId: string): InternalToolCallRecord | undefined {
-    const row = this.database.prepare('SELECT * FROM internal_tool_call WHERE command_id = ?')
+    const row = this.database.prepare(`SELECT * FROM ${this.table} WHERE command_id = ?`)
       .get(commandId) as unknown as InternalToolCallRow | undefined;
     return row ? internalToolCallFromRow(row) : undefined;
   }
@@ -68,7 +71,7 @@ export class SqliteInternalToolCallRepository implements InternalToolCallReposit
   ): { record: InternalToolCallRecord; inserted: boolean } {
     return runInTransaction(this.database, () => {
       const inserted = this.database.prepare(`
-        INSERT OR IGNORE INTO internal_tool_call (
+        INSERT OR IGNORE INTO ${this.table} (
           command_id, session_id, tool_call_id, tool_name, effect, arguments_fingerprint,
           status, outcome_json, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, 'running', NULL, ?, ?)
@@ -83,7 +86,7 @@ export class SqliteInternalToolCallRepository implements InternalToolCallReposit
   /** 只结束仍在进行中的调用；已有结果的不改写。 */
   finish(commandId: string, outcome: InternalToolOutcome, updatedAt: string): void {
     this.database.prepare(`
-      UPDATE internal_tool_call SET status = ?, outcome_json = ?, updated_at = ?
+      UPDATE ${this.table} SET status = ?, outcome_json = ?, updated_at = ?
       WHERE command_id = ? AND status = 'running'
     `).run(outcome.ok ? 'succeeded' : 'failed', JSON.stringify(outcome), updatedAt, commandId);
   }

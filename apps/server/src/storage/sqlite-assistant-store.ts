@@ -1,5 +1,6 @@
 import { SUBAGENT_BUDGET_MIGRATION, SqliteSubagentBudget } from './sqlite-subagent-budget.js';
 import { SUBAGENT_MIGRATION, SqliteSubagentRepository } from './sqlite-subagent-repository.js';
+import { SUBAGENT_TOOL_CALL_MIGRATION, SqliteSubagentToolCallRepository } from './sqlite-subagent-tool-call-repository.js';
 import { SqliteTaskAttachmentRepository, TASK_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_MIGRATION, SESSION_ATTACHMENT_CLEANUP_MIGRATION } from './sqlite-task-attachment-repository.js';
 import { NoteRecordCodec, NOTE_PROTECTION_MIGRATION } from './note-record-codec.js';
 import { SqliteNoteSecurityRepository, NOTE_SECURITY_MIGRATION, NOTE_KEYPAIR_MIGRATION } from './sqlite-note-security-repository.js';
@@ -352,6 +353,7 @@ const MIGRATIONS = [
   AGENT_DELEGABLE_MIGRATION,
   SUBAGENT_MIGRATION,
   SUBAGENT_BUDGET_MIGRATION,
+  SUBAGENT_TOOL_CALL_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */
@@ -463,6 +465,7 @@ export class SqliteAssistantStore {
   readonly preferences: SqlitePreferenceRepository;
   readonly tempDirectoryCleanups: SqliteTempDirectoryCleanupRepository;
   readonly internalToolCalls: SqliteInternalToolCallRepository;
+  readonly subagentToolCalls: SqliteSubagentToolCallRepository;
   readonly proposals: SqliteProposalRepository;
   readonly toolAuthorizations: SqliteToolAuthorizationRepository;
   readonly events: SqliteAssistantEventRepository;
@@ -491,6 +494,7 @@ export class SqliteAssistantStore {
       this.preferences = new SqlitePreferenceRepository(this.database, () => this.now());
       this.tempDirectoryCleanups = new SqliteTempDirectoryCleanupRepository(this.database);
       this.internalToolCalls = new SqliteInternalToolCallRepository(this.database);
+      this.subagentToolCalls = new SqliteSubagentToolCallRepository(this.database);
       this.proposals = new SqliteProposalRepository(this.database, () => this.now());
       this.toolAuthorizations = new SqliteToolAuthorizationRepository(this.database);
       this.events = new SqliteAssistantEventRepository(this.database);
