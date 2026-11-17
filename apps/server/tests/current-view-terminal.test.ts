@@ -12,7 +12,7 @@ const record: ProjectTerminal = { terminalId: 'terminal', projectId: 'project', 
   closedAt: null, unread: true, notificationCount: 1, agentSessionId: 'private-session' };
 
 function fixture() {
-  let turn: InternalToolTurn = { commandId: 'turn', windowId: 'window', view };
+  let turn: InternalToolTurn = { commandId: 'turn', windowId: 'window', view, terminalAccessAllowed: true };
   let terminal = { ...record };
   let get = () => terminal;
   const services = testToolServices({
@@ -23,6 +23,7 @@ function fixture() {
   const service = new InternalToolService({ tools: WORK_SESSION_TERMINAL_TOOLS, services,
     calls: new Proxy({}, { get: () => { throw new Error('query 不得写入账本'); } }) as never, currentTurn: () => turn });
   return { services, setRecord: (value: ProjectTerminal) => { terminal = value; },
+    setAccess: (value: boolean | undefined) => { turn = { ...turn, terminalAccessAllowed: value }; },
     setGet: (value: typeof get) => { get = value; },
     setView: (value: CurrentViewSnapshot, windowId: string | null = 'window') => { turn = { ...turn, view: value, windowId }; },
     invoke: (args: unknown = {}) => service.invoke({ assistantSessionId: 'work', toolCallId: 'query', toolName: 'get_current_view', args }, new AbortController().signal) };
@@ -50,6 +51,27 @@ test('工作会话当前视图明确报告终端和读取方式，不回退为�
     assert.doesNotMatch(outcome.content, /当前焦点会话|private-/u);
   }
   assert.equal((await f.invoke({ terminalId: 'terminal' })).ok, false);
+});
+
+test('当前视图在来源未核定或被撤销后不读取终端元数据，也不回退为焦点会话', async () => {
+  const f = fixture();
+  let lookups = 0;
+  f.setGet(() => { lookups++; return record; });
+  for (const allowed of [undefined, false]) {
+    f.setAccess(allowed);
+    const outcome = await f.invoke();
+    assert.equal(outcome.ok, true);
+    if (outcome.ok) {
+      assert.match(outcome.content, /本轮未获本机终端访问资格/u);
+      assert.doesNotMatch(outcome.content, /"terminalId"|"preset"|当前终端|read_terminal_|当前焦点会话/u);
+    }
+  }
+  assert.equal(lookups, 0);
+  f.setAccess(true);
+  const local = await f.invoke();
+  assert.equal(local.ok, true);
+  if (local.ok) assert.match(local.content, /"terminalId":"terminal"/u);
+  assert.equal(lookups, 1);
 });
 
 test('当前终端失效、跨项目、服务缺失均如实说明，旧客户端和隐藏工作区不推断终端', async () => {

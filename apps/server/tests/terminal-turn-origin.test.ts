@@ -15,7 +15,8 @@ import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
 const sessionId = 'global-coordinator';
-const view: CurrentViewSnapshot = { panel: 'workspace', narrow: false, workspace: null, management: null };
+const view: CurrentViewSnapshot = { panel: 'workspace', narrow: false,
+  workspace: { workspaceId: 'project', scene: null, terminalId: 'terminal' }, management: null };
 const config: CoordinatorRuntimeConfig = { systemPrompt: 'fixture', authorizedContext: [],
   model: { provider: 'fake', modelId: 'fake', thinkingLevel: 'off' }, retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 },
   compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 } };
@@ -37,13 +38,14 @@ async function fixture() {
   const access = new RemoteAccess({ enabled: true, token, origin: '', host: '0.0.0.0' }, Date.now, 'multivac_remote', new LocalEntryPolicy(localEntries('production', 4317)));
   // 通过真实 HTTP factory 分发，但不监听端口、不启动外部服务。
   const server = createMultivacHttpServer({ service, commandService: commands, eventRepository: store.events, eventStream, remoteAccess: access });
-  let reads = 0, opens = 0;
+  let reads = 0, opens = 0, terminalLookups = 0;
   const tools = new InternalToolService({ tools: MULTIVAC_INTERNAL_TOOLS, calls: store.internalToolCalls,
     services: testToolServices({
       projects: { listWorkspaces: () => ({ workspaces: [{ workspaceId: 'project', name: 'fixture', project: { projectId: 'project', name: 'fixture' } }] }) },
-      sessions: { presentedScene: () => ({ scene: { parallelCount: 1 } }) },
+      sessions: { list: () => ({ sessions: [] }), presentedScene: () => ({ scene: { parallelCount: 1, viewMode: 'focus', slots: [], focusedSessionId: null } }) },
       terminals: { readScreen: async () => { reads++; return { text: 'fixture screen' }; },
-        get: () => ({ terminalId: 'terminal', preset: { kind: 'codex', argv: [] }, status: 'running', closedAt: null }),
+        get: () => { terminalLookups++; return { terminalId: 'terminal', projectId: 'project', title: 'fixture terminal',
+          preset: { kind: 'codex', argv: [] }, agentSessionId: 'fixture-cli', status: 'running', closedAt: null }; },
         open: async () => { opens++; throw new Error('fixture stopped'); } },
       terminalTranscripts: { readSnapshot: () => { reads++; return { runtimeSessionId: 'fixture', leafEntryId: null, branchEntryIds: [], messages: [] }; } },
     } as unknown as InternalToolServices),
@@ -55,7 +57,7 @@ async function fixture() {
     } : null });
   let sequence = 0;
   const invoke = (toolName = 'read_terminal_screen') => tools.invoke({ assistantSessionId: sessionId, toolCallId: `fixture-${sequence++}`, toolName,
-    args: toolName === 'open_terminal' ? { projectId: 'project', preset: 'blank' } : { terminalId: 'terminal' } }, new AbortController().signal);
+    args: toolName === 'get_current_view' ? {} : toolName === 'open_terminal' ? { projectId: 'project', preset: 'blank' } : { terminalId: 'terminal' } }, new AbortController().signal);
   type RequestOptions = { behavior?: 'steer' | 'followUp'; origin?: string | null; mobile?: boolean; mobileHint?: boolean; host?: string; remote?: boolean; narrow?: boolean; noView?: boolean; forged?: boolean };
   let remoteCookie = '';
   function dispatch(body: unknown, options: RequestOptions, path = '/api/assistant/turns') {
@@ -92,7 +94,7 @@ async function fixture() {
     }
     assert.fail('fixture 未进入 streaming');
   }
-  return { commands, adapter, invoke, send, streaming, completion, effects: () => ({ reads, opens }),
+  return { commands, adapter, invoke, send, streaming, completion, effects: () => ({ reads, opens }), lookups: () => terminalLookups,
     close() { completion.resolve(); server.close(() => {}); adapter.dispose(); store.close(); } };
 }
 
@@ -110,6 +112,15 @@ for (const [name, options, allowed] of [
     assert.equal((await f.invoke('read_terminal_recent')).ok, allowed);
     const opened = await f.invoke('open_terminal');
     assert.equal(opened.ok, false);
+    const beforeView = f.lookups();
+    const current = await f.invoke('get_current_view');
+    assert.equal(current.ok, !('noView' in options && options.noView));
+    if (current.ok) {
+      if (allowed) assert.match(current.content, /"terminalId":"terminal"/u);
+      else assert.doesNotMatch(current.content, /"terminalId"|fixture terminal|read_terminal_/u);
+    }
+    assert.equal(f.lookups(), beforeView + (allowed ? 1 : 0));
+    if (!allowed) assert.equal(beforeView, 0);
     assert.deepEqual(f.effects(), { reads: allowed ? 2 : 0, opens: allowed ? 1 : 0 });
   } finally { f.completion.resolve(); await prompt.done; f.close(); }
   assert.equal(prompt.result.status, 200);
@@ -121,6 +132,10 @@ for (const behavior of ['steer', 'followUp'] as const) for (const origin of ['re
   try {
     await f.streaming();
     assert.equal((await f.invoke()).ok, true);
+    const localView = await f.invoke('get_current_view');
+    assert.equal(localView.ok, true, JSON.stringify(localView));
+    if (localView.ok) assert.match(localView.content, /"terminalId":"terminal"/u);
+    assert.equal(f.lookups(), 1);
     // 本机追加保持权限。
     const local = f.send({ behavior }); await local.done;
     assert.equal(local.result.status, 200);
@@ -128,9 +143,11 @@ for (const behavior of ['steer', 'followUp'] as const) for (const origin of ['re
     const original = f.adapter[behavior].bind(f.adapter);
     const entered = deferred(), release = deferred();
     let observed: boolean[] = [];
+    let observedView!: Awaited<ReturnType<typeof f.invoke>>;
     const effectsBefore = f.effects();
     f.adapter[behavior] = async (...args: Parameters<typeof original>) => {
       observed = [(await f.invoke()).ok, (await f.invoke('read_terminal_recent')).ok, (await f.invoke('open_terminal')).ok];
+      observedView = await f.invoke('get_current_view');
       entered.resolve();
       await release.promise;
       return original(...args);
@@ -139,6 +156,12 @@ for (const behavior of ['steer', 'followUp'] as const) for (const origin of ['re
     try {
       await entered.promise;
       assert.deepEqual(observed, [false, false, false], '追加 Promise 尚未完成时就必须拒绝终端访问');
+      assert.equal(observedView.ok, true);
+      if (observedView.ok) {
+        assert.match(observedView.content, /本轮未获本机终端访问资格/u);
+        assert.doesNotMatch(observedView.content, /"terminalId"|fixture terminal|read_terminal_|当前焦点会话/u);
+      }
+      assert.equal(f.lookups(), 1, '已撤销来源的当前视图不能查询终端元数据');
       assert.deepEqual(f.effects(), effectsBefore, '来源拒绝发生在读取和启动端口之前');
       f.commands.updatePromptView(prompt.commandId, view);
       assert.equal((await f.invoke()).ok, false, '导航视图更新不能恢复权限');
