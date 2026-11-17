@@ -571,6 +571,43 @@ function AssistantSessionView({
       session.commandAnchors.some(anchor => anchor.commandId === previous.commandId && anchor.runtimeEntryId === message.runtimeEntryId);
   }
 
+  /** 工具读取的图片（如 read 读图）只展示图片：工具返回的提示文字是给模型的，不展示也不提供复制。 */
+  function isToolImage(index: number): boolean {
+    const item = timeline[index];
+    return item?.kind === 'message' && Boolean(item.message.toolName) && Boolean(item.message.imageIds?.length);
+  }
+
+  /** 连续的工具图片合成一组：组首返回组内下标，其余成员返回空数组不再单独渲染；中间插入任务请求回复时断开。 */
+  function toolImageGroup(index: number): number[] {
+    if (isToolImage(index - 1) && !taskReplies?.before.has(index)) return [];
+    const group = [index];
+    for (let next = index + 1; isToolImage(next) && !taskReplies?.before.has(next); next += 1) group.push(next);
+    return group;
+  }
+
+  function renderToolImages(index: number) {
+    const group = toolImageGroup(index);
+    const messages = group.flatMap((member) => {
+      const entry = timeline[member];
+      return entry?.kind === 'message' ? [entry.message] : [];
+    });
+    const first = messages[0];
+    const last = messages.at(-1);
+    if (!first || !last) return null;
+    const ids = messages.flatMap((message) => message.imageIds ?? []);
+    return <article
+      className={['chat-row', 'assistant', continuesSpeaker(index) && !taskReplies?.before.has(index) ? 'continued' : ''].filter(Boolean).join(' ')}
+      key={first.id}
+    >
+      <span className="avatar" aria-hidden="true"><MultivacIcon /></span>
+      <div className="chat-content">
+        <span className="message-author">工具 · {first.toolName}</span>
+        <ImageGallery sources={ids.map((id, position) => ({ url: imageContentUrl(session.sessionId, id), alt: `图片 ${position + 1}` }))} />
+        <MessageActions createdAt={last.createdAt} note={`工具读取了 ${ids.length} 张图片`} />
+      </div>
+    </article>;
+  }
+
   const RunIcon = runFeedback.phase === 'authorization'
     ? ShieldAlert
     : runFeedback.phase === 'tool'
@@ -800,7 +837,7 @@ function AssistantSessionView({
                       {/* Multivac 直接执行的管理动作（新建、改名、归档、恢复会话）的回执：跟在这一轮之后，轨迹收起后仍可见。 */}
                       {isCoordinator && !remote && <ToolReceipts records={item.tools} />}
                     </Fragment>
-                  ) : taskId && item.message.role === 'user' ? (
+                  ) : isToolImage(index) ? renderToolImages(index) : taskId && item.message.role === 'user' ? (
                     <TaskSystemCommand key={item.message.id} message={item.message} first={item === firstTaskCommand} />
                   ) : (
                     <article

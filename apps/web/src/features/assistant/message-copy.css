@@ -21,6 +21,7 @@
 .message-time { color: var(--faint); font-size: var(--t-xs); font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0; transition: opacity .12s ease; }
 .chat-row:hover .message-actions button, .message-actions button:not([data-state='idle']),
 .chat-row:hover .message-time, .message-actions:focus-within .message-time { opacity: 1; }
+.message-note { color: var(--muted); font-size: var(--t-xs); white-space: nowrap; }
 .message-actions-feedback { color: var(--muted); font-size: var(--t-xs); }
 /* 触屏没有悬停，操作行常驻但保持弱化。 */
 @media (hover: none) { .message-actions button, .message-time { opacity: .7; } }

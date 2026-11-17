@@ -21,14 +21,16 @@ function messageTime(value: string): string {
 /**
  * 消息下方的操作行：复制原文（助手回复为 Markdown 源文）与发送时间。
  * 时间位于复制按钮的外侧：左侧消息在右边，右侧消息在左边。
+ * 没有可复制的原文时（如工具读取的图片）只保留说明与时间。
  */
-export function MessageActions({ text, createdAt }: { text: string; createdAt: string }) {
+export function MessageActions({ text, createdAt, note }: { text?: string; createdAt: string; note?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   const copy = async () => {
     window.clearTimeout(timer.current);
+    if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
       setState('copied');
@@ -40,10 +42,11 @@ export function MessageActions({ text, createdAt }: { text: string; createdAt: s
 
   const label = state === 'copied' ? '已复制' : state === 'failed' ? '复制失败' : '复制消息';
   return <div className="message-actions">
-    <button type="button" aria-label="复制消息" title={label} data-state={state} onClick={() => void copy()}>
+    {note && <span className="message-note">{note}</span>}
+    {text && <button type="button" aria-label="复制消息" title={label} data-state={state} onClick={() => void copy()}>
       <Copy className="message-copy-icon" aria-hidden="true" />
       <Check className="message-copy-check" aria-hidden="true" />
-    </button>
+    </button>}
     <time className="message-time" dateTime={createdAt} title={new Date(createdAt).toLocaleString('zh-CN')}>{messageTime(createdAt)}</time>
     <span className="message-actions-feedback" role="status" aria-live="polite">{state === 'idle' ? '' : label}</span>
   </div>;
