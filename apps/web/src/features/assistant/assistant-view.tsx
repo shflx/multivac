@@ -585,8 +585,7 @@ function AssistantSessionView({
       return entry?.kind === 'message' ? [entry.message] : [];
     });
     const first = messages[0];
-    const last = messages.at(-1);
-    if (!first || !last) return null;
+    if (!first) return null;
     let position = 0;
     const sources = messages.flatMap((message) => (message.imageIds ?? []).map((id, member) => ({
       url: imageContentUrl(session.sessionId, id),
@@ -602,7 +601,7 @@ function AssistantSessionView({
       <div className="chat-content">
         <span className="message-author">工具 · {first.toolName}</span>
         <ImageGallery sources={sources} />
-        <MessageActions createdAt={last.createdAt} note={`工具读取了 ${sources.length} 张图片`} />
+        <MessageActions note={`工具读取了 ${sources.length} 张图片`} />
       </div>
     </article>;
   }

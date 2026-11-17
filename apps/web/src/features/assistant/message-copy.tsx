@@ -21,9 +21,9 @@ function messageTime(value: string): string {
 /**
  * 消息下方的操作行：复制原文（助手回复为 Markdown 源文）与发送时间。
  * 时间位于复制按钮的外侧：左侧消息在右边，右侧消息在左边。
- * 没有可复制的原文时（如工具读取的图片）只保留说明与时间。
+ * 没有可复制的原文时只保留说明；仅在提供发送时间时显示时间。
  */
-export function MessageActions({ text, createdAt, note }: { text?: string; createdAt: string; note?: string }) {
+export function MessageActions({ text, createdAt, note }: { text?: string; createdAt?: string; note?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -47,7 +47,7 @@ export function MessageActions({ text, createdAt, note }: { text?: string; creat
       <Copy className="message-copy-icon" aria-hidden="true" />
       <Check className="message-copy-check" aria-hidden="true" />
     </button>}
-    <time className="message-time" dateTime={createdAt} title={new Date(createdAt).toLocaleString('zh-CN')}>{messageTime(createdAt)}</time>
+    {createdAt && <time className="message-time" dateTime={createdAt} title={new Date(createdAt).toLocaleString('zh-CN')}>{messageTime(createdAt)}</time>}
     <span className="message-actions-feedback" role="status" aria-live="polite">{state === 'idle' ? '' : label}</span>
   </div>;
 }
