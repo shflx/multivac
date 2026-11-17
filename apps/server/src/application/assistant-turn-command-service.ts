@@ -64,7 +64,8 @@ export interface AssistantTurnCommandServiceOptions {
   assistantSessionId?: string;
   operationLock?: AssistantOperationLock;
   onRunningChanged?: () => void;
-  validateSelectionForSend?: () => Promise<void>;
+  /** 返回首次模型准入的版本断言，跨异步准备保留到最终 handoff。 */
+  validateSelectionForSend?: () => Promise<void | (() => void)>;
   withSelectionForSend?: <T>(dispatch: () => T) => Promise<{ value: T }>;
   /**
    * 把上下文引用解析为交给模型的会话上下文；引用无效时抛出 INVALID_REQUEST。
@@ -321,6 +322,7 @@ export class AssistantTurnCommandService {
         catch (error) { throw new AssistantTurnCommandServiceError('INVALID_REQUEST', error instanceof Error ? error.message : '智能体配置不可用，消息未发送。'); }
       }
       let turnPreparation: CoordinatorTurnPreparation | undefined;
+      let assertPreparedSelection: (() => void) | undefined;
       if (agentExecution && !command.streamingBehavior) {
         if (!this.options.adapter.capabilities.turnExecution) throw new AssistantTurnCommandServiceError('INVALID_REQUEST', '当前执行器不支持本轮智能体配置，消息未发送。');
         let prepared: Awaited<ReturnType<CoordinatorAdapter['prepareTurnExecution']>> | undefined;
@@ -331,11 +333,13 @@ export class AssistantTurnCommandService {
         agentExecution = { ...agentExecution, model: prepared.value.model };
       }
       if (!agentExecution) {
-        await this.options.validateSelectionForSend?.();
+        const prepared = await this.options.validateSelectionForSend?.();
+        if (typeof prepared === 'function') assertPreparedSelection = prepared;
         checkImages();
       }
       // 模型与附件准备可能等待；来源引用在真正受理前再次核对，不沿用过期目录。
       if (command.quote?.sourceKind === 'file' && command.quote.quoteKind === 'source') quote = await this.validateQuoteSource(command, binding.runtimeSessionId);
+      assertPreparedSelection?.();
       signal?.throwIfAborted();
       const accepted = this.options.commandRepository.createAccepted({
         ...(command.attachmentDraftId ? { onAccept: repository => {
@@ -391,6 +395,7 @@ export class AssistantTurnCommandService {
       if (command.streamingBehavior) {
         const behavior = command.streamingBehavior;
         const dispatchQueue = (): { receipt: AssistantCommandReceipt } | { queue: ReturnType<CoordinatorAdapter['steer']> } => {
+          assertPreparedSelection?.();
           // 认证准入会等待；只能追加到原 prompt，最终复核到 Pi 入队之间不得 await。
           const currentPrompt = activePromptCommandId
             ? this.options.commandRepository.get(activePromptCommandId)
@@ -442,6 +447,7 @@ export class AssistantTurnCommandService {
       }
 
       const dispatchPrompt = (prepared?: CoordinatorTurnPreparation) => {
+        assertPreparedSelection?.();
         if (prepared) turnPreparation = prepared;
         this.options.authorizeSend?.(command);
         signal?.throwIfAborted();

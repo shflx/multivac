@@ -130,6 +130,14 @@ export class SessionModelSelectionService {
     );
   }
 
+  /** 将首次准入版本带过异步引用复核；最终交接仍须在版本锁内再次调用此断言。 */
+  async prepareForSend(): Promise<() => void> {
+    const version = await this.readVersion();
+    await this.validateForSend();
+    await this.assertVersion(version);
+    return () => this.assertVersionNow(version);
+  }
+
   async withSelectionForSend<T>(dispatch: () => T): Promise<{ value: T }> {
     const version = await this.readVersion();
     await this.validateForSend();
@@ -149,13 +157,16 @@ export class SessionModelSelectionService {
     });
   }
 
-  /** 在父会话的发送／选模互斥区内冻结实际选择；不切换模型、不消费模型默认等级。 */
+  /** 在父会话互斥区内冻结实际选择；空闲时先同步手动能力，不消费模型默认等级。 */
   async snapshotForChild(): Promise<CoordinatorModelConfig> {
     await this.initializeForRead();
     return this.options.lock.run(async () => {
       await this.reconcilePending();
+      await this.refreshModelOverrides();
       const version = await this.readVersion();
-      const selection = await this.selection();
+      const { selection, overridesRefresh } = await this.inspect(this.requireRecord());
+      if (overridesRefresh) throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE',
+        '父会话正在运行，模型手动能力尚待换用；请在本轮结束后重试，未创建子会话。');
       if (!selection.availability.available) throw new AssistantSessionServiceError(
         'ASSISTANT_SESSION_UNAVAILABLE',
         `无法继承父会话模型：${selection.availability.message ?? '当前选择不可用。'}`,

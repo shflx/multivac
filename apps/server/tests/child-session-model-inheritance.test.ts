@@ -349,3 +349,31 @@ test('快照列迁移可重放且旧顶层无继承值；损坏快照拒绝读�
   store = new SqliteAssistantStore(path);
   try { assert.throws(() => store.sessions.get('child'), /继承的模型快照损坏/u); } finally { store.close(); }
 }));
+
+for (const target of [500_000, undefined]) test(`窗口并发：父会话运行中${target ? '保存' : '清除'}窗口，拒绝前不留下失效子会话`, () => temporary(async root => {
+  const state = structuredClone(initial);
+  state.profiles[1]!.contextWindow = 1_000_000;
+  const adapter = new FakeCoordinatorAdapter({ sessionPathRoot: join(root, 'pi'), persistSessionModels: true, seedsHistory: () => false });
+  const h = harness(root, state, adapter);
+  let running: ReturnType<AssistantSessionRuntime['commands']['send']> | undefined;
+  try {
+    await parent(h);
+    adapter.armPromptCompletionBarrier(true);
+    running = h.runtime('parent').commands.send({ commandId: 'parent-window-running', assistantSessionId: 'parent', text: '运行期间', contextRefs: [] });
+    await adapter.waitForPromptCompletionBarrierEntry();
+    const current = await h.settings.getSnapshot();
+    await h.settings.save({ commandId: 'parent-window-save', revision: current.revision, profile: { ...initial.profiles[1]!, contextWindow: target } });
+    const input = { sessionId: 'child-window', title: '窗口子会话', parent: { sessionId: 'parent' } };
+    let failure: unknown;
+    try { await h.service.create(input); } catch (error) { failure = error; }
+    assert.equal(h.registry.get('child-window'), undefined, '暂不可继承时不能保存必然初始化失败的旧窗口快照');
+    assert.ok(failure instanceof Error);
+    assert.match(failure.message, /父会话.*运行.*本轮结束/u);
+    adapter.releasePromptCompletionBarrier(); await running;
+    await h.runtime('parent').selection.refreshForIdle();
+    await h.service.create(input);
+    assert.equal(h.registry.get('child-window')?.initialModel?.contextWindow, target);
+    assert.equal(h.store.selections.getSelection('child-window')?.model.contextWindow, target);
+    assert.equal((await h.runtime('child-window').selection.getOptions()).selection.thinkingLevel, 'high');
+  } finally { adapter.releasePromptCompletionBarrier(); await running; h.close(); }
+}));

@@ -164,18 +164,25 @@ export class AssistantSessionRuntime implements SessionRuntime {
         resolveAgentExecution: options.resolveAgentExecution,
         withAgentSelectionForSend: async <T,>(execution: AssistantAgentExecution, dispatch: (prepared?: CoordinatorTurnPreparation) => T) => {
           const settings = dependencies.modelSettingsService;
+          const appending = this.commands.currentPromptCommandId() !== null;
           const version = settings.readVersion();
           const access = dependencies.modelAccessService;
           const accessVersion = access ? await access.readVersion() : undefined;
           if (execution.model.profileId) {
             const configured = await settings.getModelProfileRuntimeConfig(execution.model.profileId, { applyDefaultThinking: false });
-            if (!sameSessionModelConfig(execution.model, { ...configured, thinkingLevel: execution.model.thinkingLevel })) throw new Error('已受理的模型配置已失效，消息未发送。');
+            const target = { ...configured, thinkingLevel: execution.model.thinkingLevel };
+            // 原运行的窗口已冻结；仅窗口变化不阻断追加，其他能力与端点仍完整核对。
+            const { contextWindow: _currentWindow, ...currentIdentity } = execution.model;
+            const { contextWindow: _targetWindow, ...targetIdentity } = target;
+            const matches = sameSessionModelConfig(execution.model, target) ||
+              (appending && sameSessionModelConfig(currentIdentity, targetIdentity));
+            if (!matches) throw new Error('已受理的模型配置已失效，消息未发送。');
           }
           return settings.withReadVersion(version, async () => {
             const handoff = async (assertCurrent: () => void) => {
               // prompt 激活前由 prepareTurnExecution 认证目标；追加复核当前实际目标模型。
               let preparation: CoordinatorTurnPreparation | undefined;
-              if (this.commands.currentPromptCommandId()) {
+              if (appending) {
                 const valid = await dependencies.adapter.validateModelSelection(options.sessionId);
                 if (!valid.ok || !valid.value) throw new Error('当前执行者的模型认证或能力已失效，追加消息未发送。');
               } else {
@@ -192,7 +199,7 @@ export class AssistantSessionRuntime implements SessionRuntime {
           });
         },
       } : {}),
-      validateSelectionForSend: () => { options.beforeSend?.(); return this.selection.validateForSend(); },
+      validateSelectionForSend: () => { options.beforeSend?.(); return this.selection.prepareForSend(); },
       withSelectionForSend: (dispatch) => this.selection.withSelectionForSend(() => { options.beforeSend?.(); return dispatch(); }),
       ...(options.prepareText ? { prepareText: options.prepareText } : {}),
       ...(options.resolveContext ? { resolveContext: options.resolveContext } : {}),
