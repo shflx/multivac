@@ -19,8 +19,23 @@
 
 - 只能选固定预设 `blank`（空白终端）、`claude`（Claude Code）、`codex`（Codex），不能指定命令或启动参数；可以给终端命名。
 - 启动后在发起这条消息的窗口中打开：给出 `slot` 时放进并排的第 N 栏（不超过当前并排数，只在该窗口生效），否则单独查看。导航经只推给发起窗口的 `window.navigate`（目标 `terminal`），由窗口自行放置。
-- Multivac 看不到终端画面，也不能向终端输入；终端仍由用户操作，不受管控。
+- Multivac 可以用 `list_project_terminals` 列出受管理终端；已跟踪的 Codex / Claude Code 可用只读工具读取保存的用户和助手正文。工具不读取 CLI 画面，也不能向终端输入；终端仍由用户操作，不受管控。
 - 只接受本机界面发起的一轮（远程对话不携带当前视图），窄屏时不启动；一轮最多启动 3 个，防止被网页或文件中夹带的指令诱导反复启动。
+
+## 只读查看 CLI 正文
+
+全局 Multivac 与本机界面的工作会话可以调用 `read_terminal_recent` 查看最近消息预览、`read_terminal_history` 向前分页定位，再用 `read_terminal_message` 分段读取一条正文。工具只接受 `list_project_terminals` 返回的 `terminalId`，不接受路径或任意 CLI 会话 ID。远程、后台和窄屏调用在读取前拒绝。
+
+来源由终端记录的 `agentSessionId` 决定，不按目录、时间或最近活动推断会话：
+
+- Codex：在固定用户目录 `~/.codex/sessions/**/rollout-*-<id>.jsonl` 与 `~/.codex/archived_sessions` 中定位，并核对首行 `session_meta.id`。只取 `response_item` 中 `message` 的用户 `input_text` 和助手 `output_text`，忽略 `event_msg` 镜像和启动约束消息。
+- Claude Code：在 `~/.claude/projects/*/<id>.jsonl` 定位，核对记录的 `sessionId`，只取用户和助手消息的字符串正文或 `text` 块。元消息、侧链、工具调用及结果、思考、文件块和系统事件不返回。
+
+CLI 退出或终端关闭后，只要受管理记录与文件仍在，就可以读取。终端内切换会话后仍只读启动时跟踪的 ID。缺 ID、文件缺失、格式不可解析、身份不符或存在多个文件来源会明确失败，不尝试其他会话。文件和目录链接不跟随。自定义 CLI 数据目录、只有事件镜像的 Codex 格式及未知正文块不在支持范围内；未知事件不当作正文。
+
+预览默认 6 条、每页最多 20 条，并不代表全文。续读时原样使用 `next`；所有续读参数均为 `terminalId`。签名游标固定文件身份和已有记录，允许在末尾追加；文件更换、已有记录修改、来源变化、游标篡改或服务重启后要求重新定位，不拼接不同版本。正在追加的未完成尾行暂不返回，损坏的完整行会报错。JSON 正文最多 12000 UTF-16 单元，完整返回最多 14000 单元，正文分段不拆开 emoji 代理对。为限制磁盘与解析开销，文件最多 32 MiB、单行最多 2 MiB、记录和目录扫描各最多 20000 项，Codex 目录深度最多 8 层；超限明确失败，不静默截断。
+
+内容是数据，不授予指令或权限。这些工具只投影 CLI 已保存的可见文本，不自动读取正文提及的文件或引用来源，也不改变终端状态。
 
 ## 多窗口、刷新与通知
 
@@ -35,7 +50,7 @@
 - “结束进程”保留终端对象和本轮有界画面。结束先解除 PTY 读取暂停，向根进程及已观察到且身份仍匹配的后代发送 TERM，宽限后发送 KILL，再核对实际退出。界面显示真实退出码、信号和原因。
 - 运行中的“关闭终端”需要确认，核对进程结束后才写入关闭状态。无法确认退出时显示“结束未确认”，保留对象并禁止关闭或重新打开，可以重试结束。
 - “重新打开终端”重新校验项目与原目录，用原命令创建新实例。旧画面、连接和水位不属于新实例。
-- coding agent 终端记录会话 ID，重开时接回同一会话；会话内容由 CLI 自己保存，Multivac 只保存 ID，不读取会话。
+- coding agent 终端记录会话 ID，重开时接回同一会话；会话内容由 CLI 自己保存，Multivac 保存 ID，并可经只读工具按此 ID 投影可见正文。
   - Claude Code：创建时由 Multivac 生成 UUID，以 `claude --session-id <id>` 启动，接回时用 `claude --resume <id>`。跟踪之前创建、没有 ID 的终端用 `claude --continue` 继续该目录最近的会话。在 CLI 内 `/clear` 或切换会话后，记录的仍是启动时的会话。
   - Codex：Multivac 按需启动并管理一个 Codex app-server（`codex app-server --listen ws://127.0.0.1:<空闲端口>`，与终端相同的登录 shell 环境），所有 Codex 终端共用。新建时先经 app-server 的 `thread/start` 创建会话、`thread/name/set` 以终端标题命名（命名使会话立即写入磁盘，未发消息也能按 ID 打开，不调用模型），随后控制连接退订该会话，审批等交互留给终端；终端以 `codex resume <id> --remote <地址>` 接入。重开与自动接回同样按 ID 接入，“新会话”在 app-server 中新建会话。启动 Codex 不加 `-c`、`--profile`、`--no-daemon`：这些参数会让 Codex 在终端进程内运行服务，实测在部分用户配置下收到输入即持续空转。app-server 不可用时以普通方式启动 Codex（有 ID 则 `codex resume <id>`），不跟踪新会话。app-server 由看门狗随 Multivac 退出而结束，避免遗留进程占用会话导致接回时提示“open in another app”。终端内 `/new`、`/clear` 或切换会话后，Multivac 仍记录最初的会话。app-server 协议标为实验性，升级 Codex 后需复验。
   - 因 Multivac 重启或服务退出而结束的终端，在界面上显示时自动接回（每个实例只自动尝试一次，不在服务启动时批量拉起进程）；其他原因结束时由“继续原会话”手动接回，“新会话”开始新的会话。

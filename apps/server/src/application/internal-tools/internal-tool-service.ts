@@ -88,6 +88,7 @@ export interface InternalToolServices {
   windows: WindowNavigator;
   /** 项目终端：元数据查询与固定预设启动；不提供输入能力。 */
   terminals?: Pick<import('../terminal-service.js').TerminalService, 'open' | 'list' | 'get'>;
+  terminalTranscripts?: Pick<import('../terminal-transcripts.js').TerminalTranscriptReader, 'readMessages' | 'readSnapshot'>;
 }
 
 /**

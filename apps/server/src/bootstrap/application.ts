@@ -147,6 +147,7 @@ import {
 } from '../application/proposals/project-proposals.js';
 import { PreferencesService } from '../application/preferences-service.js';
 import { SessionTranscriptReader, SessionTranscriptUnavailableError } from '../application/session-transcripts.js';
+import { TerminalTranscriptReader } from '../application/terminal-transcripts.js';
 import { TempDirectoryRemovalPolicy } from '../application/temp-directory-removal.js';
 import { TempDirectoryCleaner } from '../application/temp-directory-cleaner.js';
 import {
@@ -549,6 +550,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
     // 终端服务在后面装配；工具调用发生在启动完成之后。
     terminals: { open: (input) => terminals.open(input), list: (projectId, includeClosed) => terminals.list(projectId, includeClosed), get: id => terminals.get(id) },
+    terminalTranscripts: new TerminalTranscriptReader({ getTerminal: id => store.terminals.get(id) }),
   };
   // 示例提议（给会话改名）只在测试控制开启时（E2E 服务与测试）注册，用来验证确认卡机制；正式环境没有它。
   const exampleProposals = environment.MULTIVAC_E2E_CONTROL === '1';
