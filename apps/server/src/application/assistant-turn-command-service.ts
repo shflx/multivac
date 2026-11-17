@@ -143,6 +143,8 @@ export class AssistantTurnCommandService {
   private activePromptWindowId: string | null = null;
   // 发起窗口在发送时的当前视图；同一窗口在这一轮中追加（steer / followUp）的消息带来更新的视图。
   private activePromptView: CurrentViewSnapshot | null = null;
+  // 仅由 HTTP 终端入口校验授予；不可信追加一旦交接，本轮保持撤销。
+  private activePromptTerminalAccessAllowed = false;
   private readonly startupCommandIds: string[];
   private startupReconciled = false;
 
@@ -158,7 +160,7 @@ export class AssistantTurnCommandService {
    */
   send(
     command: SendAssistantMessageCommand,
-    delivery: { windowId?: string | null; signal?: AbortSignal } = {},
+    delivery: { windowId?: string | null; signal?: AbortSignal; terminalAccessAllowed?: boolean } = {},
   ): Promise<AssistantCommandReceipt> {
     const fingerprint = sendFingerprint(command);
     return this.singleFlight(command.commandId, 'send', fingerprint, async () => {
@@ -166,7 +168,7 @@ export class AssistantTurnCommandService {
       if (existing) return this.replayOrConflict(existing, 'send', fingerprint);
       this.options.authorizeSend?.(command);
       this.validateSend(command);
-      return this.executeSend(command, fingerprint, delivery.windowId ?? null, command.view ?? null, delivery.signal);
+      return this.executeSend(command, fingerprint, delivery.windowId ?? null, command.view ?? null, delivery.terminalAccessAllowed === true, delivery.signal);
     });
   }
 
@@ -206,6 +208,11 @@ export class AssistantTurnCommandService {
   /** 发起窗口在发送（或在这一轮中追加消息）时的当前视图；不在一轮之中或没有带视图时为 null。 */
   currentPromptView(): CurrentViewSnapshot | null {
     return this.activePromptCommandId === null ? null : this.activePromptView;
+  }
+
+  /** 服务端核实的本轮终端来源；视图更新和本机追加不能重新授予。 */
+  currentPromptAllowsTerminalAccess(): boolean {
+    return this.activePromptCommandId !== null && this.activePromptTerminalAccessAllowed;
   }
 
   /**
@@ -261,6 +268,7 @@ export class AssistantTurnCommandService {
     fingerprint: string,
     windowId: string | null,
     view: CurrentViewSnapshot | null,
+    terminalAccessAllowed: boolean,
     signal?: AbortSignal,
   ): Promise<AssistantCommandReceipt> {
     const binding = await this.options.sessionService.initialize();
@@ -401,6 +409,8 @@ export class AssistantTurnCommandService {
           checkImages();
           if (command.quote?.sourceKind === 'mcp') this.options.assertMcpQuoteForDispatch?.(command.quote, command.commandId);
           this.options.images?.retain(command.assistantSessionId, command.imageIds ?? []);
+          // 在任何交接事件和 adapter 调用前撤销，避免异步入队期间借用旧本机来源。
+          if (!terminalAccessAllowed) this.activePromptTerminalAccessAllowed = false;
           const handed = this.options.commandRepository.markHandedToPi(command.commandId, behavior);
           this.options.eventStream.publish(handed.event);
           return { queue: behavior === 'steer'
@@ -446,6 +456,7 @@ export class AssistantTurnCommandService {
         this.activePromptCommandId = command.commandId;
         this.activePromptWindowId = windowId;
         this.activePromptView = view;
+        this.activePromptTerminalAccessAllowed = terminalAccessAllowed;
         // 提议的结果在这一轮开始时由服务端写入：与正文同一次交给 Pi，取出与交出之间没有 await。
         const notice = this.options.takeServerNotice?.();
         // 空错误消息不会进入可读历史；锚点必须取本轮新增的可见消息，避免借用上一轮或不可见 entry。
@@ -481,6 +492,7 @@ export class AssistantTurnCommandService {
           this.activePromptCommandId = null;
           this.activePromptWindowId = null;
           this.activePromptView = null;
+          this.activePromptTerminalAccessAllowed = false;
           return { receipt: this.reconcileFailure(command.commandId, 'RUNTIME_OPERATION_FAILED', detail?.message ?? '执行失败，原因未提供。', runAnchor()) };
         }
         return { receipt: this.reject(command.commandId, 'COMMAND_STATE_MISMATCH', (error instanceof SkillError ? error.message : detail?.message) ?? '模型配置或认证在 handoff 前变化，消息未发送。') };
@@ -514,6 +526,7 @@ export class AssistantTurnCommandService {
         this.activePromptCommandId = null;
         this.activePromptWindowId = null;
         this.activePromptView = null;
+        this.activePromptTerminalAccessAllowed = false;
         // 回执与 Pi 已收尾后再通知，读取方此时才能看到真实空闲。
         this.options.onRunningChanged?.();
       }

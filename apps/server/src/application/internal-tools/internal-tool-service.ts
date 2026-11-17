@@ -139,6 +139,8 @@ export interface InternalToolCallContext<K extends InternalToolCapability = neve
    * 只含 id。不在一轮之中、或发送时没有带视图（例如不是从界面发出的消息）时为 null，不能据此猜测。
    */
   originView: CurrentViewSnapshot | null;
+  /** 服务端终端入口核实的来源，不接受公共消息 JSON 授权。 */
+  terminalAccessAllowed?: boolean;
   /**
    * 记下这一轮中发起窗口的界面已被切换（导航成功、或改了它正在看的工作区的现场）：本轮之后的工具调用以它为当前视图，
    * 而不是发送时的旧快照。只作用于这一轮；用户在这一轮中从同一窗口追加消息时，以追加时带来的快照为准。
@@ -265,6 +267,8 @@ export interface InternalToolTurn {
   commandId: string;
   windowId: string | null;
   view?: CurrentViewSnapshot | null;
+  /** 本轮由服务端核实且未被不可信追加撤销的终端来源。 */
+  terminalAccessAllowed?: boolean;
   /** 更新这一轮的当前视图（导航之后）；没有提供时导航不影响本轮之后的工具看到的视图。 */
   updateView?: (view: CurrentViewSnapshot) => void;
 }
@@ -339,6 +343,7 @@ export class InternalToolService implements CoordinatorInternalTools {
     const turn = this.options.currentTurn(invocation.assistantSessionId);
     const turnCommandId = turn?.commandId ?? null;
     const originWindowId = turn?.windowId ?? null;
+    const thisService = this;
     const context: InternalToolCallContext = {
       sessionId: invocation.assistantSessionId,
       toolCallId: invocation.toolCallId,
@@ -347,6 +352,11 @@ export class InternalToolService implements CoordinatorInternalTools {
       originWindowId,
       origin: { windowId: originWindowId, commandId: turnCommandId },
       originView: turn?.view ?? null,
+      get terminalAccessAllowed() {
+        // 使用当前轮次的撤销状态；旧调用不能借用下一轮的权限。
+        const current = thisService.options.currentTurn(invocation.assistantSessionId);
+        return current?.commandId === turnCommandId && current?.terminalAccessAllowed === true;
+      },
       noteOriginView: (view) => {
         // 工具导航只更新位置，保留发送窗口报告的用户时区。
         if (!view.timeZone && turn?.view?.timeZone) view = { ...view, timeZone: turn.view.timeZone };

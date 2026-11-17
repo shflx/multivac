@@ -6,6 +6,7 @@ import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS, 
 import { requireLocalTerminalContext, terminalReadableMode } from '../src/application/internal-tools/terminal-tools.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
+// 直接装配的隔离 fixture 显式声明可信来源，不代表公共 JSON 可授予权限。
 const view: CurrentViewSnapshot = { panel: 'workspace', narrow: false, workspace: null, management: null };
 const now = '2026-09-30T01:00:00.000Z';
 function terminal(preset: ProjectTerminal['preset'], agentSessionId: string | null = null): ProjectTerminal {
@@ -32,8 +33,9 @@ test('本机终端上下文同时要求视图与窗口身份，沿用窄屏限�
     { originView: null, originWindowId: 'window' }]) {
     assert.throws(() => requireLocalTerminalContext(context), /远程对话.*后台运行/u);
   }
-  assert.throws(() => requireLocalTerminalContext({ originView: { ...view, narrow: true }, originWindowId: 'window' }), /窄屏/u);
-  assert.doesNotThrow(() => requireLocalTerminalContext({ originView: view, originWindowId: 'window' }));
+  assert.throws(() => requireLocalTerminalContext({ terminalAccessAllowed: true, originView: { ...view, narrow: true }, originWindowId: 'window' }), /窄屏/u);
+  assert.throws(() => requireLocalTerminalContext({ originView: view, originWindowId: 'window' }), /远程对话/u);
+  assert.doesNotThrow(() => requireLocalTerminalContext({ terminalAccessAllowed: true, originView: view, originWindowId: 'window' }));
 });
 
 test('终端列表为 query，工作会话可用，后台共用集合不注入；结果只有白名单元数据', async () => {
@@ -42,7 +44,7 @@ test('终端列表为 query，工作会话可用，后台共用集合不注入�
   const records = [terminal({ kind: 'blank' }), terminal({ kind: 'claude', argv: ['private-argument'] }, 'private-session'),
     terminal({ kind: 'custom', executable: 'private-command', argv: [] })];
   const queries: unknown[] = [];
-  let turn: InternalToolTurn | null = { commandId: 'turn', windowId: 'window', view };
+  let turn: InternalToolTurn | null = { commandId: 'turn', terminalAccessAllowed: true, windowId: 'window', view };
   const services = testToolServices({
     projects: { listWorkspaces: () => ({ workspaces: [{ workspaceId: 'project', name: '项目', project: { projectId: 'project', name: '项目' } }] }) },
     terminals: { list: (...args: unknown[]) => { queries.push(args); return records; } },
@@ -70,8 +72,9 @@ test('终端列表为 query，工作会话可用，后台共用集合不注入�
   assert.deepEqual(queries, [['project', undefined], ['project', true]]);
   assert.equal((await invoke({ projectId: 'missing' })).ok, false);
   assert.equal((await invoke({ projectId: 'project', content: true })).ok, false);
-  for (const nextTurn of [null, { commandId: 'remote', windowId: 'window', view: null },
-    { commandId: 'background', windowId: null, view }, { commandId: 'narrow', windowId: 'window', view: { ...view, narrow: true } }]) {
+  for (const nextTurn of [null, { commandId: 'unverified', windowId: 'window', view },
+    { commandId: 'remote', terminalAccessAllowed: true, windowId: 'window', view: null },
+    { commandId: 'background', terminalAccessAllowed: true, windowId: null, view }, { commandId: 'narrow', terminalAccessAllowed: true, windowId: 'window', view: { ...view, narrow: true } }]) {
     turn = nextTurn;
     assert.equal((await invoke()).ok, false);
   }
@@ -86,7 +89,7 @@ test('终端列表按实际预算分页，续读不遗漏；超大单项明确�
     terminals: { list: () => records },
   } as unknown as InternalToolServices);
   const tools = new InternalToolService({ tools: WORK_SESSION_TERMINAL_TOOLS, services,
-    calls: {} as never, currentTurn: () => ({ commandId: 'turn', windowId: 'window', view }) });
+    calls: {} as never, currentTurn: () => ({ commandId: 'turn', terminalAccessAllowed: true, windowId: 'window', view }) });
   let args: unknown = { projectId: 'project', limit: 50 };
   const ids: string[] = [];
   for (;;) {

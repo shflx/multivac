@@ -96,7 +96,8 @@ async function setup(root: string) {
   // 这一轮的发送命令、发起窗口与它的当前视图；导航后由工具更新视图（与 AssistantTurnCommandService 相同）。
   let turn: (InternalToolTurn & { view: CurrentViewSnapshot | null }) | null = null;
   const setTurn = (windowId: string | null, view: CurrentViewSnapshot | null, commandId = 'turn-1') => {
-    turn = { commandId, windowId, view };
+    // 隔离 fixture 模拟已完成终端入口校验的本机请求。
+    turn = { commandId, windowId, view, terminalAccessAllowed: true };
   };
   // 假的终端服务：记录启动请求，不启动真实进程。
   const launched: CreateTerminal[] = [];

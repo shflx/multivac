@@ -34,6 +34,8 @@ import {
   AssistantTurnCommandServiceError,
 } from '../../application/assistant-turn-command-service.js';
 import { WorkspaceSessionServiceError } from '../../application/workspace-session-service.js';
+import type { RemoteAccess } from './remote-access.js';
+import { terminalEntryDenial } from './terminal-entry.js';
 import { requestWindowId } from './window-origin.js';
 import {
   AssistantEventCursorExpiredError,
@@ -222,6 +224,8 @@ export interface AssistantSessionHandlers {
 }
 
 export interface AssistantRoutesOptions {
+  /** 仅终端能力采用完整本机入口校验，普通聊天继续沿用原准入。 */
+  remoteAccess?: RemoteAccess;
   /** 全局协调会话的服务；未提供 resolveSession 时只开放全局会话。 */
   service: AssistantSessionService;
   commandService: AssistantTurnCommandService;
@@ -373,7 +377,10 @@ export function createAssistantRequestHandler(options: AssistantRoutesOptions) {
           return writeError(response, 400, 'INVALID_REQUEST', '消息命令请求体无效。');
         }
         // 发起窗口经请求头携带（与其他写请求一致），记为这一轮的来源，不进入命令本身。
-        const receipt = await session.commandService.send(body, { windowId: requestWindowId(request) });
+        const receipt = await session.commandService.send(body, {
+          windowId: requestWindowId(request),
+          terminalAccessAllowed: options.remoteAccess !== undefined && terminalEntryDenial(request, options.remoteAccess) === null,
+        });
         if (receipt.terminalOutcome === 'rejected') {
           return writeError(
             response,

@@ -12,9 +12,9 @@ const launchedPerTurn = new Map<string, number>();
 
 const PRESET_LABELS = { blank: '空白终端', claude: 'Claude Code', codex: 'Codex' } as const;
 
-/** 沿用启动入口的本机视图边界；后台和远程调用没有这份上下文。 */
-export function requireLocalTerminalContext(context: Pick<InternalToolCallContext, 'originView' | 'originWindowId'>): void {
-  if (!context.originView || !context.originWindowId) {
+/** 服务端来源校验与视图限制同时成立时，才允许访问终端。 */
+export function requireLocalTerminalContext(context: Pick<InternalToolCallContext, 'originView' | 'originWindowId' | 'terminalAccessAllowed'>): void {
+  if (context.terminalAccessAllowed !== true || !context.originView || !context.originWindowId) {
     throw new InternalToolError('终端只能从本机的 Multivac 界面中访问，远程对话（如手机）和后台运行中不可用。请照实告诉用户。');
   }
   if (context.originView.narrow) throw new InternalToolError('发起窗口处于窄屏，工作区不可用。请照实告诉用户在更宽的窗口中操作。');

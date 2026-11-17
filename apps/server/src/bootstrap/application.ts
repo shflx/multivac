@@ -640,6 +640,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
             commandId,
             windowId: commands.currentPromptWindowId(),
             view: commands.currentPromptView(),
+            terminalAccessAllowed: commands.currentPromptAllowsTerminalAccess(),
             updateView: (view) => commands.updatePromptView(commandId, view),
           }
         : null;
@@ -736,6 +737,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       const commands = sessionRuntimes.get(id)?.commands;
       const commandId = commands?.currentPromptCommandId();
       return commands && commandId ? { commandId, windowId: commands.currentPromptWindowId(), view: commands.currentPromptView(),
+        terminalAccessAllowed: commands.currentPromptAllowsTerminalAccess(),
         updateView: view => commands.updatePromptView(commandId, view) } : null;
     },
   });

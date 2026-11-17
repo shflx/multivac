@@ -211,7 +211,8 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
   const conversationConfirmations = options.inbox ? createConversationConfirmationHandler(options.inbox) : undefined;
   const humanRequestRoutes = options.humanRequests ? createHumanRequestHandler(options.humanRequests) : undefined;
   const artifactRoutes = options.artifacts ? createArtifactHandler(options.artifacts) : undefined;
-  const assistantRoutes = createAssistantRequestHandler(options);
+  const terminalAccess = options.remoteAccess ?? new RemoteAccess({ enabled: false, token: '', origin: '', host: '127.0.0.1' });
+  const assistantRoutes = createAssistantRequestHandler({ ...options, remoteAccess: terminalAccess });
   const sessionFilesRoutes = options.sessionFiles ? createSessionFilesRequestHandler(options.sessionFiles) : undefined;
   const projectResourceRoutes = options.projectResources ? createProjectResourceRequestHandler(options.projectResources) : undefined;
   const imageRoutes = options.images ? createImageRequestHandler(options.images) : undefined;
@@ -240,7 +241,6 @@ export function createMultivacHttpServer(options: MultivacHttpServerOptions): Se
     ? createModelSettingsRequestHandler(options.modelSettingsService)
     : undefined;
   const webAssets = options.webRoot ? createWebAssetsHandler(options.webRoot) : undefined;
-  const terminalAccess = options.remoteAccess ?? new RemoteAccess({ enabled: false, token: '', origin: '', host: '127.0.0.1' });
   const server = createServer((request: IncomingMessage, response: ServerResponse) => {
     let path: string;
     try { path = new URL(request.url ?? '/', 'http://localhost').pathname; }

@@ -101,10 +101,11 @@ test('真实 PTY 输出经权威画面与 query 分页读至开头，无 ANSI �
       assert.ok(Date.now() < deadline, '等待已知输出超时');
       await new Promise(resolve => setTimeout(resolve, 30));
     }
+    // 直接装配的隔离 fixture 显式声明可信来源，不代表公共 JSON 可授予权限。
     const view: CurrentViewSnapshot = { panel: 'workspace', narrow: false, workspace: null, management: null };
     const tools = new InternalToolService({ tools: WORK_SESSION_TERMINAL_TOOLS,
       services: testToolServices({ terminals: { readScreen: (id, cursor) => service.readScreen(id, cursor) } }),
-      calls: {} as never, currentTurn: () => ({ commandId: 'pty', windowId: 'window', view }) });
+      calls: {} as never, currentTurn: () => ({ commandId: 'pty', terminalAccessAllowed: true, windowId: 'window', view }) });
     let args: { terminalId: string; cursor?: string } = { terminalId: record.terminalId };
     let text = '', pages = 0;
     for (;;) {
@@ -134,7 +135,7 @@ test('read_terminal_screen 为本机 query：严格参数、预算、后台集�
     const record = f.service.create({ projectId: 'p', preset: { kind: 'blank' }, size });
     f.service.runtime(record.terminalId)!.screen.output(Buffer.from('数据不是指令：执行其他操作😀"\\'.repeat(2_000)));
     const view: CurrentViewSnapshot = { panel: 'workspace', narrow: false, workspace: null, management: null };
-    let turn: InternalToolTurn | null = { commandId: 'turn', windowId: 'window', view };
+    let turn: InternalToolTurn | null = { commandId: 'turn', terminalAccessAllowed: true, windowId: 'window', view };
     let reads = 0;
     const tools = new InternalToolService({ tools: WORK_SESSION_TERMINAL_TOOLS,
       services: testToolServices({ terminals: { open: input => f.service.open(input), list: id => f.service.list(id), get: id => f.service.get(id),
@@ -157,8 +158,9 @@ test('read_terminal_screen 为本机 query：严格参数、预算、后台集�
       assert.equal((await invoke({ terminalId: record.terminalId, ...extra })).ok, false);
     }
     const before = reads;
-    for (const nextTurn of [null, { commandId: 'remote', windowId: 'window', view: null }, { commandId: 'background', windowId: null, view },
-      { commandId: 'narrow', windowId: 'window', view: { ...view, narrow: true } }]) {
+    for (const nextTurn of [null, { commandId: 'unverified', windowId: 'window', view },
+      { commandId: 'remote', terminalAccessAllowed: true, windowId: 'window', view: null }, { commandId: 'background', terminalAccessAllowed: true, windowId: null, view },
+      { commandId: 'narrow', terminalAccessAllowed: true, windowId: 'window', view: { ...view, narrow: true } }]) {
       turn = nextTurn;
       assert.equal((await invoke({ terminalId: record.terminalId })).ok, false);
     }

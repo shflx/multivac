@@ -28,6 +28,8 @@
 
 `list_project_terminals({ projectId, includeClosed?, offset?, limit? })` 返回实时白名单元数据、读取方式与范围，默认最多 20 项、最多 50 项，并按 JSON 内容 12000 / 完整返回 14000 UTF-16 单元预算缩小实际页。`done` 表示已到当前列表末尾，`next` 可原样续读；活动变化可能改变实时排序，此时可重新查询。列表不返回 CLI 会话 ID 或正文。远程请求不能携带 `view` 或旧 `currentView` 伪造本机视图，后台不注入终端工具。
 
+发送消息时，服务端复用终端入口的完整平台、身份、Host/Origin 与桌面校验，独立记录本轮的终端来源。客户端的 `view` 和窗口 ID 只描述界面，不能授予终端权限。普通聊天仍兼容无 Origin 的本机请求，但此类请求不能使用终端工具，包括 `open_terminal`。未经完整来源校验的 steer/followUp 在交给执行器前撤销本轮终端访问；之后的导航更新与本机追加均不能恢复，真正的新 prompt 才重新校验。
+
 ## 只读查看 CLI 正文
 
 全局 Multivac 与本机界面的工作会话可以调用 `read_terminal_recent` 查看最近消息预览、`read_terminal_history` 向前分页定位，再用 `read_terminal_message` 分段读取一条正文。工具只接受 `list_project_terminals` 返回的 `terminalId`，不接受路径或任意 CLI 会话 ID。远程、后台和窄屏调用在读取前拒绝。
