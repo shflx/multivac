@@ -103,6 +103,7 @@ async function setup(root: string) {
   const terminals: NonNullable<InternalToolServices['terminals']> = {
     list: () => [],
     get: () => { throw new Error('本用例不读取单个终端。'); },
+    readScreen: async () => { throw new Error('本用例不读取终端画面。'); },
     open: async (input) => {
       launched.push(input);
       const now = '2026-09-30T01:00:00.000Z';

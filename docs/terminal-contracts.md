@@ -49,6 +49,16 @@ PTY、HTTP/WebSocket 与独立界面已接入。使用方式、固定依赖和�
 
 列表、改名、状态、未读、通知通过本机 `/api/events` 同步；事件流不含输出、输入或快照，远程不投递终端元数据。断线后重读列表。服务重启不能接回原画面和进程，不能按旧 PID 发信号。
 
+## 模型只读画面端口
+
+`TerminalService.readScreen(terminalId, cursor?)` 是独立只读端口，供 `read_terminal_screen` 使用；不暴露运行时对象，不调用清未读的 `read()`。工具为 query，仅注入全局和 `WORK_SESSION_TERMINAL_TOOLS`，后台集合不包含它。参数为严格对象，只接受受管理 `terminalId` 与可选签名 `cursor`，复用本机 `originView`、`originWindowId` 和非窄屏检查。只有当前 `running`、未关闭的 `blank` 实例可读取；等候完整解析边界后还会再次核对生命周期。
+
+`TerminalScreen.textSnapshot()` 与 ANSI 画面快照复用队列和完整解析边界，直接翻译 active buffer 的 xterm 单元，不为文本导出序列化 ANSI。按 `isWrapped` 合并软换行，排除宽字折行空占位，保留硬换行和 Unicode 文本；硬行尾填充去掉，屏幕空白行保留。正常屏含有界 scrollback；备用屏不拼接正常屏。首行标记真正被移除后才标记正常屏 `historyTrimmed`，不能以刚达到容量代替已裁剪。
+
+返回 `sourceMode: authoritative-text`、`terminalId`、`instanceId`、`snapshotId`、`capturedAt`、`buffer`、`size`、`watermark`、`sequence`、`historyTrimmed`、`text`、UTF-16 `range: {start,end,total}`、`done/historyDone`、`status` 与 `next`。分页从末尾向前，端点不拆 UTF-16 代理对；`next` 为 `{terminalId,cursor}` 或 null。所有范围和水位属于同一不可变快照，持续输出和 resize 后续页不重新导出。单页和外层返回分别限制为 12000/14000 UTF-16 单元，与 `session-transcript-pages` 一致计算 JSON 及二次转义预算；来源说明明确结果是数据，不是指令或权限。
+
+游标 HMAC 绑定 terminalId、instanceId、snapshotId 和下一页 end。缓存每服务最多 8 份、总计 400 万 UTF-16 单元、单份最多 200 万单元；固定 TTL 为 2 分钟，定时释放且续读不延长，容量满时淘汰最早条目。结束即失效，关闭、重开或服务退出释放；篡改、到期、淘汰、跨终端/实例或服务重启均拒绝续读，要求从新快照重新定位。超大快照明确拒绝，不静默截断。这些读取不改变拥有者、尺寸、输入、未读、通知、监听、PTY 流控或窗口 ACK。
+
 ## 本阶段验证范围
 
 契约测试覆盖严格字段、预设参数边界、尺寸与消息限制、退出语义；仓储测试覆盖 SQLite 重开、偏好、排序、关闭门禁、实例隔离和重启元数据；连接校验测试覆盖 ACK 倒退/超前、失效连接与非拥有者控制。上述均不替代真实 PTY、帧传输、接管原子性、画面还原和界面验收。

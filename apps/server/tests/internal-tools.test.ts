@@ -142,7 +142,7 @@ test('注册的内部工具都有展示口径；提示词由注册的工具生�
     ['list_projects', 'query'], ['list_workspaces', 'query'], ['list_sessions', 'query'], ['get_session', 'query'],
     ['get_current_view', 'query'], ['read_session_recent', 'query'], ['read_session_history', 'query'], ['read_session_message', 'query'],
     ['create_session', 'manage'], ['rename_session', 'manage'], ['archive_session', 'manage'], ['restore_session', 'manage'],
-    ['switch_workspace', 'manage'], ['open_session', 'manage'], ['open_terminal', 'manage'], ['list_project_terminals', 'query'], ['read_terminal_recent', 'query'], ['read_terminal_history', 'query'], ['read_terminal_message', 'query'], ['set_parallel_count', 'manage'], ['set_view_mode', 'manage'],
+    ['switch_workspace', 'manage'], ['open_session', 'manage'], ['open_terminal', 'manage'], ['list_project_terminals', 'query'], ['read_terminal_recent', 'query'], ['read_terminal_history', 'query'], ['read_terminal_message', 'query'], ['read_terminal_screen', 'query'], ['set_parallel_count', 'manage'], ['set_view_mode', 'manage'],
     ['open_management_page', 'manage'], ['rename_project', 'manage'], ['update_project_constraints', 'manage'],
     ['propose_create_project', 'propose'], ['propose_mount_directory', 'propose'], ['propose_unmount_directory', 'propose'],
     ['propose_set_primary_directory', 'propose'], ['propose_move_session_to_project', 'propose'], ['propose_create_agent', 'propose'],

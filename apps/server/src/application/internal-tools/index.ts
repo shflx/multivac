@@ -1,6 +1,7 @@
 import { TASK_ATTACHMENT_TOOLS } from './task-attachment-tools.js';
 import { SCHEDULE_TOOLS } from './schedule-tools.js';
 import { listProjectTerminalsTool, openTerminalTool } from './terminal-tools.js';
+import { readTerminalScreenTool } from './terminal-screen-tools.js';
 import { TERMINAL_TRANSCRIPT_TOOLS } from './terminal-transcript-tools.js';
 import { readSessionHistoryTool, readSessionMessageTool } from './session-transcript-tools.js';
 import { MCP_MANAGEMENT_TOOLS } from './mcp-management-tools.js';
@@ -76,7 +77,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
   openSessionTool,
   openTerminalTool,
   listProjectTerminalsTool,
-  ...TERMINAL_TRANSCRIPT_TOOLS,
+  ...TERMINAL_TRANSCRIPT_TOOLS, readTerminalScreenTool,
   setParallelCountTool,
   setViewModeTool,
   openManagementPageTool,
@@ -91,7 +92,7 @@ export const MULTIVAC_INTERNAL_TOOLS: readonly InternalToolDefinition[] = [
 ];
 
 /** 仅本机界面的工作会话使用，不加入任务、定时安排或子智能体的共用集合。 */
-export const WORK_SESSION_TERMINAL_TOOLS: readonly InternalToolDefinition[] = [listProjectTerminalsTool, ...TERMINAL_TRANSCRIPT_TOOLS];
+export const WORK_SESSION_TERMINAL_TOOLS: readonly InternalToolDefinition[] = [listProjectTerminalsTool, ...TERMINAL_TRANSCRIPT_TOOLS, readTerminalScreenTool];
 
 /** 工作会话可只读查询当前 Git 仓库与项目资料、查询任务、更新属性并报告手动完成；不授予后台控制、删除或人工决定能力。 */
 export const WORK_SESSION_TASK_TOOLS: readonly InternalToolDefinition[] = [

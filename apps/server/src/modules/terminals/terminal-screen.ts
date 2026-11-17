@@ -16,6 +16,7 @@ function internals(term: headless.Terminal) {
 }
 
 export interface ScreenSnapshot { data: Buffer; watermark: number; sequence: number; size: TerminalSize; historyTrimmed: boolean }
+export interface ScreenTextSnapshot extends Omit<ScreenSnapshot, 'data'> { text: string; buffer: 'normal' | 'alternate' }
 export class TerminalScreen {
   readonly terminal: headless.Terminal;
   private readonly serializer = new serialize.SerializeAddon();
@@ -26,7 +27,7 @@ export class TerminalScreen {
   private disposed = false;
   private stopping = false;
   private trimmed = false;
-  private waiters = new Set<{ ready: boolean; resolve: (snapshot: ScreenSnapshot) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  private waiters = new Set<{ ready: boolean; resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   onOutput: (data: Buffer, from: number, watermark: number, sequence: number) => void = () => {};
   onResize: (size: TerminalSize, sequence: number) => void = () => {};
   onNotification: () => void = () => {};
@@ -34,6 +35,8 @@ export class TerminalScreen {
     this.terminal = new headless.Terminal({ ...size, allowProposedApi: true, scrollback: TERMINAL_LIMITS.scrollback, theme: { ...TERMINAL_THEME } });
     this.terminal.loadAddon(this.serializer);
     internals(this.terminal);
+    // 首行标记真正被滚动历史移除后才提示裁剪，达到容量本身不等于已丢历史。
+    this.terminal.registerMarker(0)?.onDispose(() => { if (!this.disposed) this.trimmed = true; });
     // xterm 的流式解析器区分独立 BEL 与 OSC 终止符，跨块通知不另造解析器。
     this.terminal.onBell(() => this.onNotification());
     for (const id of [9, 777]) this.terminal.parser.registerOscHandler(id, () => { this.onNotification(); return true; });
@@ -58,7 +61,6 @@ export class TerminalScreen {
       this.watermark += data.length;
       this.pendingBytes -= data.length;
       if (this.pendingBytes < TERMINAL_LIMITS.resumeBytes) this.flow.resume();
-      if (this.terminal.buffer.normal.length >= this.terminal.rows + TERMINAL_LIMITS.scrollback) this.trimmed = true;
       this.onOutput(data, from, this.watermark, ++this.sequence);
       this.resolveSnapshots();
     });
@@ -75,8 +77,36 @@ export class TerminalScreen {
     return next;
   }
   snapshot(): Promise<ScreenSnapshot> {
+    return this.atBoundary(() => ({ ...this.metadata(), data: Buffer.from(this.serializer.serialize({ scrollback: TERMINAL_LIMITS.scrollback }) +
+      (internals(this.terminal).coreService.isCursorHidden ? '\x1b[?25l' : '\x1b[?25h')) }));
+  }
+  /** 只读 active buffer；宽字占位由 xterm 处理，软换行不变成正文换行。 */
+  textSnapshot(): Promise<ScreenTextSnapshot> {
+    return this.atBoundary(() => {
+      const buffer = this.terminal.buffer.active;
+      const parts: string[] = [];
+      for (let index = 0; index < buffer.length; index++) {
+        const line = buffer.getLine(index)!;
+        const next = buffer.getLine(index + 1);
+        const wrapped = next?.isWrapped ?? false;
+        // 宽字放不进行尾时，xterm 留一个空占位再折行；该占位不属于正文。
+        const widePadding = wrapped && next?.getCell(0)?.getWidth() === 2 &&
+          line.getCell(this.terminal.cols - 1)?.getWidth() === 1 && line.getCell(this.terminal.cols - 1)?.getChars() === '';
+        parts.push(line.translateToString(!wrapped, 0, this.terminal.cols - (widePadding ? 1 : 0)));
+        if (next && !wrapped) parts.push('\n');
+      }
+      return { ...this.metadata(), text: parts.join(''), buffer: buffer.type, historyTrimmed: buffer.type === 'normal' && this.trimmed };
+    });
+  }
+  private metadata() {
+    return { watermark: this.watermark, sequence: this.sequence, size: { cols: this.terminal.cols, rows: this.terminal.rows }, historyTrimmed: this.trimmed };
+  }
+  private atBoundary<T>(capture: () => T): Promise<T> {
+    if (this.disposed) return Promise.reject(new Error('终端画面已释放。'));
     return new Promise((resolve, reject) => {
-      const waiter = { ready: false, resolve, reject, timer: setTimeout(() => {
+      const waiter = { ready: false, resolve: () => {
+        try { resolve(capture()); } catch (error) { reject(error); }
+      }, reject, timer: setTimeout(() => {
         this.waiters.delete(waiter); reject(new Error('SNAPSHOT_TIMEOUT'));
       }, TERMINAL_LIMITS.snapshotTimeoutMillis) };
       this.waiters.add(waiter);
@@ -89,10 +119,7 @@ export class TerminalScreen {
     if (!eligible.length) return;
     const core = internals(this.terminal);
     if (core._inputHandler._parser.currentState !== 0 || core._inputHandler._utf8Decoder.interim[0] !== 0) return;
-    const data = Buffer.from(this.serializer.serialize({ scrollback: TERMINAL_LIMITS.scrollback }) +
-      (core.coreService.isCursorHidden ? '\x1b[?25l' : '\x1b[?25h'));
-    const snapshot = { data, watermark: this.watermark, sequence: this.sequence, size: { cols: this.terminal.cols, rows: this.terminal.rows }, historyTrimmed: this.trimmed };
-    for (const waiter of eligible) { clearTimeout(waiter.timer); this.waiters.delete(waiter); waiter.resolve(snapshot); }
+    for (const waiter of eligible) { clearTimeout(waiter.timer); this.waiters.delete(waiter); waiter.resolve(); }
   }
   drain(): Promise<void> { return this.queue; }
   resumeForStop(): void { this.stopping = true; this.flow.resume(); }

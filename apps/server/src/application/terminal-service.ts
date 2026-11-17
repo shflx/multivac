@@ -5,6 +5,7 @@ import { assertTerminalOperation, selectTerminalDirectory, type TerminalReposito
 import { TerminalScreen } from '../modules/terminals/terminal-screen.js';
 import type { CodexThreads } from '../modules/terminals/codex-threads.js';
 import type { TerminalProcess, TerminalProcessFactory } from '../modules/terminals/terminal-process.js';
+import { TerminalScreenPages, TerminalScreenReadError } from './terminal-screen-pages.js';
 import type { WorkbenchEvents } from './workbench-events.js';
 export class TerminalError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -29,6 +30,7 @@ const ACTIVITY_MILLIS = 5000;
 export class TerminalService {
   private runtimes = new Map<string, TerminalRuntime>();
   private closing = false;
+  private readonly screenPages = new TerminalScreenPages();
   get hasActivity(): boolean { return this.runtimes.size > 0; }
   private unsubscribe: () => void;
   /** 当前 Codex app-server 的终端连接地址；不可用时为 null，Codex 以普通方式启动。 */
@@ -47,6 +49,27 @@ export class TerminalService {
   get(id: string): ProjectTerminal { const record = this.repository.get(id); if (!record) throw new TerminalError(404, '终端不存在。'); return record; }
   list(projectId: string, includeClosed = false) { this.requireProject(projectId); return this.repository.list(projectId, includeClosed); }
   runtime(id: string): TerminalRuntime | undefined { return this.runtimes.get(this.get(id).instanceId); }
+  /** 模型读取不标记已读，不附着窗口，也不改变拥有者、尺寸或 PTY 流控。 */
+  async readScreen(id: string, cursor?: string) {
+    const record = this.get(id);
+    const runtime = this.runtimes.get(record.instanceId);
+    const requireRunning = () => {
+      const current = this.get(id);
+      if (this.closing || current.instanceId !== record.instanceId || current.preset.kind !== 'blank' || current.status !== 'running' ||
+          current.closedAt !== null || !runtime || this.runtimes.get(record.instanceId) !== runtime || runtime.stopping) {
+        this.screenPages.invalidate(record.instanceId);
+        throw new TerminalScreenReadError('仅可读取运行中且未关闭的 blank 终端；CLI、自定义预设、已结束或已重开的旧实例不可读取，请重新定位。');
+      }
+    };
+    requireRunning();
+    const page = await this.screenPages.read(id, record.instanceId, cursor, async () => {
+      const snapshot = await runtime!.screen.textSnapshot();
+      requireRunning();
+      return snapshot;
+    });
+    requireRunning();
+    return page;
+  }
   private save(record: ProjectTerminal): ProjectTerminal {
     if (!this.repository.replace(record, record.instanceId)) throw new TerminalError(409, '终端实例已变更。');
     this.events.publish({ type: 'terminal.changed', projectId: record.projectId }); return record;
@@ -172,6 +195,7 @@ export class TerminalService {
     const runtime = this.runtimes.get(instance);
     if (!runtime) return Promise.resolve(this.save({ ...record, status: 'stop-unconfirmed' }));
     if (runtime.stopping) return runtime.stopping;
+    this.screenPages.invalidate(instance);
     runtime.endReason = reason;
     runtime.screen.resumeForStop();
     this.save({ ...record, status: 'stopping' });
@@ -224,6 +248,7 @@ export class TerminalService {
     return this.start(next, size, resume ? 'resume' : 'new');
   }
   private release(instance: string) {
+    this.screenPages.invalidate(instance);
     const runtime = this.runtimes.get(instance); if (!runtime) return;
     runtime.process.dispose(); clearTimeout(runtime.metadataTimer); runtime.screen.dispose(); runtime.listeners.clear(); this.runtimes.delete(instance);
   }
@@ -236,7 +261,7 @@ export class TerminalService {
   }
   async resetForTest(): Promise<void> { await this.stopRuntimes('project-removed'); }
   async close(): Promise<void> {
-    this.closing = true; this.unsubscribe(); await this.stopRuntimes('service-shutdown'); await this.codexThreads?.close();
+    this.closing = true; this.screenPages.clear(); this.unsubscribe(); await this.stopRuntimes('service-shutdown'); await this.codexThreads?.close();
   }
   private async stopRuntimes(reason: TerminalExit['reason']): Promise<void> {
     const results = await Promise.allSettled([...this.runtimes].map(async ([instance, runtime]) => {

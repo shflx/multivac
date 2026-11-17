@@ -110,6 +110,7 @@ export const INTERNAL_TOOL_DISPLAY: Readonly<Record<string, InternalToolDisplay>
   open_session: { displayName: '在工作区打开会话', keyArgument: { argument: 'sessionId', action: '在工作区打开' } },
   open_terminal: { displayName: '启动终端', keyArgument: { argument: 'preset', action: '启动终端' } },
   list_project_terminals: { displayName: '列出项目终端', keyArgument: { argument: 'projectId', action: '列出项目终端' } },
+  read_terminal_screen: { displayName: '读取终端画面', keyArgument: { argument: 'terminalId', action: '读取终端画面' } },
   read_terminal_recent: { displayName: '读取终端正文', keyArgument: { argument: 'terminalId', action: '读取终端正文' } },
   read_terminal_history: { displayName: '读取终端历史', keyArgument: { argument: 'terminalId', action: '读取终端历史' } },
   read_terminal_message: { displayName: '续读终端消息', keyArgument: { argument: 'terminalId', action: '续读终端消息' } },
@@ -204,7 +205,7 @@ export const COORDINATOR_TOOL_GROUPS: readonly CoordinatorToolGroup[] = [
     tools: [
       'list_workspaces', 'switch_workspace', 'list_sessions', 'get_session', 'get_current_view', 'read_session_recent', 'read_session_history', 'read_session_message',
       'create_session', 'rename_session', 'archive_session', 'restore_session', 'open_session', 'open_terminal', 'list_project_terminals',
-      'read_terminal_recent', 'read_terminal_history', 'read_terminal_message', 'set_view_mode',
+      'read_terminal_recent', 'read_terminal_history', 'read_terminal_message', 'read_terminal_screen', 'set_view_mode',
       'open_management_page',
     ],
   },

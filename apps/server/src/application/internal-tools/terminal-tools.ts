@@ -21,7 +21,7 @@ export function requireLocalTerminalContext(context: Pick<InternalToolCallContex
 
 /** 仅声明可用的读取来源；实际读取仍须核对会话或当前权威画面是否存在。 */
 export function terminalReadableMode(record: ProjectTerminal): 'authoritative-text' | 'visible-body' | null {
-  if (record.preset.kind === 'blank') return 'authoritative-text';
+  if (record.preset.kind === 'blank') return record.status === 'running' && record.closedAt === null ? 'authoritative-text' : null;
   if ((record.preset.kind === 'claude' || record.preset.kind === 'codex') && record.agentSessionId) return 'visible-body';
   return null;
 }

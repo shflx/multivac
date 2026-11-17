@@ -549,7 +549,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       isOpen: (windowId) => workbenchEvents.hasWindow(windowId),
     },
     // 终端服务在后面装配；工具调用发生在启动完成之后。
-    terminals: { open: (input) => terminals.open(input), list: (projectId, includeClosed) => terminals.list(projectId, includeClosed), get: id => terminals.get(id) },
+    terminals: { open: (input) => terminals.open(input), list: (projectId, includeClosed) => terminals.list(projectId, includeClosed), get: id => terminals.get(id), readScreen: (id, cursor) => terminals.readScreen(id, cursor) },
     terminalTranscripts: new TerminalTranscriptReader({ getTerminal: id => store.terminals.get(id) }),
   };
   // 示例提议（给会话改名）只在测试控制开启时（E2E 服务与测试）注册，用来验证确认卡机制；正式环境没有它。

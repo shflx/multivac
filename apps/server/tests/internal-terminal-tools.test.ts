@@ -16,6 +16,10 @@ function terminal(preset: ProjectTerminal['preset'], agentSessionId: string | nu
 
 test('终端读取模式：blank 权威文本、已跟踪 CLI 可见正文，其他来源不支持', () => {
   assert.equal(terminalReadableMode(terminal({ kind: 'blank' })), 'authoritative-text');
+  for (const status of ['starting', 'stopping', 'stop-unconfirmed', 'exited', 'failed'] as const) {
+    assert.equal(terminalReadableMode({ ...terminal({ kind: 'blank' }), status }), null);
+  }
+  assert.equal(terminalReadableMode({ ...terminal({ kind: 'blank' }), closedAt: now }), null);
   for (const kind of ['claude', 'codex'] as const) {
     assert.equal(terminalReadableMode(terminal({ kind, argv: [] }, 'session')), 'visible-body');
     assert.equal(terminalReadableMode(terminal({ kind, argv: [] })), null);

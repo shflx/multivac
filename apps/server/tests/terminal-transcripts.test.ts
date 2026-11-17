@@ -187,7 +187,7 @@ test('终端工具只接受 terminalId，续读元数据正确，本机 query �
     calls: new Proxy({}, { get: () => { throw new Error('query 不得操作账本'); } }) as never, currentTurn: () => turn });
   const invoke = (toolName: string, args: unknown) => service.invoke({ assistantSessionId: 'work', toolCallId: 'query', toolName, args }, new AbortController().signal);
   const names = ['read_terminal_recent', 'read_terminal_history', 'read_terminal_message'];
-  assert.deepEqual(WORK_SESSION_TERMINAL_TOOLS.map(tool => tool.name), ['list_project_terminals', ...names]);
+  assert.deepEqual(WORK_SESSION_TERMINAL_TOOLS.map(tool => tool.name), ['list_project_terminals', ...names, 'read_terminal_screen']);
   for (const name of names) {
     assert.equal(MULTIVAC_INTERNAL_TOOLS.find(tool => tool.name === name)?.effect, 'query');
     assert.ok(WORK_SESSION_TERMINAL_TOOLS.some(tool => tool.name === name));
