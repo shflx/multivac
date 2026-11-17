@@ -1,4 +1,4 @@
-import { modelReasoningOverride } from '@multivac/contracts';
+import { MODEL_CONTEXT_WINDOW_MAX, modelReasoningOverride } from '@multivac/contracts';
 import type {
   ModelAvailability,
   ModelCapabilities,
@@ -44,6 +44,7 @@ function normalizeProfile(profile: ModelProfileInput): ModelProfileInput {
     // auto 不写入配置，旧版配置与未修改推理能力的配置保持同一指纹。
     ...(profile.reasoning && profile.reasoning !== 'auto' ? { reasoning: profile.reasoning } : {}),
     ...(profile.defaultThinkingLevel !== undefined ? { defaultThinkingLevel: profile.defaultThinkingLevel } : {}),
+    ...(profile.contextWindow !== undefined ? { contextWindow: profile.contextWindow } : {}),
   };
 }
 
@@ -96,6 +97,13 @@ function validateChangedProfile(profile: ModelProfileInput): ModelProfileInput {
     throw new ModelSettingsServiceError(
       'MODEL_SETTINGS_CANDIDATE_INVALID',
       '模型配置字段不得为空。',
+    );
+  }
+  if (normalized.contextWindow !== undefined &&
+    (!Number.isInteger(normalized.contextWindow) || normalized.contextWindow < 1 || normalized.contextWindow > MODEL_CONTEXT_WINDOW_MAX)) {
+    throw new ModelSettingsServiceError(
+      'MODEL_SETTINGS_CANDIDATE_INVALID',
+      `上下文窗口必须是 1 至 ${MODEL_CONTEXT_WINDOW_MAX.toLocaleString('en-US')} 的整数（token）。`,
     );
   }
   if (normalized.endpoint !== null) {

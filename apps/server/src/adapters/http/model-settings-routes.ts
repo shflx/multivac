@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
   MODEL_SETTINGS_BODY_LIMIT_BYTES,
+  MODEL_CONTEXT_WINDOW_MAX,
+  ModelContextWindowSchema,
   ModelSettingsApiErrorResponseSchema,
   SaveModelSettingsSchema,
   SetDefaultModelSchema,
@@ -78,7 +80,11 @@ export function createModelSettingsRequestHandler(service: ModelSettingsService)
         const body = await readJsonBody(request, MODEL_SETTINGS_BODY_LIMIT_BYTES);
         if (url.pathname.endsWith('/profiles')) {
           if (!Check(SaveModelSettingsSchema, body)) {
-            writeError(response, 400, 'INVALID_REQUEST', '模型配置命令请求体无效。');
+            const profile = (body as { profile?: { contextWindow?: unknown } } | null)?.profile;
+            const message = profile?.contextWindow !== undefined && !Check(ModelContextWindowSchema, profile.contextWindow)
+              ? `上下文窗口必须是 1 至 ${MODEL_CONTEXT_WINDOW_MAX.toLocaleString('en-US')} 的整数（token）。`
+              : '模型配置命令请求体无效。';
+            writeError(response, 400, 'INVALID_REQUEST', message);
             return true;
           }
           writeJson(response, 200, await service.save(body));

@@ -32,7 +32,8 @@ class FakeModelSettingsCatalog implements ModelSettingsCatalog {
     const capabilities = new Map(
       profiles.map((profile) => {
         const reasoning = modelReasoningOverride(profile.reasoning) ?? FAKE_CAPABILITIES.reasoning;
-        return [profile.profileId, { ...FAKE_CAPABILITIES, reasoning, thinkingLevels: fakeThinkingLevels(reasoning) }] as const;
+        return [profile.profileId, { ...FAKE_CAPABILITIES, contextWindow: profile.contextWindow ?? FAKE_CAPABILITIES.contextWindow,
+          ...(profile.contextWindow !== undefined ? { defaultContextWindow: FAKE_CAPABILITIES.contextWindow } : {}), reasoning, thinkingLevels: fakeThinkingLevels(reasoning) }] as const;
       }),
     );
     const resolvedModels = new Map(profiles.map((profile) => [profile.profileId, {

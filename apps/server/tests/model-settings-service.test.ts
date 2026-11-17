@@ -556,3 +556,29 @@ test('默认推理等级持久化、幂等与能力校验，取消设置兼容�
     assert.equal(JSON.parse(await readFile(h.path, 'utf8')).profiles[0].defaultThinkingLevel, undefined);
   } finally { await rm(h.root, { recursive: true, force: true }); }
 });
+
+test('上下文窗口保存、重启和清除保持一致，非法值不持久化，缺省保持旧指纹', async () => {
+  const { FakeModelSettingsCatalogFactory } = await import('../src/runtime/executors/fake-model-settings-catalog.js');
+  const { jsonSha256Fingerprint } = await import('../src/modules/fingerprint.js');
+  const h = await fixture();
+  try {
+    const factory = new FakeModelSettingsCatalogFactory();
+    const service = new ModelSettingsService(new FileModelSettingsStore(h.path), factory);
+    await service.initialize();
+    for (const value of [0, -10, 3.5, 100_000_001, NaN]) {
+      await assert.rejects(service.save({ commandId: 'invalid', revision: 0, profile: profile({ contextWindow: value }) }), /上下文窗口/u);
+    }
+    await assert.rejects(readFile(h.path), { code: 'ENOENT' });
+    const manual = await service.save({ commandId: 'manual', revision: 0, profile: profile({ contextWindow: 1_000_000 }) });
+    assert.equal(manual.profiles[0]?.capabilities?.contextWindow, 1_000_000);
+    const restarted = new ModelSettingsService(new FileModelSettingsStore(h.path), factory);
+    await restarted.initialize();
+    assert.equal((await restarted.getSnapshot()).profiles[0]?.contextWindow, 1_000_000);
+    const cleared = await restarted.save({ commandId: 'clear', revision: 1, profile: profile() });
+    assert.equal(cleared.profiles[0]?.capabilities?.contextWindow, 128_000);
+    const stored = JSON.parse(await readFile(h.path, 'utf8'));
+    assert.equal(Object.hasOwn(stored.profiles[0], 'contextWindow'), false);
+    assert.equal(stored.commands.at(-1).fingerprint, jsonSha256Fingerprint({ kind: 'save', profile: profile() }));
+    assert.equal((await restarted.save({ commandId: 'clear', revision: 1, profile: profile({ contextWindow: undefined }) })).revision, 2);
+  } finally { await rm(h.root, { recursive: true, force: true }); }
+});

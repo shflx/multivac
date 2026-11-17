@@ -414,3 +414,29 @@ test('真实 Pi：模型能力中的推理等级与会话里 Pi 给出的可选�
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('上下文窗口与推理覆盖合并，目录和自定义模型均交给真实 Pi 解析，清除后恢复', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-context-window-'));
+  try {
+    const authPath = join(root, 'auth.json');
+    await writeFile(authPath, '{}');
+    const factory = new PiModelSettingsCatalogFactory({ authPath, candidateRoot: join(root, 'candidates') });
+    const catalog: ModelProfileInput = { ...profile, provider: 'openai', modelId: 'gpt-5', endpoint: null };
+    const custom: ModelProfileInput = { ...profile, provider: 'gateway', modelId: 'gpt-6.1-sol' };
+    for (const target of [catalog, custom]) {
+      const original = (await (await factory.create([target])).inspect([target])).capabilities.get(target.profileId)!;
+      const manual = { ...target, contextWindow: 1_000_000, reasoning: 'enabled' as const };
+      const effective = (await (await factory.create([manual])).inspect([manual])).capabilities.get(target.profileId)!;
+      assert.equal(effective.contextWindow, 1_000_000);
+      assert.equal(effective.defaultContextWindow, original.contextWindow);
+      assert.equal(effective.reasoning, true);
+      assert.equal(effective.maxOutputTokens, original.maxOutputTokens);
+      const restored = (await (await factory.create([target])).inspect([target])).capabilities.get(target.profileId)!;
+      assert.deepEqual(restored, original);
+      const { config } = buildPiModelsConfig([manual], runtimeWith(undefined));
+      assert.deepEqual(config.providers[target.provider].modelOverrides?.[target.modelId], {
+        contextWindow: 1_000_000, reasoning: true,
+      });
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

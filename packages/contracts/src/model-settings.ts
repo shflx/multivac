@@ -3,6 +3,8 @@ import { COORDINATOR_THINKING_LEVELS } from './coordinator-runtime.js';
 
 export const MODEL_SETTINGS_BODY_LIMIT_BYTES = 32 * 1024;
 export const MODEL_PROFILE_ID_MAX_LENGTH = 128;
+export const MODEL_CONTEXT_WINDOW_MAX = 100_000_000;
+export const ModelContextWindowSchema = Type.Integer({ minimum: 1, maximum: MODEL_CONTEXT_WINDOW_MAX });
 export const MODEL_SETTINGS_COMMAND_ID_MAX_LENGTH = 128;
 
 const NonEmptyString = Type.String({ minLength: 1 });
@@ -63,6 +65,8 @@ export const ModelProfileInputSchema = Type.Object(
     reasoning: Type.Optional(ModelReasoningModeSchema),
     /** 未设置时沿用原有会话初始化或切换行为。 */
     defaultThinkingLevel: Type.Optional(Type.Enum(COORDINATOR_THINKING_LEVELS)),
+    /** 缺省沿用 Pi 目录或默认窗口；仅受控模型配置使用。 */
+    contextWindow: Type.Optional(ModelContextWindowSchema),
   },
   { additionalProperties: false },
 );
@@ -76,6 +80,8 @@ export const ModelCapabilitiesSchema = Type.Object(
     ]),
     input: Type.Array(Type.Union([Type.Literal('text'), Type.Literal('image')])),
     contextWindow: Type.Integer({ minimum: 1 }),
+    /** 手动覆盖时提供未覆盖的 Pi 窗口，供编辑表单说明清除后的值。 */
+    defaultContextWindow: Type.Optional(Type.Integer({ minimum: 1 })),
     maxOutputTokens: Type.Integer({ minimum: 1 }),
     reasoning: Type.Boolean(),
     /**
@@ -101,6 +107,8 @@ export const ModelProfileSchema = Type.Object(
     ]),
     reasoning: ModelReasoningModeSchema,
     defaultThinkingLevel: Type.Optional(Type.Enum(COORDINATOR_THINKING_LEVELS)),
+    /** 缺省沿用 Pi 目录或默认窗口；仅受控模型配置使用。 */
+    contextWindow: Type.Optional(ModelContextWindowSchema),
     /** 生效后的能力；手动设置的推理能力已计入 capabilities.reasoning。 */
     capabilities: Type.Union([ModelCapabilitiesSchema, Type.Null()]),
   },

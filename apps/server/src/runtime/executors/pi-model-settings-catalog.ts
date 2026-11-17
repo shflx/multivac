@@ -111,6 +111,7 @@ class PiModelSettingsCatalog implements ModelSettingsCatalog {
   constructor(
     private readonly runtime: PiModelRuntimeView,
     private readonly catalogCapabilityKeys: ReadonlySet<string>,
+    private readonly defaultRuntime?: PiModelRuntimeView,
   ) {}
 
   async inspect(profiles: readonly ModelProfileInput[]): Promise<ModelCatalogInspection> {
@@ -138,6 +139,14 @@ class PiModelSettingsCatalog implements ModelSettingsCatalog {
             )
           : null,
       );
+    }
+
+    for (const profile of profiles) {
+      const effective = capabilities.get(profile.profileId);
+      const original = this.defaultRuntime?.getModel(profile.provider, profile.modelId);
+      if (profile.contextWindow !== undefined && effective && original?.api === profile.protocol) {
+        effective.defaultContextWindow = original.contextWindow;
+      }
     }
 
     const providers = [...new Set(profiles.map((profile) => profile.provider))];
@@ -246,7 +255,7 @@ export function buildPiModelsConfig(
   const providers = Object.create(null) as Record<string, {
     baseUrl?: string;
     api?: ModelProfileInput['protocol'];
-    modelOverrides?: Record<string, { reasoning: boolean }>;
+    modelOverrides?: Record<string, { reasoning?: boolean; contextWindow?: number }>;
     models?: Array<{ id: string; name: string; reasoning?: boolean; input?: ('text' | 'image')[];
       contextWindow?: number; maxTokens?: number; cost?: PiModelView['cost'];
       thinkingLevelMap?: PiModelView['thinkingLevelMap']; compat?: { forceAdaptiveThinking: boolean } }>;
@@ -257,12 +266,15 @@ export function buildPiModelsConfig(
     const baseModel = baseRuntime.getModel(profile.provider, profile.modelId);
     const knownModel = baseModel?.api === profile.protocol;
     if (baseModel) catalogCapabilityKeys.add(key);
-    // 手动设置的推理能力以 Pi modelOverrides 覆盖目录与自定义模型的默认值；
-    // 保存校验、会话启动、恢复与可用性检查都经此构建，推理能力判断一致。
+    // 手动能力经同一份 Pi modelOverrides 应用到目录与自定义模型，
+    // 保存校验、会话启动和恢复使用相同的生效值。
     const reasoning = modelReasoningOverride(profile.reasoning);
-    if (reasoning !== undefined) {
+    if (reasoning !== undefined || profile.contextWindow !== undefined) {
       const provider = providers[profile.provider] ??= {};
-      (provider.modelOverrides ??= {})[profile.modelId] = { reasoning };
+      (provider.modelOverrides ??= {})[profile.modelId] = {
+        ...(reasoning !== undefined ? { reasoning } : {}),
+        ...(profile.contextWindow !== undefined ? { contextWindow: profile.contextWindow } : {}),
+      };
     }
     if (profile.endpoint === null) continue;
     const current = providers[profile.provider] ??= {};
@@ -337,7 +349,13 @@ export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactor
           throw new ModelSettingsCandidateError('Pi 认证解析后无法保证自定义端点生效。');
         }
       }
-      return new PiModelSettingsCatalog(runtime, catalogCapabilityKeys);
+      // 自定义模型的默认窗口也由 Pi 解析，避免在应用中复制 SDK 的默认常量。
+      const defaults = profiles.some(profile => profile.contextWindow !== undefined)
+        ? await this.createRuntimeForConfig(directory, 'defaults', buildPiModelsConfig(
+            profiles.map(({ contextWindow: _window, ...profile }) => profile), baseRuntime,
+          ).config)
+        : undefined;
+      return new PiModelSettingsCatalog(runtime, catalogCapabilityKeys, defaults);
     } catch (error) {
       if (error instanceof ModelSettingsCandidateError) throw error;
       throw new ModelSettingsCandidateError();

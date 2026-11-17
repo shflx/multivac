@@ -119,3 +119,12 @@ test('@multivac/contracts 的模型设置契约不依赖 Node、存储或 Pi SDK
   assert.equal(source.includes('@earendil-works/pi-'), false);
   assert.equal(/sqlite|better-sqlite/u.test(source), false);
 });
+
+test('上下文窗口可缺省，仅接受范围内的整数', () => {
+  for (const contextWindow of [1, 400_000, 100_000_000]) {
+    assert.equal(Check(ModelProfileInputSchema, { ...profile, contextWindow }), true);
+  }
+  for (const contextWindow of [0, -1, 1.5, 100_000_001, '400000', null]) {
+    assert.equal(Check(ModelProfileInputSchema, { ...profile, contextWindow }), false);
+  }
+});
