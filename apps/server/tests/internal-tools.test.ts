@@ -264,7 +264,11 @@ test('幂等：同一 toolCallId 重放只执行一次（含并发），结果�
         service.invoke({ assistantSessionId: SESSION, toolName, toolCallId, args }, signal());
 
       // 并发的重放等待同一次执行；之后的重放读账本。
-      const [first, concurrent] = await Promise.all([invoke('call-1', { title: '周报' }), invoke('call-1', { title: '周报' })]);
+      const [first, concurrent, inFlightConflict] = await Promise.all([
+        invoke('call-1', { title: '周报' }), invoke('call-1', { title: '周报' }), invoke('call-1', { title: '月报' }),
+      ]);
+      assert.equal(inFlightConflict.ok, false);
+      assert.match(!inFlightConflict.ok ? inFlightConflict.reason : '', /内容不同/u);
       const replay = await invoke('call-1', { title: '周报' });
       assert.deepEqual(first, { ok: true, content: '已改名为「周报」', result: { summary: '改名为「周报」', refs: [] } });
       assert.deepEqual(concurrent, first);

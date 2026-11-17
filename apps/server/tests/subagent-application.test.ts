@@ -1,10 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdir, mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { DatabaseSync } from 'node:sqlite';
 import { resolve, join } from 'node:path';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
+import { createPiInternalToolSet } from '../src/runtime/executors/pi-internal-tools.js';
+import { internalToolCommandId } from '../src/modules/internal-tools/internal-tool.js';
 
 async function until(check: () => boolean) {
   const end = Date.now() + 10000;
@@ -116,4 +121,64 @@ test('只读过程接口返回完整工具输入输出、分页及真实身份�
     assert.equal((await f.http(endpoint, {})).status, 405);
     assert.equal((await f.http(`/api/sessions/${record.run.sessionId}/turns`, { commandId: 'bad', assistantSessionId: record.run.sessionId, text: '重新运行', contextRefs: [] })).status, 404);
   } finally { await f.close(); }
+});
+
+test('实际子级运行时经 Pi 提交通道使用专用 SQLite 账本，真实运行检查后保存提交 SHA', { skip: process.platform !== 'darwin' }, async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(r => { release = r; });
+  const adapter = new FakeCoordinatorAdapter({ seedsHistory: () => false,
+    promptScenarioResolver: text => text.startsWith('目标：') ? 'success' : 'internalTools' });
+  const original = adapter.prompt.bind(adapter);
+  adapter.prompt = async (id, text, ...args) => { if (text.startsWith('目标：')) await gate; return original(id, text, ...args); };
+  const f = await fixture(adapter);
+  let pending: ReturnType<typeof f.send> | undefined;
+  try {
+    pending = f.send(script({ ...input, mode: 'execute', writeScope: ['code.txt'] } as any));
+    await until(() => f.app.subagents.repository.page('parent', 0, 20).items.some(r => r.run.status === 'running'));
+    const child = f.app.subagents.repository.page('parent', 0, 20).items[0]!;
+    const creation = adapter.calls.find(c => c.method === 'createSession' && c.input.assistantSessionId === child.run.sessionId);
+    assert.ok(creation && creation.method === 'createSession');
+    const directory = child.workingDirectory.path, exec = promisify(execFile);
+    const git = async (...args: string[]) => (await exec('/usr/bin/git', ['-C', directory, '-c', 'user.name=Test', '-c', 'user.email=test@localhost', ...args],
+      { env: { PATH: '/usr/bin:/bin', HOME: directory, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } })).stdout.trim();
+    await git('init', '-b', 'test-runtime');
+    await writeFile(join(directory, 'code.txt'), 'before'); await git('add', 'code.txt'); await git('commit', '-m', 'baseline');
+    await writeFile(join(directory, 'code.txt'), 'after');
+    const sessionId = child.run.sessionId;
+    const check = () => { f.app.subagents.lease(sessionId, 'check', 'runtime-check', 0); };
+    const checked = await f.app.managedProcesses.bash.execute({ sessionId, executionId: `subagent-send:${child.run.id}`, directory }, 'runtime-check',
+      { command: "node -e \"if(require('fs').readFileSync('code.txt','utf8')!=='after')process.exit(1)\"", mode: 'foreground' },
+      new AbortController().signal, () => {}, undefined, check, {
+        check,
+        start: (marker, bytes) => ({ maxBytes: f.app.subagents.lease(sessionId, 'starting', marker, bytes), maxMillis: 10000 }),
+        progress: (marker, bytes) => f.app.subagents.lease(sessionId, 'progress', marker, bytes),
+        settle: marker => { f.app.subagents.lease(sessionId, 'settled', marker, 0); },
+      });
+    assert.equal(checked.exitCode, 0);
+    await until(() => f.app.managedProcesses.list(true).some(p => p.sessionId === sessionId && p.state === 'exited' && p.exitCode === 0));
+    const tools = createPiInternalToolSet(sessionId, creation.input.internalTools!);
+    const inspect = tools.definitions.find(tool => tool.name === 'inspect_subagent_git')!;
+    const commit = tools.definitions.find(tool => tool.name === 'commit_subagent_code')!;
+    const abort = new AbortController().signal;
+    await inspect.execute('inspect', { paths: ['code.txt'] }, abort, undefined, {} as never);
+    const args = { paths: ['code.txt'], message: 'fix: 保存子级改动' };
+    const result = await commit.execute('commit', args, abort, undefined, {} as never);
+    assert.deepEqual(await commit.execute('commit', args, abort, undefined, {} as never), result);
+    const hash = await git('rev-parse', 'HEAD');
+    assert.match(JSON.stringify(result), new RegExp(hash));
+    assert.equal(await git('rev-list', '--count', 'HEAD'), '2');
+    assert.deepEqual(f.app.subagents.get(child.run.id).commitHashes, [hash]);
+    const db = new DatabaseSync(f.app.paths.databasePath);
+    try {
+      const command = internalToolCommandId(sessionId, 'commit');
+      const row = db.prepare('SELECT session_id, status, outcome_json FROM subagent_tool_call WHERE command_id=?').get(command) as { session_id: string; status: string; outcome_json: string };
+      assert.equal(row.session_id, sessionId); assert.equal(row.status, 'succeeded'); assert.match(row.outcome_json, new RegExp(hash));
+      assert.equal(db.prepare('SELECT 1 FROM internal_tool_call WHERE command_id=?').get(command), undefined);
+      assert.equal(db.prepare('SELECT 1 FROM assistant_session_registry WHERE session_id=?').get(sessionId), undefined);
+      assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
+    } finally { db.close(); }
+    assert.ok(!JSON.stringify((await f.http('/api/sessions')).body).includes(sessionId));
+    release(); assert.equal((await pending).status, 200);
+    await until(() => !f.app.subagents.occupies('parent'));
+  } finally { release(); await pending; await f.close(); }
 });

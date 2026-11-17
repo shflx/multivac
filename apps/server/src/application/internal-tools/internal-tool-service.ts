@@ -377,8 +377,6 @@ export class InternalToolService implements CoordinatorInternalTools {
     }
 
     // 从这里到登记进行中的调用之间没有 await：同一调用的并发重放一定能看到彼此。
-    const running = this.inFlight.get(commandId);
-    if (running) return running;
     const fingerprint = internalToolArgumentsFingerprint(checked.value);
     let begun: ReturnType<InternalToolCallRepository['begin']>;
     try {
@@ -395,7 +393,14 @@ export class InternalToolService implements CoordinatorInternalTools {
       // 账本写不进去就不执行：没有记录的副作用无法在重放时识别。
       return { ok: false, reason: `${assistantToolDisplayName(tool.name)}没有执行：调用记录无法保存，请稍后重试。` };
     }
-    if (!begun.inserted) return replayedOutcome(begun.record, tool.name, fingerprint);
+    if (!begun.inserted) {
+      // 先核对参数身份，再共享在途结果；不同参数不能误用同一提交的回执。
+      if (begun.record.toolName === tool.name && begun.record.argumentsFingerprint === fingerprint) {
+        const running = this.inFlight.get(commandId);
+        if (running) return running;
+      }
+      return replayedOutcome(begun.record, tool.name, fingerprint);
+    }
 
     const outcome = this.execute(tool, checked.value, context).then((result) => {
       try {

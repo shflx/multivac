@@ -1148,7 +1148,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       ...(record.run.mode === 'execute' ? SUBAGENT_GIT_TOOLS : [])],
       services: { ...internalToolServices, subagentGit: { inspect: (...args) => subagentGit.inspect(...args), commit: (...args) => subagentGit.commit(...args) },
         projectResources: { readForSession: (_id, resourceId) => internalToolServices.projectResources!.readForSession(record.run.parentSessionId, resourceId) } },
-      calls: store.internalToolCalls, currentTurn: () => ({ commandId: `subagent-send:${record.run.id}`, windowId: null }) }),
+      calls: store.subagentToolCalls, currentTurn: () => ({ commandId: `subagent-send:${record.run.id}`, windowId: null }) }),
     record => { if (parentContextForSubagent(record.run.parentSessionId).commandId !== record.run.parentCommandId) throw new Error('父级原轮次已停止或变化。'); });
   const subagents: SubagentExecution = new SubagentExecution(store.subagents, {
     parent: parentContextForSubagent, agent: id => agents.get(id), normalize: record => writeCoordinator.normalize(record), admit: record => writeCoordinator.admit(record),
