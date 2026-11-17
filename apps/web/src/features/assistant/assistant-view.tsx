@@ -156,7 +156,7 @@ function LoadingState() {
  */
 export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...props }: AssistantViewProps) {
   const entry = useAssistantSession(sessionId);
-  // 只有全局 Multivac 在发送时带上本窗口的当前视图（它的查询工具据此理解“这个 / 第二栏”）。
+  // 本机界面的全局与工作会话发送时都带上当前视图，供查询工具确认对象；快照不授予工具权限。
   const readCurrentView = useCurrentView();
   if (!entry) {
     // 会话控制器首次创建时尚未发布状态，先占位为恢复中。
@@ -169,7 +169,7 @@ export function AssistantView({ sessionId = GLOBAL_ASSISTANT_SESSION_ID, ...prop
       <AssistantSessionView
         session={entry.session}
         sessionContext={entry.context}
-        readCurrentView={sessionId === GLOBAL_ASSISTANT_SESSION_ID ? readCurrentView : null}
+        readCurrentView={readCurrentView}
         {...props}
       />
     </SessionModelContext.Provider>

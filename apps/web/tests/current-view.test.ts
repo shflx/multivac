@@ -55,3 +55,15 @@ test('任务快照只带真实对象 ID，其他页面不携带遗留任务选�
   assert.equal(Check(CurrentViewSnapshotSchema, view), true);
   assert.equal(currentViewSnapshot({ ...input, managementPage: 'models' }).management?.selection, null);
 });
+
+
+test('终端快照只在工作区可见时保留终端选择，旧客户端报告仍有效', () => {
+  const input = { ...base, workspace: { ...base.workspace!, terminalId: 'terminal-1' } };
+  assert.equal(currentViewSnapshot(input).workspace?.terminalId, 'terminal-1');
+  for (const hidden of [{ panel: 'home' as const }, { panel: 'management' as const }, { narrow: true }]) {
+    const snapshot = currentViewSnapshot({ ...input, ...hidden });
+    assert.equal(snapshot.workspace?.terminalId, undefined);
+    assert.equal(Check(CurrentViewSnapshotSchema, snapshot), true);
+  }
+  assert.equal(currentViewSnapshot(base).workspace?.terminalId, undefined);
+});

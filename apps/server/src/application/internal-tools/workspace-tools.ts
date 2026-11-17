@@ -92,7 +92,7 @@ export function navigateOrigin(context: InternalToolCallContext, target: WindowN
   if (!originWindowId || !services.windows.navigate(originWindowId, target, origin)) return 'no-window';
   const base: CurrentViewSnapshot = originView ?? { panel: 'home', narrow: false, workspace: null, management: null };
   context.noteOriginView(target.kind === 'workspace' || target.kind === 'terminal'
-    ? { ...base, panel: 'workspace', workspace: { workspaceId: target.workspaceId, scene: null }, management: null }
+    ? { ...base, panel: 'workspace', workspace: { workspaceId: target.workspaceId, scene: null, ...(target.kind === 'terminal' ? { terminalId: target.terminalId } : {}) }, management: null }
     : { ...base, panel: 'management', management: { page: target.page, selection: target.selection } });
   return 'shown';
 }

@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import type { CurrentFileReading, CurrentViewScene, CurrentViewSnapshot, ManagementPageIdValue } from '@multivac/contracts';
 
 /**
- * 本窗口的当前视图：向全局 Multivac 发送消息时一并带上（契约 CurrentViewSnapshot），
+ * 本窗口的当前视图：向全局 Multivac 或工作会话发送消息时一并带上（契约 CurrentViewSnapshot），
  * Multivac 的 get_current_view 据此理解“这个 / 第二栏那个 / 当前工作区”。
  *
  * 当前面板、当前工作区与各栏位只在本窗口，服务端不另行保存，所以在发送的那一刻由外壳读取一次。
@@ -15,6 +15,7 @@ export interface WorkspaceViewReport {
   scene: CurrentViewScene | null;
   taskSession?: NonNullable<NonNullable<CurrentViewSnapshot['workspace']>['taskSession']>;
   reading?: CurrentFileReading | null;
+  terminalId?: string;
 }
 
 export interface CurrentViewInput {
@@ -37,16 +38,18 @@ export function currentViewSnapshot(input: CurrentViewInput): CurrentViewSnapsho
     : input.managementPage === 'projects' && input.selectedProjectId
       ? { kind: 'project' as const, projectId: input.selectedProjectId }
       : input.managementPage === 'tasks' && input.selectedTaskId ? { kind: 'task' as const, taskId: input.selectedTaskId } : null;
+  // 隐藏的工作区保留布局，但不能把上次的终端选择当作当前可见焦点。
+  const { terminalId, ...workspace } = input.workspace ?? { workspaceId: input.rememberedWorkspaceId, scene: null };
   return {
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     panel: input.panel,
     narrow: input.narrow,
-    workspace: input.workspace ?? { workspaceId: input.rememberedWorkspaceId, scene: null },
+    workspace: { ...workspace, ...(input.panel === 'workspace' && !input.narrow && terminalId ? { terminalId } : {}) },
     management: input.panel === 'management' ? { page: input.managementPage, selection } : null,
   };
 }
 
-/** 读取本窗口当前视图的函数；只由全局 Multivac 的发送使用。外壳之外（没有提供时）为 null。 */
+/** 读取本窗口当前视图的函数；由全局 Multivac 与工作会话发送时使用。外壳之外（没有提供时）为 null。 */
 export const CurrentViewContext = createContext<(() => CurrentViewSnapshot | null) | null>(null);
 
 export function useCurrentView(): (() => CurrentViewSnapshot | null) | null {

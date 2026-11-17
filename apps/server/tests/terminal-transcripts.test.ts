@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import test, { type TestContext } from 'node:test';
-import type { CurrentViewSnapshot, ProjectTerminal } from '@multivac/contracts';
+import { GLOBAL_ASSISTANT_SESSION_ID, type CoordinatorRuntimeConfig, type CurrentViewSnapshot, type ProjectTerminal } from '@multivac/contracts';
 import { TerminalTranscriptReader } from '../src/application/terminal-transcripts.js';
 import { transcriptMessage, transcriptPreview, TRANSCRIPT_PAGE_MAX_LENGTH, TRANSCRIPT_RETURN_MAX_LENGTH } from '../src/application/session-transcript-pages.js';
 import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS, WORK_SESSION_TERMINAL_TOOLS, type InternalToolServices, type InternalToolTurn } from '../src/application/internal-tools/index.js';
+import { TaskService } from '../src/application/task-service.js';
+import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
+import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
+import { createTaskTool } from '../src/application/internal-tools/task-management-tools.js';
 import { testToolServices } from './fixtures/tool-services.js';
 
 const id = 'tracked-id';
@@ -187,7 +191,7 @@ test('终端工具只接受 terminalId，续读元数据正确，本机 query �
     calls: new Proxy({}, { get: () => { throw new Error('query 不得操作账本'); } }) as never, currentTurn: () => turn });
   const invoke = (toolName: string, args: unknown) => service.invoke({ assistantSessionId: 'work', toolCallId: 'query', toolName, args }, new AbortController().signal);
   const names = ['read_terminal_recent', 'read_terminal_history', 'read_terminal_message'];
-  assert.deepEqual(WORK_SESSION_TERMINAL_TOOLS.map(tool => tool.name), ['list_project_terminals', ...names, 'read_terminal_screen']);
+  assert.deepEqual(WORK_SESSION_TERMINAL_TOOLS.map(tool => tool.name), ['get_current_view', 'list_project_terminals', ...names, 'read_terminal_screen']);
   for (const name of names) {
     assert.equal(MULTIVAC_INTERNAL_TOOLS.find(tool => tool.name === name)?.effect, 'query');
     assert.ok(WORK_SESSION_TERMINAL_TOOLS.some(tool => tool.name === name));
@@ -234,4 +238,80 @@ test('终端工具只接受 terminalId，续读元数据正确，本机 query �
     }
   }
   assert.equal(reads, previousReads);
+});
+
+
+test('Fake 工具链：先确认终端，完整分页读取 CLI 长草案，再按真实 ID 创建父子任务与依赖', async t => {
+  const f = fixture(t);
+  const plan = { parent: { title: '实现草案', goal: '完成草案约定' }, children: [
+    { title: '准备契约', goal: '核对契约', dependsOn: [] },
+    { title: '接入界面', goal: '使用已确认契约', dependsOn: [0] },
+  ] };
+  const draft = '草案说明😀'.repeat(4000) + '\n草案JSON：' + JSON.stringify(plan);
+  f.write([codexMeta, codex(draft)]);
+  const store = new SqliteAssistantStore(join(f.home, 'tasks.sqlite'));
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => { throw new Error('本用例不创建项目任务'); } });
+  const view: CurrentViewSnapshot = { panel: 'workspace', narrow: false, management: null,
+    workspace: { workspaceId: 'project', scene: null, terminalId: 'terminal' } };
+  const service = new InternalToolService({ tools: [...WORK_SESSION_TERMINAL_TOOLS, createTaskTool],
+    services: testToolServices({ terminals: { get: () => f.record }, terminalTranscripts: f.reader, tasks, taskManagement: tasks,
+      projects: { listWorkspaces: () => ({ workspaces: [{ workspaceId: 'project', name: '夹具项目', project: { projectId: 'project', name: '夹具项目' } }] }) },
+      sessions: { list: () => ({ sessions: [] }) },
+    } as unknown as InternalToolServices), calls: store.internalToolCalls,
+    currentTurn: () => ({ commandId: 'terminal-plan', windowId: 'window', view }) });
+  const outcomes: Awaited<ReturnType<InternalToolService['invoke']>>[] = [];
+  const called: string[] = [];
+  const adapter = new FakeCoordinatorAdapter({ promptScenario: 'internalTools', promptDelayMs: 0, seedsHistory: () => false, sessionPathRoot: join(f.home, 'fake-sessions') });
+  const config: CoordinatorRuntimeConfig = { systemPrompt: '按用户要求读取完整草案并创建父子任务与依赖。', authorizedContext: [],
+    model: { provider: 'fake', modelId: 'fake-model', thinkingLevel: 'off' },
+    retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 } };
+  const invoke = async (toolName: string, args: unknown = {}) => {
+    const result = await adapter.prompt(GLOBAL_ASSISTANT_SESSION_ID, `内部工具：${toolName} ${JSON.stringify(args)}`);
+    assert.equal(result.ok, true);
+    const outcome = outcomes.at(-1)!;
+    assert.equal(outcome.ok, true, outcome.ok ? undefined : outcome.reason);
+    if (!outcome.ok) throw new Error(outcome.reason);
+    return outcome;
+  };
+  try {
+    const ready = await adapter.createSession({ assistantSessionId: GLOBAL_ASSISTANT_SESSION_ID, config,
+      workingDirectory: { kind: 'session-temp', path: f.home }, internalTools: {
+        specs: service.specs, validate: (name, args) => service.validate(name, args),
+        invoke: async (input, signal) => { called.push(input.toolName); const outcome = await service.invoke(input, signal); outcomes.push(outcome); return outcome; },
+      } });
+    assert.equal(ready.ok, true);
+    const current = await invoke('get_current_view');
+    assert.match(current.content, /当前焦点终端.*terminal/u);
+    const { terminalId } = JSON.parse(current.content.match(/当前焦点终端：(.*)/u)![1]!);
+    const preview = JSON.parse((await invoke('read_terminal_recent', { terminalId, limit: 1 })).content);
+    assert.equal(preview.messages[0].body.done, false);
+    let next = { terminalId, messageRef: preview.messages[0].messageRef };
+    let full = '';
+    let pages = 0;
+    for (;;) {
+      const page = JSON.parse((await invoke('read_terminal_message', next)).content);
+      full += page.text;
+      pages++;
+      if (page.done) break;
+      next = page.next;
+      assert.ok(pages < 20, '分页应有界完成');
+    }
+    assert.ok(pages > 1);
+    assert.equal(full, draft);
+    const parsed: typeof plan = JSON.parse(full.split('\n草案JSON：')[1]!);
+    const parent = await invoke('create_task', parsed.parent);
+    const parentId = parent.result.refs.find(ref => ref.kind === 'task')!.taskId;
+    const childIds: string[] = [];
+    for (const child of parsed.children) {
+      const created = await invoke('create_task', { title: child.title, goal: child.goal, parentTaskId: parentId,
+        dependencyIds: child.dependsOn.map(index => childIds[index]) });
+      childIds.push(created.result.refs.find(ref => ref.kind === 'task')!.taskId);
+    }
+    assert.deepEqual(childIds.map(id => tasks.get(id).parentTaskId), [parentId, parentId]);
+    assert.deepEqual(tasks.get(childIds[1]!).dependencyIds, [childIds[0]]);
+    assert.equal(tasks.get(parentId).status, 'idle');
+    assert.equal(store.taskRuns.active().length, 0);
+    assert.deepEqual(called.slice(0, 2), ['get_current_view', 'read_terminal_recent']);
+    assert.deepEqual(called.slice(-3), ['create_task', 'create_task', 'create_task']);
+  } finally { adapter.dispose(); store.close(); }
 });

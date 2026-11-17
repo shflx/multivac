@@ -438,13 +438,13 @@ export function WorkspaceView({
     onFocusChange?.(!currentTerminalId && !terminalFocused && currentId ? { sessionId: currentId, title: currentTitle } : null);
   }, [currentId, currentTitle, onFocusChange, terminalFocused, currentTerminalId]);
 
-  // 界面呈现的现场按内容比较，内容不变时不重复通知。终端不进入 Multivac 的视图上下文：显示终端时不报告栏位。
+  // 界面呈现的现场按内容比较。终端只报告当前可见且选中的对象，不把并排中其他终端当作焦点。
   const viewReportJson = sceneLoaded && !terminalShown
     ? JSON.stringify({ parallelCount, viewMode, slots: parallelIds, focusedSessionId: currentId })
     : null;
   useEffect(() => {
-    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null, reading: !terminalShown && viewMode === 'focus' && readingFocus?.sessionId === currentId ? readingFocus : null });
-  }, [workspaceId, viewReportJson, onViewChange, viewMode, readingFocus, currentId]);
+    onViewChange?.({ workspaceId, scene: viewReportJson ? JSON.parse(viewReportJson) as WorkspaceViewReport['scene'] : null, ...(active && currentTerminalId ? { terminalId: currentTerminalId } : {}), reading: !terminalShown && viewMode === 'focus' && readingFocus?.sessionId === currentId ? readingFocus : null });
+  }, [workspaceId, viewReportJson, onViewChange, viewMode, readingFocus, currentId, active, currentTerminalId, terminalShown]);
 
   /**
    * 按现场操作（与 Multivac 的工作区工具同一套规则，见契约 workspace-scene）改本地现场：

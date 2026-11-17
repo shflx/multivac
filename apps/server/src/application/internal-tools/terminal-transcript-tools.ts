@@ -6,7 +6,7 @@ import { defineInternalTool, type InternalToolCallContext } from './internal-too
 import { requireLocalTerminalContext } from './terminal-tools.js';
 import { summaryOf } from './tool-text.js';
 
-const TerminalId = Type.String({ minLength: 1, maxLength: 128, description: 'list_project_terminals 返回的受管理终端 id。' });
+const TerminalId = Type.String({ minLength: 1, maxLength: 128, description: '先用 get_current_view 确认当前终端，或用 list_project_terminals 查得的受管理终端 id；必须显式提供。' });
 const Cursor = Type.String({ minLength: 1, maxLength: 2_000 });
 const previewParameters = Type.Object({ terminalId: TerminalId,
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })), cursor: Type.Optional(Cursor) }, { additionalProperties: false });

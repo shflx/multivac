@@ -183,6 +183,10 @@ test('发送时的当前视图快照只含面板、布局与对象 id，不接�
   assert.equal(Check(CurrentViewSnapshotSchema, {
     ...view, management: { page: 'unknown', selection: null },
   }), false);
+  for (const terminalId of ['terminal-1', '终端', '', null, 42]) {
+    assert.equal(Check(CurrentViewSnapshotSchema, { ...view, workspace: { ...view.workspace, terminalId } }), terminalId === 'terminal-1');
+  }
+  assert.equal(Check(CurrentViewSnapshotSchema, { ...view, workspace: { ...view.workspace, terminalId: 'terminal-1', title: '伪造' } }), false);
   const command = { commandId: 'c1', assistantSessionId: 'global-coordinator', text: '这个', contextRefs: [] };
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...command, view }), true);
   assert.equal(Check(SendAssistantMessageCommandSchema, { ...command, view: { ...view, extra: 1 } }), false);

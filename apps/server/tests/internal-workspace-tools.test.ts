@@ -102,7 +102,14 @@ async function setup(root: string) {
   const launched: CreateTerminal[] = [];
   const terminals: NonNullable<InternalToolServices['terminals']> = {
     list: () => [],
-    get: () => { throw new Error('本用例不读取单个终端。'); },
+    get: (terminalId) => {
+      const index = Number(terminalId.slice(2)) - 1;
+      const input = launched[index];
+      if (!input) throw new Error('没有这个测试终端。');
+      return { terminalId, instanceId: `i-${index + 1}`, projectId: input.projectId, title: input.title ?? input.preset.kind,
+        directory: '/tmp/project', preset: input.preset, status: 'running', lastExit: null, createdAt: 'now', instanceStartedAt: 'now', lastActivityAt: 'now',
+        closedAt: null, unread: false, notificationCount: 0, agentSessionId: null };
+    },
     readScreen: async () => { throw new Error('本用例不读取终端画面。'); },
     open: async (input) => {
       launched.push(input);
@@ -433,7 +440,7 @@ test('账本重放：同一调用再次到达只返回原结果，不再改现�
 });
 
 test('open_terminal：固定预设启动并在发起窗口打开（可放进第 N 栏）；远程对话、窄屏、超出并排数与超过每轮上限时不启动', async () => {
-  await withWorkspaceTools(async ({ projects, open, received, ok, failed, setTurn, launched }) => {
+  await withWorkspaceTools(async ({ projects, open, received, ok, failed, setTurn, launched, view: currentView }) => {
     const project = projects.createProject({ name: '终端项目' }).project;
     open('window-a');
     open('window-b');
@@ -456,9 +463,17 @@ test('open_terminal：固定预设启动并在发起窗口打开（可放进第 
     // 导航只推给发起窗口，由窗口自行把终端放进第 2 栏。
     assert.deepEqual(navigations(received('window-a')).at(-1), { kind: 'terminal', workspaceId: project.projectId, terminalId: 't-1', slot: 2 });
     assert.equal(navigations(received('window-b')).length, 0);
+    assert.equal(currentView()?.workspace?.terminalId, 't-1');
+    const afterOpen = await ok('get_current_view', {});
+    assert.match(afterOpen.content, /当前焦点终端.*t-1.*修复导航/u);
+    assert.doesNotMatch(afterOpen.content, /当前焦点会话/u);
 
     await ok('open_terminal', { projectId: project.projectId, preset: 'blank' });
     assert.deepEqual(navigations(received('window-a')).at(-1), { kind: 'terminal', workspaceId: project.projectId, terminalId: 't-2', slot: null });
+    assert.equal(currentView()?.workspace?.terminalId, 't-2');
+    const afterSecondOpen = await ok('get_current_view', {});
+    assert.match(afterSecondOpen.content, /当前焦点终端.*t-2.*authoritative-text/u);
+    assert.doesNotMatch(afterSecondOpen.content, /t-1|当前焦点会话/u);
     await ok('open_terminal', { projectId: project.projectId, preset: 'claude' });
     assert.match(await failed('open_terminal', { projectId: project.projectId, preset: 'claude' }), /达到上限/u);
     assert.equal(launched.length, 3);

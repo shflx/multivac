@@ -9,7 +9,7 @@ import { ManagementPageIdSchema } from './management-pages.js';
 import { BookPositionSchema } from './reading.js';
 
 /**
- * 发起窗口的当前视图快照：向全局 Multivac 发送消息时由窗口一并带上，Multivac 据此理解
+ * 发起窗口的当前视图快照：向全局 Multivac 或工作会话发送消息时由窗口一并带上，Multivac 据此理解
  * “这个 / 第二栏那个 / 当前工作区”。当前面板、当前工作区与各栏位只在窗口本机，服务端不另行保存。
  *
  * 快照只含面板、布局、对象 id 和可选文件阅读位置，不含任何标题或正文：名称由服务端按 id 从注册表读取，
@@ -65,6 +65,8 @@ export const CurrentViewSnapshotSchema = Type.Object(
         {
           workspaceId: ObjectId,
           scene: Type.Union([CurrentViewSceneSchema, Type.Null()]),
+          /** 当前可见且选中的受管理终端；旧客户端省略，不从保存的会话焦点推断。 */
+          terminalId: Type.Optional(ObjectId),
           /** 独立任务视图中的真实会话，区别于工作区保存的聚焦布局。 */
           taskSession: Type.Optional(Type.Object({ sessionId: ObjectId, taskId: ObjectId }, { additionalProperties: false })),
           reading: Type.Optional(Type.Union([CurrentFileReadingSchema, Type.Null()])),
