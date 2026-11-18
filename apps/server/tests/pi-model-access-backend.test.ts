@@ -9,6 +9,7 @@ import type { ModelProfileInput } from '@multivac/contracts';
 import { PiModelAccessBackend, piLiteralApiKey, securePiAuthFile } from '../src/runtime/executors/pi-model-access-backend.js';
 import { ModelAccessError } from '../src/modules/model-settings/model-access.js';
 import { createPiCredentialStore } from '../src/runtime/executors/pi-guarded-credential-store.js';
+import { terminal } from './fixtures/responses-stream.js';
 
 const profile: ModelProfileInput = {
   profileId: 'custom-profile', displayName: 'Custom', provider: 'custom-provider', modelId: 'model',
@@ -131,6 +132,47 @@ test('本地 HTTP upstream 经真实 Pi completeSimple 取消/超时且上游错
     await assert.rejects(backend.check(candidate, AbortSignal.timeout(5000)), (error: unknown) =>
       error instanceof ModelAccessError && error.code === 'CHECK_FAILED' && !error.message.includes('private'));
     assert.equal(requests, 3);
+  } finally {
+    upstream.closeAllConnections();
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Responses 连接检查遵循保存的默认推理等级，未配置时让上游选择', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-pi-reasoning-check-'));
+  const requests: { reasoning?: { effort?: string }; input: unknown; max_output_tokens: number; tools?: unknown }[] = [];
+  const upstream = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as (typeof requests)[number];
+    requests.push(body);
+    if (body.reasoning?.effort === 'none') {
+      response.writeHead(400, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: { code: 'unsupported_value', param: 'reasoning.effort' } }));
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.end(`data: ${JSON.stringify(terminal())}\n\n`);
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+  const { port } = upstream.address() as import('node:net').AddressInfo;
+  const candidate = { ...profile, modelId: 'gpt-6.2-sol', reasoning: 'enabled' as const,
+    endpoint: `http://127.0.0.1:${port}/v1` };
+  const backend = new PiModelAccessBackend({ authPath: join(root, 'auth.json') });
+  try {
+    const signal = AbortSignal.timeout(5000);
+    await backend.configure(candidate, 'local-test-only', signal);
+    await backend.check({ ...candidate, defaultThinkingLevel: 'high' }, signal);
+    await backend.check(candidate, signal);
+    await assert.rejects(backend.check({ ...candidate, defaultThinkingLevel: 'off' }, signal),
+      (error: unknown) => error instanceof ModelAccessError && error.code === 'CHECK_FAILED');
+    assert.deepEqual(requests.map(body => body.reasoning?.effort), ['high', undefined, 'none']);
+    for (const body of requests) {
+      assert.equal(body.max_output_tokens, 16);
+      assert.equal(body.tools, undefined);
+      assert.match(JSON.stringify(body.input), /Reply OK\./);
+    }
   } finally {
     upstream.closeAllConnections();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));

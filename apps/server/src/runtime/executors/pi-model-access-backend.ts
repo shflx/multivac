@@ -116,10 +116,18 @@ export class PiModelAccessBackend implements ModelAccessBackend {
       if (!available.some((entry) => entry.id === model.id && entry.api === model.api)) {
         throw new ModelAccessError('CHECK_MODEL_UNAVAILABLE');
       }
+      const thinkingLevel = profile.defaultThinkingLevel;
+      // 未配置等级时，Responses 由上游选择默认值，避免 Pi 自动补上 none。
+      const off = model.thinkingLevelMap?.off;
+      const probeModel = thinkingLevel === undefined && model.api === 'openai-responses' && model.reasoning && (off === undefined || off === 'none')
+        ? { ...model, thinkingLevelMap: { ...model.thinkingLevelMap, off: null } }
+        : model;
       // 请求、协议适配及认证都交给 Pi；不把生成内容、usage 或上游错误放进状态。
-      const result = await runtime.completeSimple(model, {
+      const result = await runtime.completeSimple(probeModel, {
         messages: [{ role: 'user', content: 'Reply OK.', timestamp: Date.now() }],
-      }, { signal, timeoutMs: 20_000, maxRetries: 0, maxTokens: 16 });
+      }, { signal, timeoutMs: 20_000, maxRetries: 0, maxTokens: 16,
+        ...(thinkingLevel && thinkingLevel !== 'off' ? { reasoning: thinkingLevel } : {}),
+      });
       if (signal.aborted) throw signal.reason;
       if (!['stop', 'length', 'toolUse'].includes(result.stopReason)) throw new ModelAccessError('CHECK_FAILED');
     });
