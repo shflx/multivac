@@ -210,7 +210,14 @@ test('旧空快照后查询永久挂起：超时不再显示空闲，轮询可�
     await expect(indicator).toBeVisible();
     await page.clock.fastForward(5500);
     await expect.poll(() => page.evaluate(() => Reflect.get(window, '__pendingStatusReads')('/api/runs'))).toBeGreaterThan(1);
-    // 重试在途仍然保留错误提示，不能短暂恢复成旧的空闲标签。
+    // 重试在途仍然保留错误提示；同源独立读取先于状态恢复完成。
+    await expect(indicator).toBeVisible();
+    const independent = await page.evaluate(async () => {
+      const response = await fetch('/api/task-groups');
+      return { status: response.status, groups: (await response.json()).groups };
+    });
+    expect(independent).toEqual({ status: 200, groups: expect.any(Array) });
+    expect(await page.evaluate(() => Reflect.get(window, '__pendingStatusReads')('/api/runs'))).toBeGreaterThan(1);
     await expect(indicator).toBeVisible();
     await page.evaluate(() => Reflect.get(window, '__releaseStatusReads')('/api/runs'));
     await expect(page.getByRole('button', { name: /^运行中：.*1 个执行中/ })).toBeVisible();

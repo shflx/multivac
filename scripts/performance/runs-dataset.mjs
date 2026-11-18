@@ -4,7 +4,9 @@ import { TASK_MIGRATION, SqliteTaskRepository } from '../../apps/server/dist/sto
 import { TASK_RUN_MIGRATION, TASK_RUN_OVERVIEW_MIGRATION, SqliteTaskRunRepository } from '../../apps/server/dist/storage/sqlite-task-run-repository.js';
 import { MANAGED_PROCESS_MIGRATION, MANAGED_PROCESS_COUNTS_MIGRATION, SqliteManagedProcessRepository } from '../../apps/server/dist/storage/sqlite-managed-process-repository.js';
 
-export const FIXED_TIME = '2026-01-01T00:00:00.000Z';
+import { FIXED_TIME } from './runs-fixed-time.mjs';
+
+export { FIXED_TIME };
 export const OBSERVED_TIME = Date.parse('2026-01-01T00:01:00.000Z');
 function task(id, status, payload) {
   return { taskId: id, title: `性能任务 ${id}`, goal: '可重复的独立数据', scope: payload, projectId: null, priority: 'medium', acceptance: true,
