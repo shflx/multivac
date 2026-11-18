@@ -11,7 +11,9 @@ export function scheduleStatusRefresh(store: StatusStore) {
   let pending = false;
   let lastStart = -Infinity;
   let lastForeground = -Infinity;
+  let foregroundSnapshot: ReturnType<StatusStore['snapshot']> | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let foregroundTimer: ReturnType<typeof setTimeout> | undefined;
 
   function start() {
     pending = false;
@@ -22,10 +24,18 @@ export function scheduleStatusRefresh(store: StatusStore) {
   }
 
   function flush() {
-    if (!pending || store.snapshot().loading || timer !== undefined) return;
+    if (!pending || store.snapshot().loading || timer !== undefined || foregroundTimer !== undefined) return;
     const wait = MIN_REFRESH_INTERVAL_MS - (Date.now() - lastStart);
     if (wait <= 0) start();
     else timer = setTimeout(() => { timer = undefined; flush(); }, wait);
+  }
+
+  function startForeground() {
+    clearTimeout(foregroundTimer);
+    foregroundTimer = undefined;
+    lastForeground = Date.now();
+    start();
+    foregroundSnapshot = store.snapshot();
   }
 
   const unsubscribe = store.subscribe(flush);
@@ -33,12 +43,13 @@ export function scheduleStatusRefresh(store: StatusStore) {
     queue() { pending = true; flush(); },
     poll() { if (!store.snapshot().loading) { pending = true; flush(); } },
     foreground() {
-      const now = Date.now();
-      // 一次恢复可替换旧查询；紧邻的 focus、visibilitychange、online 不再重发。
-      if (now - lastForeground < MIN_REFRESH_INTERVAL_MS) return;
-      lastForeground = now;
-      start();
+      const wait = MIN_REFRESH_INTERVAL_MS - (Date.now() - lastForeground);
+      if (wait <= 0) startForeground();
+      // 同轮恢复信号合并；若状态已落定或被手动刷新替换，不丢掉新的恢复机会。
+      else if (store.snapshot() !== foregroundSnapshot && foregroundTimer === undefined) {
+        foregroundTimer = setTimeout(startForeground, wait);
+      }
     },
-    dispose() { unsubscribe(); clearTimeout(timer); },
+    dispose() { unsubscribe(); clearTimeout(timer); clearTimeout(foregroundTimer); },
   };
 }
