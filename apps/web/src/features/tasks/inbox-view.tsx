@@ -1,3 +1,4 @@
+import { captureFocusReturn, restoreFocusReturn, type FocusReturn } from '../../components/focus-return.js';
 import { useWorkspaceSessions, useWorkspaces } from '../workspace/workspace-sessions-provider.js';
 import { focusableWithin, wrapFocusIndex } from '../../components/focus-trap.js';
 import { useEffect, useId, useLayoutEffect, useRef, type MutableRefObject } from 'react';
@@ -117,11 +118,14 @@ function InboxPanel({ active, compact = false, selected, onSelect, detailOpen, o
 export function InboxDrawer({ open, ...props }: InboxViewProps & { open: boolean }) {
   const remote = useRemoteConversation();
   const dialog = useRef<HTMLDialogElement>(null);
+  // 打开前记下焦点及其来源：用鼠标点开、按 Esc 关闭时，回到 Inbox 按钮不显示键盘焦点描边。
+  const focusReturn = useRef<FocusReturn | null>(null);
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;
-    if (open && !element.open) element.showModal();
-    if (!open && element.open) element.close();
+    if (open && !element.open) { focusReturn.current = captureFocusReturn(); element.showModal(); }
+    // 关闭由上一次的清理完成（open 变化时先清理），这里只负责把焦点按原来源还回去。
+    if (!open) { if (element.open) element.close(); if (focusReturn.current) { restoreFocusReturn(focusReturn.current); focusReturn.current = null; } }
     return () => { if (element.open) element.close(); };
   }, [open]);
   useEffect(() => {
