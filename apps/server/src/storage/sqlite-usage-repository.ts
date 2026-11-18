@@ -1,6 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { UsageRecord, UsageRepository } from '../modules/usage/model-usage.js';
 
+const subagentRunId = "json_extract(record_json, '$.subagentRunId')";
+const tokenTotal = "json_extract(record_json, '$.tokens.total')";
+
 /** 新调用的独立账本；归档、改名和删除会话不会抹去调用事实。 */
 export class SqliteUsageRepository implements UsageRepository {
   constructor(private readonly database: DatabaseSync) {
@@ -10,6 +13,8 @@ export class SqliteUsageRepository implements UsageRepository {
         measured INTEGER NOT NULL, record_json TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS token_usage_request_time ON token_usage_request(started_at);
+      CREATE INDEX IF NOT EXISTS token_usage_subagent_run ON token_usage_request(${subagentRunId}, ${tokenTotal})
+        WHERE ${subagentRunId} IS NOT NULL;
       CREATE TABLE IF NOT EXISTS token_usage_collection (
         id INTEGER PRIMARY KEY CHECK (id = 1), started_at TEXT NOT NULL
       );
@@ -35,6 +40,15 @@ export class SqliteUsageRepository implements UsageRepository {
       ON CONFLICT(request_id) DO UPDATE SET measured = excluded.measured, record_json = excluded.record_json`).run(
       record.requestId, record.startedAt, record.tokens ? 1 : 0, JSON.stringify(record));
   }
+  subagentTotals(runIds: string[]): Map<string, number | null> {
+    if (!runIds.length) return new Map();
+    const rows = this.database.prepare(`SELECT ${subagentRunId} AS run_id,
+      CASE WHEN count(${tokenTotal}) = count(*) THEN total(${tokenTotal}) END AS tokens
+      FROM token_usage_request WHERE ${subagentRunId} IN (${runIds.map(() => '?').join(',')})
+      GROUP BY ${subagentRunId}`).all(...runIds);
+    return new Map(rows.map(row => [String(row.run_id), row.tokens === null ? null : Number(row.tokens)]));
+  }
+
   records(start?: string, end?: string): UsageRecord[] {
     const rows = start && end
       ? this.database.prepare('SELECT record_json FROM token_usage_request WHERE started_at >= ? AND started_at <= ? ORDER BY started_at, request_id').all(start, end)

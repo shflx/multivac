@@ -12,12 +12,12 @@ export class SubagentQueries {
     private readonly parentTitle: (id: string) => string, private readonly usage: UsageRepository) {}
   page(query: { parentSessionId?: string; taskId?: string; activeOnly?: boolean; offset: number; limit: number }): SubagentPage {
     const page = this.repository.listPage(query);
-    const usage = this.usage.records();
-    return { ...page, items: page.items.map(record => {
-      const requests = usage.filter(item => item.subagentRunId === record.run.id);
-      const totalTokens = requests.length && requests.every(item => item.tokens) ? requests.reduce((n, item) => n + item.tokens!.total, 0) : null;
-      return { ...record.run, totalTokens, parentTitle: this.parentTitle(record.run.parentSessionId) };
-    }), nextOffset: query.offset + query.limit < page.total ? query.offset + query.limit : null };
+    const nextOffset = query.offset + query.limit < page.total ? query.offset + query.limit : null;
+    if (!page.items.length) return { ...page, items: [], nextOffset };
+    const totals = this.usage.subagentTotals(page.items.map(record => record.run.id));
+    return { ...page, items: page.items.map(({ run }) => ({
+      ...run, totalTokens: totals.get(run.id) ?? null, parentTitle: this.parentTitle(run.parentSessionId),
+    })), nextOffset };
   }
   process(id: string, offset: number, limit: number): SubagentProcessPage {
     const record = this.repository.get(id);

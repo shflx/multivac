@@ -29,6 +29,7 @@ export interface UsageRepository {
   collectionStartedAt(): string | null;
   put(record: UsageRecord): void;
   records(start?: string, end?: string): UsageRecord[];
+  subagentTotals(runIds: string[]): Map<string, number | null>;
 }
 
 export interface ModelUsageRecorder {
