@@ -3,7 +3,7 @@ import { onNoteAccessChange, unlockedNote, hasNoteAccess, protectedNote, markPro
 import { clearNoteVaultMemory, protectionMarker, restoreOwnOrdinaryVault } from './note-vault.js';
 import { LockedNote, convertingNotes } from './note-security.js';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Search, X, NotebookPen } from 'lucide-react';
+import { Plus, Search, X, NotebookPen, PanelsTopLeft, Sparkles, LockKeyhole } from 'lucide-react';
 import { Check } from 'typebox/value';
 import { CreateNoteSchema, type CreateNote, type Note, type NoteSummary } from '@multivac/contracts';
 import { createNote, getNote, listNotes } from '../../data/notes-api.js';
@@ -184,13 +184,40 @@ export function NotesApp({ active }: { active: boolean }) {
       </header>
       <div className="notes-library-search"><Search size={14} aria-hidden="true" /><input ref={searchInput} type="search" aria-label="搜索笔记标题" placeholder="搜索笔记标题" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (!event.nativeEvent.isComposing && event.key === 'Escape' && search) { event.preventDefault(); event.stopPropagation(); setSearch(''); } }} />{search && <button type="button" aria-label="清除笔记搜索" onClick={() => { setSearch(''); searchInput.current?.focus(); }}><X size={13} /></button>}</div>
       <div className="notes-library-list">
-        {notes === null ? <p>正在读取笔记库…</p> : notes.length === 0 ? <p>还没有笔记，点击右上角开始记录。</p> : matching?.length === 0 ? <p>没有匹配的笔记</p> : matching && <NotesList notes={matching} selected={selected} onChoose={choose} onDeleteRoot={setDeleteRoot} />}
+        {notes === null ? <div className="notes-library-state" role="status"><div className="notes-library-skeleton" aria-hidden="true"><span /><span /><span /></div><p>正在读取笔记库…</p></div> : notes.length === 0 ? <div className="notes-library-state"><span className="notes-library-state-icon" aria-hidden="true"><NotebookPen size={18} /></span><strong>还没有笔记</strong><p>点击右上角新建，开始记录第一篇笔记。</p></div> : matching?.length === 0 ? <div className="notes-library-state"><span className="notes-library-state-icon" aria-hidden="true"><Search size={18} /></span><strong>没有匹配的笔记</strong><p>换个关键词，或清除搜索查看全部笔记。</p></div> : matching && <NotesList notes={matching} selected={selected} onChoose={choose} onDeleteRoot={setDeleteRoot} />}
       </div>
     </aside>
     <div className="notes-main">
       {error && <div className="notes-error" role="alert">{error}<button type="button" onClick={() => void (createRequest.current ? create() : load())}>重试</button></div>}
-      {selected && protectedNote(selected) && !unlockedNote(selected) ? <LockedNote key={selected} id={selected} state={notes?.find(note => note.id === selected)?.protection ?? "encrypted"} onUnlocked={() => choose(selected)} /> : selected && !opened.has(selected) && <p className="notes-hint">正在读取笔记…</p>}
-      {!selected && notes !== null && <div className="notes-empty"><span className="notes-empty-icon"><NotebookPen size={30} aria-hidden="true" /></span><h2>开始记录你的想法</h2><p>写下笔记，与梳理助手一起整理。</p><button type="button" onClick={() => void create()} disabled={creating}><Plus size={15} />创建第一篇笔记</button></div>}
+      {selected && protectedNote(selected) && !unlockedNote(selected) ? <LockedNote key={selected} id={selected} state={notes?.find(note => note.id === selected)?.protection ?? "encrypted"} onUnlocked={() => choose(selected)} /> : (selected && !opened.has(selected) || !selected && notes === null) && <div className="notes-loading" role="status"><div className="notes-loading-card" aria-hidden="true"><span className="notes-loading-bar title" /><span className="notes-loading-bar meta" /><span className="notes-loading-divider" /><span className="notes-loading-bar" /><span className="notes-loading-bar" /><span className="notes-loading-bar short" /></div><p className="notes-hint">{selected ? '正在读取笔记…' : '正在读取笔记库…'}</p></div>}
+      {!selected && notes !== null && <div className="notes-empty">
+        <div className="notes-empty-hero">
+          <div className="notes-empty-illustration" aria-hidden="true">
+            <span className="notes-empty-sheet back" />
+            <span className="notes-empty-sheet front">
+              <span className="notes-empty-icon"><NotebookPen size={26} /></span>
+              <span className="notes-empty-lines"><i /><i /></span>
+            </span>
+          </div>
+          <h2>开始记录你的想法</h2>
+          <p>写下笔记，与梳理助手一起整理。</p>
+          <button type="button" className="notes-empty-create" onClick={() => void create()} disabled={creating}><Plus size={15} aria-hidden="true" />{creating ? '正在创建…' : '创建第一篇笔记'}</button>
+        </div>
+        <div className="notes-empty-features" aria-label="笔记功能概览">
+          <div className="notes-empty-feature">
+            <span className="notes-empty-feature-icon" aria-hidden="true"><PanelsTopLeft size={16} /></span>
+            <div><strong>Markdown 与卡片分块</strong><span>所见即所得排版，输入 --- 即可按块折叠与拖拽排序</span></div>
+          </div>
+          <div className="notes-empty-feature">
+            <span className="notes-empty-feature-icon" aria-hidden="true"><Sparkles size={16} /></span>
+            <div><strong>梳理助手伴写</strong><span>围绕全文或选中片段随时提问，在对话中理清思路</span></div>
+          </div>
+          <div className="notes-empty-feature">
+            <span className="notes-empty-feature-icon" aria-hidden="true"><LockKeyhole size={16} /></span>
+            <div><strong>版本历史与单篇加密</strong><span>保存自动留存历史快照，重要内容可独立加锁保护</span></div>
+          </div>
+        </div>
+      </div>}
       {[...opened].map(([id, note]) => <OpenNote key={id} note={note} latestRevision={revisions.get(id) ?? note.revision} active={active && selected === id} selected={selected === id} onSaved={saved} deleteRoot={selected === id ? deleteRoot : null} onDeleted={deleted} />)}
     </div>
   </div></div>;

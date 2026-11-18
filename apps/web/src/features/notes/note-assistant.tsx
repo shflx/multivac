@@ -92,9 +92,9 @@ export function NoteAssistant({ bridge }: { bridge: NoteEditorBridge }) {
     {bridge.companionToggleRoot && createPortal(<button type="button" className="note-companion-toggle" aria-label="梳理助手" title={open ? '收起梳理助手' : '展开梳理助手'} aria-pressed={open} aria-expanded={open} aria-controls={`note-companion-${noteId}`} onClick={toggle}><Sparkles size={16} aria-hidden="true" /></button>, bridge.companionToggleRoot)}
     {bridge.selection && bridge.selectionToolbarRoot && createPortal(<div className="note-selection-bar" role="toolbar" aria-label="笔记选区操作" onKeyDown={bridge.selectionToolbarKeyDown} onMouseDown={event => event.preventDefault()}><button type="button" aria-label="引用给助手" title="引用给梳理助手" disabled={busy || bridge.busy || !discussion} onClick={() => void referenceSelection()}><Quote size={13} aria-hidden="true" />引用</button></div>, bridge.selectionToolbarRoot)}
     <aside id={`note-companion-${noteId}`} className="note-companion" aria-label="梳理助手" hidden={!open}>
-      <header className="note-companion-header"><strong>梳理助手</strong></header>{protectedNote(noteId) && <p className="notes-hint">发送提问会将笔记正文及引用发送给当前所选模型。</p>}
+      <header className="note-companion-header"><span className="note-companion-badge" aria-hidden="true"><Sparkles size={15} /></span><div><strong>梳理助手</strong><small>围绕当前笔记与选区对话</small></div></header>{protectedNote(noteId) && <p className="notes-hint">发送提问会将笔记正文及引用发送给当前所选模型。</p>}
       {error && <div role="alert" className="notes-error">{error}{!discussion && <button type="button" onClick={() => void load().catch(e => setError((e as Error).message))}>重新读取</button>}</div>}
-      {!discussion && !error && <p className="notes-hint">正在读取对话…</p>}
+      {!discussion && !error && <div className="note-companion-loading" role="status"><p className="notes-hint">正在读取对话…</p></div>}
       {discussion && started && <NoteThread discussion={discussion} visible={open && bridge.active} quote={quote} clearQuote={() => changeQuote(null)} snapshot={snapshot} />}
     </aside>
   </div>;
@@ -132,7 +132,7 @@ function NoteThread({ discussion, visible, quote, clearQuote, snapshot }: { disc
     <div className="note-companion-thread" ref={thread} onScroll={e => { const element = e.currentTarget; follow.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48; }}>
       {session?.hasMore && <button type="button" disabled={session.loadingEarlier} onClick={() => { follow.current = false; session.loadEarlier(); }}>更早的消息</button>}
       {session?.historyError && <p role="alert">{session.historyError}</p>}
-      {!messages.length && <div className="note-companion-welcome"><strong>聊聊这篇笔记</strong><p>直接提问，也可以选中正文引用。</p></div>}
+      {!messages.length && <div className="note-companion-welcome"><span className="note-companion-welcome-icon" aria-hidden="true"><Sparkles size={20} /></span><strong>聊聊这篇笔记</strong><p>直接提问，也可以选中正文引用。</p><div className="note-companion-tips" aria-hidden="true"><span>结合最新正文</span><span>支持选区引用</span></div></div>}
       {messages.map(message => <article className={`note-message ${message.role}`} key={message.id}><strong>{message.role === 'user' ? '你' : '助手'}</strong><MarkdownBody identity={message.id} text={message.text} imageSessionId={discussion.sessionId} {...(message.imageReferences ? { imageReferences: message.imageReferences } : {})} {...(message.fileReferences ? { fileReferences: message.fileReferences } : {})} /></article>)}
     </div>
     {(error || session?.sendError || session && ['failed', 'unknown'].includes(session.runFeedback.phase)) && <div className="notes-error" role="alert">{error || session?.sendError || session?.runFeedback.message}</div>}

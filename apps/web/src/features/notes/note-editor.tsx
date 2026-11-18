@@ -236,7 +236,7 @@ export function NoteEditor({ initial, latestRevision = initial.revision, active 
             </span>
             <PencilLine className="note-title-affordance" size={15} aria-hidden="true" />
           </label>
-          <div className="note-document-meta"><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
+          <div className="note-document-meta"><span className="note-document-submeta" aria-hidden="true">Markdown 实时排版 · 输入 --- 可分块整理 · 选中文字可引用给助手</span><span id={titleHelpId} className="note-title-hint">Enter 转到正文 · Esc 撤销标题</span></div>
         </header>
         <div className="note-writing-surface" onPointerDown={selectionToolbar.onPointerDown} onKeyDown={selectionToolbar.onEditorKeyDown}>
           <NoteRichText onPreferenceError={setError} blocksDisabled={busy || securing || deleting || !!pendingDeletion} noteId={initial.id} active={active} imageInputRef={imageInput} onUploadsChange={uploadsChanged} body={draft.body} disabled={securing || deleting || !!pendingDeletion} elementRef={bodyEditor} onReady={setRichEditor} onError={error => dispatchError({ type: 'edit-error', error })} onChange={body => {

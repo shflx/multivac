@@ -11,7 +11,7 @@ import { RunsPage } from '../features/runs/runs-page.js';
 import { CapabilitiesPage } from '../features/mcp/capabilities-page.js';
 import { MultivacIcon } from '../components/multivac-icon.js';
 import { BookOpen } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Check } from 'typebox/value';
 import {
   CurrentViewSnapshotSchema,
@@ -70,8 +70,7 @@ import { shellOwnsEscape, shellShortcut, type ShellPanel, type ShellShortcut } f
 import { ShortcutHelp } from './shortcut-help.js';
 import { useWorkStarted } from './work-started.js';
 import { rememberedTaskSessionId } from '../features/tasks/task-session-view.js';
-
-const NotesApp = lazy(() => import('../features/notes/notes-app.js').then(module => ({ default: module.NotesApp })));
+import { NotesApp } from '../features/notes/notes-app.js';
 
 type AppMode = 'work' | 'management';
 /** 管理之外的两个工作面：Multivac 首页与工作区，二者都保持挂载。 */
@@ -479,7 +478,7 @@ export function App() {
    * 归档页与项目页把选中的对象报告给外壳，作为发送时的当前视图。
    */
   const managementPageContent: Record<ManagementPageId, ReactNode> = {
-    notes: <Suspense fallback={<p role="status">正在打开笔记…</p>}><NotesApp active={showManagement && currentPage === 'notes'} /></Suspense>,
+    notes: <NotesApp active={showManagement && currentPage === 'notes'} />,
     reading: <ReadingApp onManageModels={() => void openManagementPage('models')} active={showManagement && currentPage === 'reading'} request={readingRequest} onReport={setReadingFocus} onHandover={handToMultivac} />,
     inbox: <InboxView active={showManagement && currentPage === 'inbox' && !inboxOpen} selected={inboxSelected} onSelect={setInboxSelected} detailOpen={true} onDetail={setInboxDetail} scroll={inboxScroll} choices={inboxChoices} onClose={() => void openManagementPage('tasks')} onSource={(item) => { if (item.sessionId === 'global-coordinator') void goHome(); else if (item.sessionId) void openTaskSession(item.sessionId); }} />,
     schedules: <SchedulesPage active={showManagement && currentPage === 'schedules'} onSession={(id) => { if (id === 'global-coordinator') void goHome(); else void openTaskSession(id); }} onInbox={(notificationId) => { void openManagementPage('inbox', notificationId); }} />,
