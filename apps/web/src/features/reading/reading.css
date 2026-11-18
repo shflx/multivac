@@ -94,7 +94,13 @@
 .reading-record label { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
 .reading-record input { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--surface); padding: 6px; color: var(--ink); }
 .reading-note-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
-.reading-notes-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 36px 20px; font-size: 13px; color: var(--muted); }
+.reading-notes-status { margin: 24px 0; padding: 18px 16px; border: 1px dashed var(--line); border-radius: var(--r-md); background: var(--surface-subtle); color: var(--muted); font-size: 12px; text-align: center; }
+.reading-notes-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 24px 0; padding: 28px 20px; border: 1px dashed var(--line); border-radius: var(--r-lg); background: var(--surface-subtle); font-size: 13px; color: var(--muted); text-align: center; }
+.reading-notes-empty-icon { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 4px; border-radius: var(--r-md); background: var(--accent-soft); color: var(--accent); }
+.reading-notes-empty > strong { color: var(--ink); font-size: 14px; font-weight: 600; }
+.reading-notes-empty > p { max-width: 220px; margin: 0 0 6px; font-size: 12px; line-height: 1.65; color: var(--muted); }
+.reading-notes-empty > .reading-command { background: var(--surface); }
+.reading-notes-empty > .reading-command:hover:not(:disabled) { background: var(--surface-strong); }
 .reading-resume-note { display: flex; align-items: center; gap: 6px; width: 100%; padding: 10px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); font-size: 12px !important; }
 .reading-note-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
 .reading-note-excerpt { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }

@@ -49,9 +49,9 @@ export function ReadingNotesPanel({ book, pageReference, notes, locate, edit }: 
   const sorted = [...notes.state.notes].sort((a, b) => rank(a) - rank(b));
   return <aside className="reading-record-panel reading-notes-list" aria-label="阅读笔记">
     {notes.draft && <button className="reading-resume-note reading-tool" onClick={() => edit(notes.draft!)}><i className="reading-draft-dot" />继续草稿<Pencil size={13} /></button>}
-    {notes.loading && <p role="status">正在加载阅读笔记…</p>}
+    {notes.loading && <p className="reading-notes-status" role="status">正在加载阅读笔记…</p>}
     {notes.loadError && <div role="alert">{notes.loadError}<button className="reading-tool" onClick={() => void notes.refresh()}>重试加载笔记</button></div>}
-    {notes.loaded && !notes.loading && !notes.loadError && !notes.state.notes.length && <div className="reading-notes-empty"><Pencil size={25} /><strong>暂无阅读笔记</strong><button className="reading-tool" disabled={!pageReference} onClick={() => pageReference && edit({ id: crypto.randomUUID(), body: '', location: bookLocation(pageReference), origin: 'user' })}>记下第一条笔记</button></div>}
+    {notes.loaded && !notes.loading && !notes.loadError && !notes.state.notes.length && <div className="reading-notes-empty"><span className="reading-notes-empty-icon" aria-hidden="true"><Pencil size={20} /></span><strong>暂无阅读笔记</strong><p>阅读时随时记下想法，也可在正文选中文字写笔记。</p><button className="reading-command" disabled={!pageReference} onClick={() => pageReference && edit({ id: crypto.randomUUID(), body: '', location: bookLocation(pageReference), origin: 'user' })}>记下第一条笔记</button></div>}
     {sorted.map(note => <ReadingNoteItem key={note.id} book={book} note={note} pageReference={pageReference} locate={locate} edit={edit} />)}
   </aside>;
 }
