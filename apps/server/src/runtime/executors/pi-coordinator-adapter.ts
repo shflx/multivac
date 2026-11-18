@@ -1,3 +1,4 @@
+import { PiSelectionDisplayHistory } from './pi-selection-display-history.js';
 import { piExecutionProcess } from './pi-execution-process.js';
 import type { ProtectedTranscriptStore } from '../../modules/notes/protected-transcript.js';
 import { reconcilePiCompaction, unknownCompaction } from './pi-context-compaction.js';
@@ -85,6 +86,7 @@ interface ActivePiSession {
   unsubscribePi: () => void;
   modelConfig: CoordinatorModelConfig;
   prepareModel: PiCoordinatorSessionResources['prepareModel'];
+  displayHistory?: PiSelectionDisplayHistory;
   turnBaseSelection?: import('../../modules/sessions/coordinator-adapter.js').CoordinatorSelectionSnapshot;
   turnConfigurationError?: boolean;
   /** 授权决定要求结束本轮的工具调用：这些调用以拒绝原因结束后中止本轮。 */
@@ -230,7 +232,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
   private readonly compacting = new Set<string>();
   /** 写盘或恢复无法证明完成时，不允许查询释放此进程内的受污染运行时。 */
   private readonly quarantined = new Set<string>();
-  private readonly persistedSelections = new Map<string, { key: string; value: CoordinatorModelState | null }>();
+  private readonly persistedSelections = new Map<string, { key: string; value: CoordinatorModelState | null; leafId: string | null }>();
   private readonly agentDir: string;
   private readonly modelsPath: string | null;
   private readonly protectedTranscripts: ProtectedTranscriptStore | undefined;
@@ -495,7 +497,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       }
       if (version !== this.persistedSelectionVersion(path)) throw new Error('Pi session 在读取期间变化。');
       const value = context.model ? { ...context.model, thinkingLevel: context.thinkingLevel as CoordinatorThinkingLevel } : null;
-      this.persistedSelections.set(path, { key, value });
+      this.persistedSelections.set(path, { key, value, leafId: manager.getLeafId() });
       // 活跃会话每个文件只留一个版本；离线恢复读取也有总量上限。
       if (this.persistedSelections.size > 128) this.persistedSelections.delete(this.persistedSelections.keys().next().value!);
       return ok<CoordinatorModelState | null>(value ? { ...value } : null);
@@ -505,14 +507,14 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     }
   }
 
-  private inspectionVersion(active: ActivePiSession): string | undefined {
+  private inspectionVersion(active: ActivePiSession, historyVersion?: string): string | undefined {
     try {
       const optionalFile = (path: string) => {
         try { return this.persistedSelectionVersion(path); }
         catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'missing'; throw error; }
       };
       const model = active.session.model;
-      return JSON.stringify([this.persistedSelectionVersion(active.session.sessionFile!),
+      return JSON.stringify([historyVersion ?? this.persistedSelectionVersion(active.session.sessionFile!),
         this.modelsPath ? optionalFile(this.modelsPath) : 'disabled', optionalFile(this.agentDir + '/models-store.json'),
         model ? { provider: model.provider, id: model.id, api: model.api, baseUrl: model.baseUrl,
           reasoning: model.reasoning, thinkingLevelMap: model.thinkingLevelMap, input: model.input,
@@ -520,24 +522,41 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
     } catch { return undefined; }
   }
 
-  readModelSelection(assistantSessionId: string) {
+  readModelSelection(assistantSessionId: string, purpose?: 'display') {
     const active = this.sessions.get(assistantSessionId);
     if (!active) return this.sessionNotActive<import('../../modules/sessions/coordinator-adapter.js').CoordinatorSelectionSnapshot>();
-    if (active.turnBaseSelection) return ok(active.turnBaseSelection);
-    const actual = this.modelState(active.session);
-    const persisted = this.readPersistedModelSelection(
-      { harness: this.harness, runtimeSessionId: active.session.sessionId, runtimeSessionRef: active.session.sessionFile! },
-      active.cwd,
+    if (active.turnBaseSelection && purpose !== 'display') return ok(active.turnBaseSelection);
+    const base = active.turnBaseSelection;
+    const actual = base?.model ?? this.modelState(active.session);
+    const path = active.session.sessionFile!;
+    const readPersisted = () => this.readPersistedModelSelection(
+      { harness: this.harness, runtimeSessionId: active.session.sessionId, runtimeSessionRef: path }, active.cwd,
     );
-    const inspectionVersion = this.inspectionVersion(active);
+    let persisted: CoordinatorModelState | null = null;
+    let inspectionVersion: string | undefined;
+    if (purpose === 'display' && !this.protectedTranscripts?.has(path)) {
+      try {
+        const display = (active.displayHistory ??= new PiSelectionDisplayHistory()).read(path, () => {
+          const result = readPersisted();
+          const cached = this.persistedSelections.get(path);
+          return result.ok && cached ? { value: result.value, leafId: cached.leafId } : undefined;
+        });
+        persisted = display?.value ?? null;
+        inspectionVersion = display && this.inspectionVersion(active, display.version);
+      } catch { /* 展示也不能把无法读取的历史当作已确认。 */ }
+    } else {
+      const result = readPersisted();
+      persisted = result.ok ? result.value : null;
+      inspectionVersion = this.inspectionVersion(active);
+    }
     return ok({
       ...(inspectionVersion ? { inspectionVersion } : {}),
       runtimeSessionId: active.session.sessionId,
       runtimeSessionRef: active.session.sessionFile!,
-      model: { ...active.modelConfig, ...actual },
-      availableThinkingLevels: active.session.getAvailableThinkingLevels?.() ?? [],
-      durable: !active.turnConfigurationError && persisted.ok && persisted.value !== null && persisted.value.provider === actual.provider &&
-        persisted.value.modelId === actual.modelId && persisted.value.thinkingLevel === actual.thinkingLevel,
+      model: base?.model ?? { ...active.modelConfig, ...actual },
+      availableThinkingLevels: base?.availableThinkingLevels ?? active.session.getAvailableThinkingLevels?.() ?? [],
+      durable: !active.turnConfigurationError && persisted !== null && persisted.provider === actual.provider &&
+        persisted.modelId === actual.modelId && persisted.thinkingLevel === actual.thinkingLevel,
     });
   }
 

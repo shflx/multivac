@@ -242,7 +242,7 @@ export interface CoordinatorAdapter {
   readImageContents(sessionId: string, entryId: string): readonly CoordinatorImage[];
   /** 任务执行工具及其进程是否已证明停止；无法证明时为 false。 */
   taskToolsStopped(sessionId: string): boolean;
-  readModelSelection(assistantSessionId: string): CoordinatorResult<CoordinatorSelectionSnapshot>;
+  readModelSelection(assistantSessionId: string, purpose?: 'display'): CoordinatorResult<CoordinatorSelectionSnapshot>;
   validateModelSelection(assistantSessionId: string): Promise<CoordinatorResult<boolean>>;
   isBusy(assistantSessionId: string): CoordinatorResult<boolean>;
   /** 只读 Pi transcript 中的模型选择；cwd 为会话记录中的工作目录，打开会话时不读取会话头。 */

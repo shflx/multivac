@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { ModelRuntime, SessionManager } from '@earendil-works/pi-coding-agent';
 import type { CoordinatorModelConfig, ModelProfileInput } from '@multivac/contracts';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { AssistantTurnCommandService } from '../src/application/assistant-turn-command-service.js';
@@ -92,7 +92,7 @@ async function harness() {
   const selection: SessionModelSelectionService = new SessionModelSelectionService({ adapter, sessionService: session,
     repository: store.selections, settings, access, lock, isRunning: () => commands.isRunning() });
   await settings.initialize(); await session.initialize();
-  return { adapter, backend, settings, access, selection, commands, events, store,
+  return { adapter, backend, settings, access, selection, commands, events, store, lock,
     armInspect: () => { const pending = { entered: gate(), release: gate() }; inspectGate = pending; return pending; },
     select: async (id = 'gpt') => selection.setModel({ commandId: `select-${id}`, sessionId, profileId: id,
       revision: store.selections.getSelection(sessionId)!.revision }),
@@ -267,7 +267,9 @@ test('离线真实 SDK base 模型异步校验后 auth.json 撤销：版本复�
   const entered = gate(); const release = gate();
   class SDKAdapter extends PiCoordinatorAdapter {
     armed = false;
+    checks = 0;
     override async validateModelSelection(id: string) {
+      this.checks++;
       const result = await super.validateModelSelection(id);
       if (this.armed) { this.armed = false; entered.resolve(); await release.promise; }
       return result;
@@ -290,9 +292,33 @@ test('离线真实 SDK base 模型异步校验后 auth.json 撤销：版本复�
         systemPrompt: 'Multivac', authorizedContext: [], model: { source: 'base', provider: plain.provider, modelId: plain.id, thinkingLevel: 'off' },
         retry: { enabled: false, maxRetries: 0, baseDelayMs: 0 }, compaction: { enabled: false, reserveTokens: 1000, keepRecentTokens: 2000 },
       } });
-    await settings.initialize(); await session.initialize();
+    await settings.initialize(); const binding = await session.initialize();
     const selection = new SessionModelSelectionService({ adapter, sessionService: session, repository: store.selections,
       settings, access, lock: new AssistantOperationLock(), isRunning: () => false });
+    const path = binding.runtimeSessionRef;
+    let leaf = SessionManager.open(path, sessionDir, cwd).getLeafId();
+    const append = async (id: string) => {
+      await appendFile(path, JSON.stringify({ type: 'message', id, parentId: leaf, timestamp: new Date().toISOString(),
+        message: { role: 'user', content: '普通消息', timestamp: Date.now() } }) + '\n');
+      leaf = id;
+    };
+    const open = SessionManager.open;
+    let parses = 0;
+    SessionManager.open = (...args) => { parses++; return open(...args); };
+    try {
+      const first = await selection.getOptions();
+      assert.equal(first.selection.availability.available, true);
+      const checks = adapter.checks;
+      const initialParses = parses;
+      for (const id of ['1234abcd', '4321dcba', 'abcdef12']) {
+        await append(id);
+        assert.deepEqual(await selection.getOptions(), first);
+      }
+      assert.equal(parses, initialParses);
+      assert.equal(adapter.checks, checks);
+      assert.equal(adapter.readModelSelection(sessionId).ok, true);
+      assert.equal(parses, initialParses + 1, '最终准入仍重新解析变更后的文件');
+    } finally { SessionManager.open = open; }
     adapter.armed = true; let dispatches = 0;
     const rejected = assert.rejects(selection.withSelectionForSend(() => { dispatches++; }));
     await entered.promise; await writeFile(authPath, '{}'); release.resolve(); await rejected;
@@ -344,6 +370,19 @@ test('展示已命中可用缓存仍实时拒绝失效模型的发送、继承�
     assert.equal(switched.status, 'failed');
     assert.equal(h.adapter.calls.some(call => call.method === 'prompt'), false);
   } finally { await h.close(); }
+});
+
+test('慢展示检查不持有会话操作锁', { timeout: 3000 }, async () => {
+  const h = await harness();
+  const pending = { nth: 1, entered: gate(), release: gate() };
+  try {
+    await h.select(); h.adapter.nativeChecks = 0; h.adapter.nativeGate = pending;
+    const read = h.selection.getOptions();
+    await pending.entered.promise;
+    assert.equal(await h.lock.run(async () => '已获取'), '已获取');
+    pending.release.resolve();
+    assert.equal((await read).selection.availability.available, true);
+  } finally { pending.release.resolve(); await h.close(); }
 });
 
 test('展示检查期间版本变化重新读取，旧异步结果不能写入新版本缓存', async () => {

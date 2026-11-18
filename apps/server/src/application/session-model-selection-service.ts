@@ -49,46 +49,48 @@ export class SessionModelSelectionService {
 
   async getOptions(): Promise<SessionModelOptions> {
     await this.initializeForRead();
-    return this.options.lock.run(async () => {
-      await this.reconcilePending();
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const version = await this.readVersion();
-          const key = this.displayKey(version);
-          const cached = this.displayCache;
-          if (key && cached?.key === key && Date.now() < cached.expiresAt) {
-            await this.assertVersion(version);
-            if (key !== this.displayKey(await this.readVersion())) continue;
-            return this.withRunning(structuredClone(cached.value));
-          }
-          this.displayCache = undefined;
-          const selection = await this.selection();
-          const { snapshot: settings } = await this.options.settings.getSessionSnapshot();
-          const access = await this.options.access?.getSnapshot();
-          await this.assertVersion(version);
-          const running = this.options.isRunning();
-          const value: SessionModelOptions = {
-            selection, running, disabledReason: running ? '会话运行中（包含消息接收、重试与压缩），暂不能切换模型或推理等级。'
-              : selection.availability.reason === 'SELECTION_RECOVERY_UNAVAILABLE' ? selection.availability.message : null,
-            options: settings.profiles.map((profile) => ({
-              profileId: profile.profileId, displayName: profile.displayName, provider: profile.provider, modelId: profile.modelId,
-              availability: access?.availability.find((item) => item.profileId === profile.profileId) ?? settings.availability.find((item) => item.profileId === profile.profileId)!,
-              connection: access?.checks.find((item) => item.profileId === profile.profileId) ?? null,
-            })),
-          };
-          // 异步检查完成后再核对文件、内存、账本与版本，旧结果不能占用新版本缓存。
-          if (key && key === this.displayKey(await this.readVersion()) && selection.availability.reason !== 'MODEL_STATE_CHANGED') {
-            const now = Date.now();
-            const expirations = access?.checks.flatMap(check => check.expiresAt && Date.parse(check.expiresAt) > now ? [Date.parse(check.expiresAt)] : []) ?? [];
-            this.displayCache = { key, expiresAt: Math.min(now + 30_000, ...expirations), value: structuredClone(value) };
-          } else if (key) {
-            continue;
-          }
-          return this.withRunning(value);
-        } catch (error) { this.displayCache = undefined; if (attempt === 2) throw error; }
-      }
-      throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '模型状态持续变化，无法读取一致快照。');
-    });
+    // 正常 GET 不占用发送和选模的操作锁；只有恢复账本时才写入。
+    if (this.requireRecord().pending && !this.options.isRunning()) {
+      await this.options.lock.run(() => this.reconcilePending());
+    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const version = await this.readVersion();
+        const record = this.requireRecord();
+        const runtime = this.options.adapter.readModelSelection(this.sessionId, 'display');
+        const key = this.displayKey(version, record, runtime);
+        const cached = this.displayCache;
+        if (key && cached?.key === key && Date.now() < cached.expiresAt) {
+          this.assertVersionNow(version);
+          return this.withRunning(structuredClone(cached.value));
+        }
+        this.displayCache = undefined;
+        const { selection } = await this.inspect(record, { version, runtime });
+        const { snapshot: settings } = await this.options.settings.getSessionSnapshot();
+        const access = await this.options.access?.getSnapshot();
+        await this.assertVersion(version);
+        const running = this.options.isRunning();
+        const value: SessionModelOptions = {
+          selection, running, disabledReason: running ? '会话运行中（包含消息接收、重试与压缩），暂不能切换模型或推理等级。'
+            : selection.availability.reason === 'SELECTION_RECOVERY_UNAVAILABLE' ? selection.availability.message : null,
+          options: settings.profiles.map((profile) => ({
+            profileId: profile.profileId, displayName: profile.displayName, provider: profile.provider, modelId: profile.modelId,
+            availability: access?.availability.find((item) => item.profileId === profile.profileId) ?? settings.availability.find((item) => item.profileId === profile.profileId)!,
+            connection: access?.checks.find((item) => item.profileId === profile.profileId) ?? null,
+          })),
+        };
+        // 异步检查完成后再核对文件、内存、账本与版本，旧结果不能占用新版本缓存。
+        if (key && key === this.displayKey(await this.readVersion()) && selection.availability.reason !== 'MODEL_STATE_CHANGED') {
+          const now = Date.now();
+          const expirations = access?.checks.flatMap(check => check.expiresAt && Date.parse(check.expiresAt) > now ? [Date.parse(check.expiresAt)] : []) ?? [];
+          this.displayCache = { key, expiresAt: Math.min(now + 30_000, ...expirations), value: structuredClone(value) };
+        } else if (key) {
+          continue;
+        }
+        return this.withRunning(value);
+      } catch (error) { this.displayCache = undefined; if (attempt === 2) throw error; }
+    }
+    throw new AssistantSessionServiceError('ASSISTANT_SESSION_UNAVAILABLE', '模型状态持续变化，无法读取一致快照。');
   }
 
   private selectionChanged(): void {
@@ -96,11 +98,10 @@ export class SessionModelSelectionService {
     this.options.onChanged?.(this.sessionId);
   }
 
-  private displayKey(version: SelectionReadVersion): string | null {
+  private displayKey(version: SelectionReadVersion, record = this.requireRecord(),
+    snapshot = this.options.adapter.readModelSelection(this.sessionId, 'display')): string | null {
     // 未提供真实输入版本的执行器或认证后端不启用展示缓存。
     if (!version.access) return null;
-    const record = this.requireRecord();
-    const snapshot = this.options.adapter.readModelSelection(this.sessionId);
     if (!snapshot.ok || !snapshot.value.inspectionVersion) return null;
     return JSON.stringify([this.sessionId, record, version, snapshot.value]);
   }
@@ -381,14 +382,17 @@ export class SessionModelSelectionService {
   }
 
   /** 读取公开选择；模型配置只改了手动能力时一并给出待换用的目标配置。 */
-  private async inspect(record: StoredSessionSelection): Promise<{
+  private async inspect(record: StoredSessionSelection, display?: {
+    version: SelectionReadVersion;
+    runtime: ReturnType<CoordinatorAdapter['readModelSelection']>;
+  }): Promise<{
     selection: SessionModelSelection;
     overridesRefresh: CoordinatorModelConfig | null;
   }> {
     let overridesRefresh: CoordinatorModelConfig | null = null;
-    let version: SelectionReadVersion | undefined;
-    try { version = await this.readVersion(); } catch { /* 不能读取版本时只公布不可用引用。 */ }
-    const snapshot = this.options.adapter.readModelSelection(record.sessionId);
+    let version = display?.version;
+    try { version ??= await this.readVersion(); } catch { /* 不能读取版本时只公布不可用引用。 */ }
+    const snapshot = display?.runtime ?? this.options.adapter.readModelSelection(record.sessionId);
     const actual = snapshot.ok && sameSession(snapshot.value, record) ? snapshot.value.model : record.model;
     let reason: string | null = record.pending || record.recoveryError || !snapshot.ok || !sameSession(snapshot.value, record) || !snapshot.value.durable ||
       !sameConfig(actual, record.model) ? 'SELECTION_RECOVERY_UNAVAILABLE' : null;

@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync, appendFileSync, renameSync, unli
 import { resolve, join } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
+import { PiSelectionDisplayHistory } from '../src/runtime/executors/pi-selection-display-history.js';
 
 function contents(id = 'pi-a', modelId = 'model-a') {
   return [
@@ -45,6 +46,30 @@ test('Pi文件解析按真实版本复用；替换、保留mtime改写、截断�
     writeFileSync(path, contents()); assert.equal(read().ok, true);
     const count = parses; adapter.dispose(); assert.equal(read().ok, true); assert.equal(parses, count + 1);
   } finally { SessionManager.open = original; adapter.dispose(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('展示缓存仅复用普通追加，分支与文件替换交回完整核对', () => {
+  mkdirSync('.tmp', { recursive: true });
+  const root = mkdtempSync(resolve('.tmp/pi-selection-display-'));
+  const path = join(root, 'session.jsonl');
+  const history = new PiSelectionDisplayHistory();
+  let reads = 0;
+  const read = () => history.read(path, () => { reads++; return { value: null, leafId: 'level' }; });
+  const append = (parentId: string) => appendFileSync(path, JSON.stringify({ type: 'message', id: 'message', parentId, message: { role: 'user' } }) + '\n');
+  try {
+    writeFileSync(path, contents());
+    const first = read();
+    append('level');
+    assert.deepEqual(read(), first);
+    append('model');
+    const branched = read();
+    assert.notEqual(branched?.version, first?.version);
+    const replacement = join(root, 'replacement');
+    writeFileSync(replacement, contents('pi-a', 'model-b'));
+    renameSync(replacement, path);
+    assert.notEqual(read()?.version, branched?.version);
+    assert.equal(reads, 3);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('离线会话历史缓存有上限，不随历史无限增长', () => {
