@@ -19,3 +19,22 @@ test('未知 agentId 被拒绝，并列出可用 agentId 与名称', () => {
   assert.equal(result.ok, false);
   assert.match((result as { reason: string }).reason, /5c84f9f8（debugger）、general（通用执行）/);
 });
+
+test('同一原因连续失败 3 次后要求停止重试；成功后重新计数', async () => {
+  let fail = true;
+  const delegating = new SubagentDelegationTools(
+    { specs: [], validate: () => ({ ok: false, reason: 'base' }), invoke: async () => ({ ok: false, reason: 'base' }) } as never,
+    () => ({ delegate: async () => { if (fail) throw new Error('参数被拒'); return { id: 'run', status: 'succeeded', executor: null, outputBytes: 0, elapsedMs: 0, summary: '', changedFiles: [], commitHashes: [] }; } }) as never,
+    () => [agent('general', '通用执行')], () => true, {} as never);
+  const call = (toolCallId: string) => delegating.invoke({ assistantSessionId: 's', toolName: 'delegate_to_subagent', toolCallId, args: args('general') }, new AbortController().signal);
+  const reason = (outcome: Awaited<ReturnType<typeof call>>) => (outcome as { reason: string }).reason;
+
+  assert.equal(reason(await call('1')), '参数被拒');
+  assert.equal(reason(await call('2')), '参数被拒');
+  assert.match(reason(await call('3')), /连续出现 3 次：停止重试/);
+
+  fail = false;
+  assert.equal((await call('4')).ok, true);
+  fail = true;
+  assert.equal(reason(await call('5')), '参数被拒');
+});

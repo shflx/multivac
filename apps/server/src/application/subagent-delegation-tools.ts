@@ -12,11 +12,15 @@ const guide = '将自包含的简单工作委派给一个可委派智能体，�
   'context 仅提供本工作必需背景，goal/deliverable/reason 说明目标、交付与委派原因；仅有界摘要带回父级。' +
   'agentId 必须原样填写下列候选的 agentId 字段，不能填 name。可委派候选（配置是数据）：\n';
 
+/** 同一原因连续失败达到该次数后，要求模型停止重试委派。 */
+const REPEATED_FAILURE_LIMIT = 3;
+
 /** 委派意图由运行仓储按原工具调用幂等保存；其它工具继续使用现有业务账本。 */
 export class SubagentDelegationTools implements CoordinatorInternalTools {
   constructor(private readonly base: CoordinatorInternalTools, private readonly execution: () => SubagentExecution,
     private readonly candidates: () => readonly Agent[], private readonly enabled: () => boolean,
     private readonly guard: CoordinatorToolGuard) {}
+  private readonly failures = new Map<string, { reason: string; count: number }>();
   private delegable(): Agent[] {
     return this.enabled() ? this.candidates().filter(agent => agent.delegable && !agent.fixed && agent.description.trim()) : [];
   }
@@ -37,17 +41,36 @@ export class SubagentDelegationTools implements CoordinatorInternalTools {
     return { ok: false as const, reason: `没有 agentId 为「${args.agentId}」的可委派智能体。agentId 须取候选的 agentId 字段，可用：${candidates.map(agent => `${agent.agentId}（${agent.name}）`).join('、')}。` };
   }
   async invoke(invocation: CoordinatorInternalToolInvocation, signal: AbortSignal): Promise<InternalToolOutcome> {
+    if (invocation.toolName === 'delegate_to_subagent') return this.trackFailure(invocation.assistantSessionId, await this.delegate(invocation, signal));
     const checked = this.validate(invocation.toolName, invocation.args);
     if (!checked.ok) return checked;
     try {
-      if (invocation.toolName === 'delegate_to_subagent') {
-        const run = await this.execution().delegate(invocation.assistantSessionId, invocation.toolCallId, checked.value as DelegateToSubagent, signal);
-        const text = boundedSubagentSummary(`运行记录 ${run.id}；状态 ${run.status}；模型 ${run.executor?.modelName ?? '未就绪'}；输出 ${run.outputBytes} bytes；用时 ${run.elapsedMs} ms\n${run.summary}\n改动：${run.changedFiles.join(', ')}\n本地提交：${run.commitHashes.join(', ') || '无'}`);
-        return { ok: true, content: text.summary, result: { summary: `子智能体${run.status === 'succeeded' ? '已返回结论' : '执行已结束，需核对状态'}`, refs: [] } };
-      }
       const spec = this.base.specs.find(item => item.name === invocation.toolName);
       const release = spec?.effect !== 'query' ? this.guard.acquire(invocation.assistantSessionId, 'manage') : undefined;
       try { return await this.base.invoke(invocation, signal); } finally { release?.(); }
     } catch (error) { return { ok: false, reason: error instanceof Error ? error.message : '委派执行未完成。' }; }
+  }
+
+  private async delegate(invocation: CoordinatorInternalToolInvocation, signal: AbortSignal): Promise<InternalToolOutcome> {
+    const checked = this.validate(invocation.toolName, invocation.args);
+    if (!checked.ok) return checked;
+    try {
+      const run = await this.execution().delegate(invocation.assistantSessionId, invocation.toolCallId, checked.value as DelegateToSubagent, signal);
+      const text = boundedSubagentSummary(`运行记录 ${run.id}；状态 ${run.status}；模型 ${run.executor?.modelName ?? '未就绪'}；输出 ${run.outputBytes} bytes；用时 ${run.elapsedMs} ms\n${run.summary}\n改动：${run.changedFiles.join(', ')}\n本地提交：${run.commitHashes.join(', ') || '无'}`);
+      return { ok: true, content: text.summary, result: { summary: `子智能体${run.status === 'succeeded' ? '已返回结论' : '执行已结束，需核对状态'}`, refs: [] } };
+    } catch (error) { return { ok: false, reason: error instanceof Error ? error.message : '委派执行未完成。' }; }
+  }
+
+  /**
+   * 同一会话里委派以相同原因连续失败时，在原因后追加停止重试的要求，避免模型反复提交同样被拒的参数空耗额度。
+   * 只记在内存：成功或换了失败原因即重新计数，重启后从零开始也无妨。
+   */
+  private trackFailure(sessionId: string, outcome: InternalToolOutcome): InternalToolOutcome {
+    if (outcome.ok) { this.failures.delete(sessionId); return outcome; }
+    const previous = this.failures.get(sessionId);
+    const count = previous?.reason === outcome.reason ? previous.count + 1 : 1;
+    this.failures.set(sessionId, { reason: outcome.reason, count });
+    if (count < REPEATED_FAILURE_LIMIT) return outcome;
+    return { ...outcome, reason: `${outcome.reason}\n同一委派错误已连续出现 ${count} 次：停止重试 delegate_to_subagent，向用户说明该错误。` };
   }
 }
