@@ -4,6 +4,7 @@ import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
 import { SUBAGENT_GIT_TOOLS } from '../src/application/internal-tools/subagent-git-tools.js';
+import { listTasksTool } from '../src/application/internal-tools/task-query-tools.js';
 import { observedModelRuntime } from '../src/runtime/executors/observed-model-runtime.js';
 import { controlledFetch, controlledModel, responsesSDK, terminal } from './fixtures/responses-stream.js';
 
@@ -34,7 +35,8 @@ for (const strict of [undefined, true]) test(`Responses strict=${strict}：移�
   assert.equal(response.stopReason, 'stop', response.errorMessage);
   assert.ok(body);
   const [git, nested] = body.tools;
-  assert.equal(git.strict, strict);
+  assert.equal(git.strict, strict ?? false);
+  assert.equal(nested.strict, false);
   assert.deepEqual(git.parameters.properties.paths, { type: 'array', minItems: 1, maxItems: 100,
     items: { type: 'string', minLength: 1, maxLength: 1024 } });
   assert.deepEqual(nested.parameters.properties, {
@@ -45,6 +47,29 @@ for (const strict of [undefined, true]) test(`Responses strict=${strict}：移�
   });
   assert.equal(Check(parameters, { paths: ['a.ts', 'a.ts'] }), false);
   assert.equal(Check(parameters, { paths: ['a.ts'] }), true);
+});
+
+test('Responses 的任务查询保留可选字段，并保留调用方对请求体的修改', async () => {
+  const raw = { streamSimple: responsesSDK.streamSimple } as unknown as ModelRuntime;
+  const runtime = observedModelRuntime(() => raw, 'session');
+  const source = controlledFetch([terminal()]);
+  const { name, description, parameters } = listTasksTool;
+  let body: { metadata: { trace: string }; tools: { strict?: boolean; parameters: { required?: string[] } }[] } | undefined;
+  const response = await runtime.streamSimple(controlledModel as never, { messages: [], tools: [{ name, description, parameters }] }, {
+    apiKey: 'controlled',
+    onPayload: async (payload) => ({ ...payload as object, metadata: { trace: 'preserved' } }),
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+      body = JSON.parse(String(init?.body)) as NonNullable<typeof body>;
+      return source.fetch(input, init);
+    },
+  }).result();
+
+  assert.equal(response.stopReason, 'stop', response.errorMessage);
+  assert.ok(body);
+  assert.equal(body.metadata.trace, 'preserved');
+  assert.equal(body.tools[0].strict, false);
+  assert.deepEqual(body.tools[0].parameters.required ?? [], []);
+  assert.equal(Check(parameters, { query: '待办' }), true);
 });
 
 test('非 Responses 协议继续接收原始工具定义', () => {

@@ -84,6 +84,15 @@ function responsesToolSchema(schema: unknown): unknown {
   return adapted;
 }
 
+function responsesToolStrictness(payload: unknown): unknown {
+  if (!Guard.IsObjectNotArray(payload) || !Array.isArray(payload.tools)) return payload;
+  // Pi 可能省略 strict；在发出请求前明确保留可选参数，不覆盖已声明的严格模式。
+  return { ...payload, tools: payload.tools.map((tool: unknown) =>
+    Guard.IsObjectNotArray(tool) && tool.type === 'function' && tool.strict === undefined
+      ? { ...tool, strict: false }
+      : tool) };
+}
+
 /**
  * 代理仍从 getter 取得当前运行时；选模 activate/rollback 不改变观测身份或 SDK 调用语义。
  * 支持 fetch 注入的协议始终加流式空闲超时；执行诊断开启时再叠加传输观测。
@@ -95,13 +104,21 @@ export function observedModelRuntime(current: () => ModelRuntime, sessionId: str
     if (['stream', 'streamSimple', 'complete', 'completeSimple'].includes(String(property)) && typeof value === 'function') {
       return (model: DiagnosticModel, context: Parameters<ModelRuntime['stream']>[1], rawOptions: Record<string, unknown> = {}) => {
         // Responses 不支持 uniqueItems；只调整发送给模型的声明，执行仍按原始 Schema 校验。
-        const requestContext = model.api === 'openai-responses' && context.tools?.length
-          ? { ...context, tools: context.tools.map(tool => ({ ...tool, parameters: responsesToolSchema(tool.parameters) })) }
+        const tools = model.api === 'openai-responses' ? context.tools : undefined;
+        const requestContext = tools?.length
+          ? { ...context, tools: tools.map(tool => ({ ...tool, parameters: responsesToolSchema(tool.parameters) })) }
           : context;
         const httpObserved = FETCH_INJECTABLE_APIS.includes(model.api ?? '');
         const options = httpObserved
           ? { ...rawOptions, fetch: idleGuardedFetch((rawOptions.fetch as typeof fetch | undefined) ?? globalThis.fetch) }
           : rawOptions;
+        if (tools?.length) {
+          const onPayload = options.onPayload as ((payload: unknown, model: unknown) => unknown) | undefined;
+          options.onPayload = async (payload: unknown, requestModel: unknown) => {
+            const replacement = await onPayload?.(payload, requestModel);
+            return responsesToolStrictness(replacement === undefined ? payload : replacement);
+          };
+        }
         if (!diagnostics?.enabled) return value.call(runtime, model, requestContext, options);
         // 未注入 fetch 的协议仍记录 SDK 阶段。
         const observation = diagnostics.beginRequest(sessionId, model, httpObserved);
