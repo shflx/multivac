@@ -1085,6 +1085,13 @@ function AssistantSessionView({
                 onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
                 onKeyDown={(event) => {
                   if (skillPicker.onKeyDown(event)) return;
+                  // 运行中在输入框按 Esc 停止当前处理；不再冒泡，避免外壳把同一次 Esc 当作收起侧栏或离开管理。
+                  if (event.key === 'Escape' && runActive && !event.nativeEvent.isComposing) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    void session.cancelCurrentRun();
+                    return;
+                  }
                   const textarea = event.currentTarget;
                   const offset = textarea.selectionStart;
                   // 光标在正文起点时，退格删除前面的智能体标签；不改动草稿正文。
@@ -1113,7 +1120,7 @@ function AssistantSessionView({
                 }}
                 placeholder={pageState.quote
                   ? '基于这段内容继续讨论…'
-                  : runActive ? '回车排队，本轮完成后发送；⌘/Ctrl+回车立即插入当前轮…'
+                  : runActive ? '回车排队，⌘/Ctrl+回车立即插入当前轮，Esc 停止…'
                     : variant === 'panel' ? '继续当前工作…' : '发送消息给 Multivac…'}
               />
               </div>
@@ -1151,11 +1158,11 @@ function AssistantSessionView({
                   {contextEnabled && <ContextPanel context={sessionContext} />}
                   {/* 运行中输入了内容：按钮仍是停止，在旁边提示继续发送的快捷键。 */}
                   {runActive && !canRetryUnknown && hasDraftContent && (
-                    <span className="composer-queue-hint" aria-hidden="true"><kbd>↵</kbd> 排队 · <kbd>{MOD_KEY}</kbd><kbd>↵</kbd> 立即发送</span>
+                    <span className="composer-queue-hint" aria-hidden="true"><kbd>↵</kbd> 排队 · <kbd>{MOD_KEY}</kbd><kbd>↵</kbd> 立即发送 · <kbd>Esc</kbd> 停止</span>
                   )}
                   {runActive && !canRetryUnknown ? (
                     <button type="button" className="composer-send-button stop" onClick={() => void session.cancelCurrentRun()}
-                      disabled={cancelling} aria-label="取消当前处理" title={cancelling ? '停止中' : '停止当前处理'}>
+                      disabled={cancelling} aria-label="取消当前处理" aria-keyshortcuts="Escape" title={cancelling ? '停止中' : '停止当前处理（Esc）'}>
                       {cancelling ? <LoaderCircle className="spin" aria-hidden="true" /> : <Square aria-hidden="true" />}
                     </button>
                   ) : (

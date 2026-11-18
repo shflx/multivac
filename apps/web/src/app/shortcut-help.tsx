@@ -115,7 +115,7 @@ export function ShortcutHelp({ sidebarOpen, canToggleSidebar, onToggleSidebar, o
           <button type="button" aria-keyshortcuts={MOD_KEY === '⌘' ? 'Meta+B' : 'Control+B'} disabled={!canToggleRail} onClick={run(onToggleRail)}>
             <Keys keys={[MOD_KEY, 'B']} /><span><strong>工作区侧栏</strong><small>{canToggleRail ? `${railVisible ? '收起' : '展开'}左侧工作区、会话与布局` : '在工作区里可用'}</small></span>
           </button>
-          <p className="shortcut-help-note">在管理中按 Esc 回到原来的面板</p>
+          <p className="shortcut-help-note">在管理中按 Esc 回到原来的面板；会话运行中在输入框按 Esc 停止当前处理</p>
         </div>
       )}
     </div>
