@@ -1,0 +1,89 @@
+/* 排队消息：输入框卡片顶部的紧凑行，每条一行、状态写在行内；下方以分隔线与输入区隔开。 */
+.queued-messages {
+  min-width: 0;
+  padding: 0 0 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.queued-messages ol {
+  display: grid;
+  gap: 4px;
+  max-height: 168px;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.queued-messages li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 3px 4px 3px 9px;
+  border-radius: var(--r-md);
+  background: var(--surface-subtle);
+  font-size: var(--t-sm);
+}
+
+.queued-message-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queued-message-meta {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--t-xs);
+}
+
+.queued-message-icon { flex: none; width: 14px; height: 14px; color: var(--faint); }
+
+.queued-message-status {
+  flex: none;
+  color: var(--faint);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+}
+
+.queued-message-status.held { color: var(--warn); }
+
+.queued-message-meta svg { width: 13px; height: 13px; }
+.queued-message-meta > span { display: inline-flex; align-items: center; gap: 2px; }
+
+.queued-message-actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.queued-message-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.queued-message-actions button.icon { width: 26px; padding: 0; justify-content: center; }
+.queued-message-actions button svg { width: 13px; height: 13px; }
+.queued-message-actions button:hover:not(:disabled) { background: var(--surface); color: var(--ink); }
+.queued-message-actions button:first-child:not(:disabled) { color: var(--accent); }
+.queued-message-actions button:disabled { cursor: default; opacity: 0.45; }

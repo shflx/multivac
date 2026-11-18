@@ -21,6 +21,7 @@ export class SessionPersistence {
   private readonly keys: {
     readingQuote: string;
     failedSubmissions: string;
+    queuedSubmissions: string;
     pendingCommand: string;
     activePrompt: string;
     commandGeneration: string;
@@ -37,6 +38,7 @@ export class SessionPersistence {
     this.keys = {
       readingQuote: `multivac.assistant.reading-draft-quote${suffix}`,
       failedSubmissions: `multivac.assistant.failed-submissions${suffix}`,
+      queuedSubmissions: `multivac.assistant.queued-submissions${suffix}`,
       pendingCommand: `multivac.assistant.pending-command${suffix}`,
       activePrompt: `multivac.assistant.active-prompt-command${suffix}`,
       commandGeneration: `multivac.assistant.command-generation${suffix}`,
@@ -124,5 +126,14 @@ export class SessionPersistence {
 
   writeFailedSubmissions(submissions: readonly FailedSubmission[]): void {
     writeFailedSubmissions(this.keys.failedSubmissions, submissions, this.session);
+  }
+
+  /** 运行中排队的消息与发送失败的快照同一结构（error 为空），随标签页保存。 */
+  readQueuedSubmissions(): FailedSubmission[] {
+    return readFailedSubmissions(this.keys.queuedSubmissions, this.session);
+  }
+
+  writeQueuedSubmissions(submissions: readonly FailedSubmission[]): void {
+    writeFailedSubmissions(this.keys.queuedSubmissions, submissions, this.session);
   }
 }

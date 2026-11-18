@@ -3,7 +3,7 @@ import type { RunFeedback } from './command-feedback.js';
 import { messagesWithEcho } from './local-echo.js';
 import { draftSizeBytes } from './page-state-saver.js';
 import { sameCommand } from './pending-command.js';
-import { displayedRunFeedback, type SessionState } from './session-controller.js';
+import { displayedRunFeedback, QUEUED_SUBMISSIONS_MAX, type SessionState } from './session-controller.js';
 import type { SessionModelState } from './session-model.js';
 import type { VisibleAssistantMessage } from './streaming-messages.js';
 import { buildAssistantTimeline, type AssistantGroupedTimelineItem } from './tool-executions.js';
@@ -21,6 +21,8 @@ export interface SessionView {
   runBusy: boolean;
   streamingBehavior: AssistantStreamingBehavior | '';
   canSubmit: boolean;
+  /** 运行中能否把输入区内容排进队列（运行中的发送都先排队）。 */
+  canQueue: boolean;
   canRetryUnknown: boolean;
   pendingSubmission: { commandId: string; agentId: string | undefined; unknown: boolean; confirmed: boolean; checking: boolean } | null;
 }
@@ -48,9 +50,11 @@ export function deriveSessionView(
   const pendingReconciliation = !runActive && state.reconcilingCommandId !== null && pendingCommand?.commandId === state.reconcilingCommandId;
   const canRetryUnknown = pendingCommand?.unknown === true && pendingCommand.text === page.draft && pendingCommand.agentId === (page.agentId ?? undefined);
   const hasExecutor = Boolean(page.agentId) || Boolean(activePrompt && history.executors[activePrompt.commandId]) || model.available;
-  const canSubmit = hasExecutor && !model.busy && (Boolean(page.draft.trim()) || imageDraft.ids().length > 0 || Boolean(fileDraft.id())) && imageDraft.ready && fileDraft.ready &&
-    draftSizeBytes(page.draft) <= ASSISTANT_DRAFT_MAX_UTF8_BYTES && !state.submitting &&
+  const contentReady = (Boolean(page.draft.trim()) || imageDraft.ids().length > 0 || Boolean(fileDraft.id())) && imageDraft.ready && fileDraft.ready &&
+    draftSizeBytes(page.draft) <= ASSISTANT_DRAFT_MAX_UTF8_BYTES;
+  const canSubmit = hasExecutor && !model.busy && contentReady && !state.submitting &&
     !pendingReconciliation && !pendingCommand?.clearOnSubmit && (!runActive || Boolean(streamingBehavior) || canRetryUnknown);
+  const canQueue = runActive && !canRetryUnknown && contentReady && state.queuedSubmissions.length < QUEUED_SUBMISSIONS_MAX;
 
   return {
     displayMessages: messages,
@@ -63,6 +67,7 @@ export function deriveSessionView(
     runBusy,
     streamingBehavior,
     canSubmit,
+    canQueue,
     canRetryUnknown,
     pendingSubmission: pendingCommand ? {
       commandId: pendingCommand.commandId, agentId: pendingCommand.agentId, unknown: pendingCommand.unknown,

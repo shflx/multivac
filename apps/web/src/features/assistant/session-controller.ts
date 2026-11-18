@@ -70,6 +70,11 @@ interface StreamingBehaviorSelection extends CommandIdentity {
 }
 
 /** 提交过程中交给呈现实例的回调：只有真正发出命令时才调用，呈现实例据此处理滚动跟随。 */
+/** 运行中最多排队的消息数。 */
+export const QUEUED_SUBMISSIONS_MAX = 10;
+/** 发送仍在确认或交接时不自动发送排队消息。 */
+const QUEUE_WAIT_PHASES = new Set(['reconciling', 'accepted', 'handed']);
+
 export interface SubmitHooks {
   onStart?: () => void;
   onRejected?: () => void;
@@ -119,6 +124,12 @@ export interface SessionState {
   localEcho: LocalEcho | null;
   readingQuote: ReadingDraftQuote | null;
   failedSubmissions: readonly FailedSubmission[];
+  /**
+   * 运行中发送的消息：先排在输入框上方，本轮正常结束后按顺序自动发送，也可以立即插入当前轮。
+   * 本轮被停止或失败时暂停自动发送（queueHeld），由用户决定逐条发送、编辑或删除。
+   */
+  queuedSubmissions: readonly FailedSubmission[];
+  queueHeld: boolean;
 }
 
 /** 会话读写服务端的接口；测试可替换为内存实现。 */
@@ -225,6 +236,9 @@ export class AssistantSessionController {
   /** 本会话在全局事件流上的接入：每次（重新）读取快照前接入，快照到位后衔接。 */
   private eventFeed: SessionEventFeed | null = null;
   private readonly deciding = new Set<string>();
+  /** 排队消息发送时附带的当前视图（只在内存里，刷新后不带）。 */
+  private readonly queuedViews = new Map<string, NonNullable<SubmitHooks['view']>>();
+  private queueDrainScheduled = false;
 
   constructor(options: SessionControllerOptions) {
     this.sessionId = options.sessionId;
@@ -288,6 +302,9 @@ export class AssistantSessionController {
       localEcho: null,
       readingQuote: this.persistence.readReadingQuote(),
       failedSubmissions: this.persistence.readFailedSubmissions(),
+      queuedSubmissions: this.persistence.readQueuedSubmissions(),
+      // 刷新后无法确认上一轮如何结束，已排队的消息等用户决定，不自动发出。
+      queueHeld: this.persistence.readQueuedSubmissions().length > 0,
     };
   }
 
@@ -342,6 +359,7 @@ export class AssistantSessionController {
   private update(patch: Partial<SessionState>): void {
     this.state = { ...this.state, ...patch };
     for (const listener of [...this.listeners]) listener();
+    this.scheduleQueueDrain();
   }
 
   private updateHistory(change: (history: SessionHistory) => SessionHistory): void {
@@ -375,6 +393,12 @@ export class AssistantSessionController {
   private updateReadingQuote(quote: ReadingDraftQuote | null): void {
     this.persistence.writeReadingQuote(quote);
     this.update({ readingQuote: quote });
+  }
+
+  private updateQueuedSubmissions(change: (current: readonly FailedSubmission[]) => FailedSubmission[], patch: Partial<SessionState> = {}): void {
+    const next = change(this.state.queuedSubmissions);
+    this.persistence.writeQueuedSubmissions(next);
+    this.update({ ...patch, queuedSubmissions: next, ...(next.length ? {} : { queueHeld: false }) });
   }
 
   private updateFailedSubmissions(change: (current: readonly FailedSubmission[]) => FailedSubmission[]): void {
@@ -682,6 +706,8 @@ export class AssistantSessionController {
 
   /** 这一轮以终态结束：运行中的一轮与取消状态一并结束。 */
   private endPrompt(owner: CommandIdentity, feedback: RunFeedback | null): void {
+    // 本轮没有正常完成（停止、失败、超时）时，排队的消息不再自动跟上，等用户决定。
+    if (feedback && feedback.phase !== 'succeeded' && this.state.queuedSubmissions.length) this.update({ queueHeld: true });
     this.clearActivePrompt(owner);
     this.clearCancellation(owner);
     if (feedback) this.setPromptFeedback(owner, feedback);
@@ -1188,6 +1214,109 @@ export class AssistantSessionController {
     }
   }
 
+  // ── 运行中排队的消息 ────────────────────────────────────────────
+
+  /**
+   * 运行中发送：把输入区的正文、引用、图片与附件冻结为一条排队消息并清空输入区。
+   * 已上传的图片与附件保留在服务端，发送时按快照引用；本窗口的当前视图只在内存里随这条消息保存。
+   */
+  queueDraft(hooks: Pick<SubmitHooks, 'contextRefs' | 'view'> = {}): string | null {
+    const page = this.saver.page;
+    const imageIds = this.imageDraft.ids();
+    const attachmentDraftId = this.fileDraft.id();
+    if (!this.state.activePrompt || this.state.queuedSubmissions.length >= QUEUED_SUBMISSIONS_MAX ||
+      (!page.draft.trim() && !imageIds.length && !attachmentDraftId) || !this.imageDraft.ready || !this.fileDraft.ready ||
+      draftSizeBytes(page.draft) > ASSISTANT_DRAFT_MAX_UTF8_BYTES) return null;
+    const queued: FailedSubmission = {
+      commandId: this.createCommandId(),
+      text: page.draft,
+      ...(page.agentId ? { agentId: page.agentId } : {}),
+      ...(attachmentDraftId ? { attachmentDraftId } : {}),
+      ...(imageIds.length ? { imageIds: [...imageIds] } : {}),
+      createdAt: this.now(),
+      quote: page.quote,
+      readingQuote: this.state.readingQuote,
+      contextRefs: [...(hooks.contextRefs ?? [])],
+      restoredDraftVersion: null,
+      error: '',
+    };
+    if (hooks.view) this.queuedViews.set(queued.commandId, hooks.view);
+    this.updateQueuedSubmissions((current) => [...current, queued]);
+    // 清空输入区但不删除已上传的图片与附件：它们已归这条排队消息所有。
+    this.updateReadingQuote(null);
+    this.markLocalChange({ ...page, draft: '', quote: null }, 'draft-intent');
+    this.imageDraft.clear(imageIds);
+    this.fileDraft.clear(attachmentDraftId);
+    return queued.commandId;
+  }
+
+  /**
+   * 发送一条排队消息：运行中按“立即调整”插入当前轮（由正在运行的智能体接收），空闲时作为新一轮发送。
+   * 用户主动发送也表示恢复自动发送。只有真正开始提交时才移出队列，被前置条件拦下时消息仍留在队列里。
+   */
+  async sendQueued(id: string, hooks: Pick<SubmitHooks, 'onStart' | 'onRejected'> = {}): Promise<void> {
+    const item = this.state.queuedSubmissions.find((queued) => queued.commandId === id);
+    if (!item || this.state.submitting) return;
+    const active = this.state.activePrompt;
+    let snapshot = item;
+    if (active) {
+      const { agentId: _queuedAgent, ...rest } = item;
+      const runningAgent = this.state.history.executors[active.commandId]?.agentId;
+      snapshot = runningAgent ? { ...rest, agentId: runningAgent } : rest;
+      this.selectStreamingBehavior('steer');
+    }
+    const view = this.queuedViews.get(id);
+    await this.submitDraft({
+      clearOnSubmit: true,
+      omitQuote: item.omitQuote ?? false,
+      ...(view ? { view } : {}),
+      onStart: () => {
+        this.queuedViews.delete(id);
+        this.updateQueuedSubmissions((current) => current.filter((queued) => queued.commandId !== id), { queueHeld: false });
+        hooks.onStart?.();
+      },
+      ...(hooks.onRejected ? { onRejected: hooks.onRejected } : {}),
+    }, snapshot);
+  }
+
+  /** 把排队消息放回输入区继续编辑；输入区已有内容时不覆盖。 */
+  editQueued(id: string): boolean {
+    const item = this.state.queuedSubmissions.find((queued) => queued.commandId === id);
+    const page = this.saver.page;
+    if (!item || page.draft !== '' || page.quote !== null || this.state.readingQuote !== null ||
+      this.imageDraft.ids().length || this.fileDraft.id()) return false;
+    this.removeQueued(id);
+    this.updateReadingQuote(item.readingQuote);
+    this.markLocalChange({ ...page, draft: item.text, agentId: item.agentId ?? page.agentId ?? null, quote: item.quote }, 'draft-intent');
+    const version = this.saver.draftVersion;
+    void this.imageDraft.restore(item.imageIds ?? [], () => version === this.saver.draftVersion);
+    void this.fileDraft.restore(item.attachmentDraftId, () => version === this.saver.draftVersion);
+    return true;
+  }
+
+  removeQueued(id: string): void {
+    this.queuedViews.delete(id);
+    this.updateQueuedSubmissions((current) => current.filter((queued) => queued.commandId !== id));
+  }
+
+  /** 本轮结束、没有在途发送且未暂停时，下一个事件循环自动发送队首消息；每次只发一条，发完等这一轮结束。 */
+  private scheduleQueueDrain(): void {
+    if (this.queueDrainScheduled || !this.queueReady()) return;
+    this.queueDrainScheduled = true;
+    this.timers.setTimeout(() => {
+      this.queueDrainScheduled = false;
+      const next = this.state.queuedSubmissions[0];
+      if (next && this.queueReady()) void this.sendQueued(next.commandId);
+    }, 0);
+  }
+
+  private queueReady(): boolean {
+    const state = this.state;
+    return this.mounted && state.status === 'ready' && state.queuedSubmissions.length > 0 && !state.queueHeld &&
+      !state.activePrompt && !state.submitting && !state.pendingCommand && !this.model.busy &&
+      !QUEUE_WAIT_PHASES.has(state.runFeedback.phase);
+  }
+
   restoreFailedSubmission(commandId: string): boolean {
     const failed = this.state.failedSubmissions.find((item) => item.commandId === commandId);
     const page = this.saver.page;
@@ -1228,7 +1357,8 @@ export class AssistantSessionController {
     const owner = this.state.activePrompt;
     if (!owner || this.state.cancelling) return;
     this.cancellingPrompt = owner;
-    this.update({ cancelling: true, sendError: '' });
+    // 停止本轮也停住排队的消息：用户停下来通常是要改主意。
+    this.update({ cancelling: true, sendError: '', ...(this.state.queuedSubmissions.length ? { queueHeld: true } : {}) });
     try {
       await this.api.cancel({ commandId: this.createCommandId(), assistantSessionId: this.sessionId });
     } catch (error) {

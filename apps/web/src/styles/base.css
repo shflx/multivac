@@ -1082,7 +1082,6 @@ svg {
 .send-error button,
 .run-status,
 .run-status button,
-.streaming-behavior,
 .assistant-state button {
   display: flex;
   align-items: center;
@@ -2168,35 +2167,6 @@ svg {
   height: 13px;
 }
 
-.streaming-behavior {
-  min-width: 0;
-  gap: 3px;
-  padding: 8px 0 0;
-  color: var(--muted);
-  font-size: var(--t-xs);
-}
-
-.streaming-behavior > span {
-  margin-right: 5px;
-  white-space: nowrap;
-}
-
-.streaming-behavior button {
-  min-height: 27px;
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--surface-subtle);
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.streaming-behavior button.active {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
 .save-error {
   min-width: 0;
   gap: 8px;
@@ -2525,6 +2495,73 @@ svg {
   background: var(--accent-hover);
 }
 
+.composer-queue-hint {
+  color: var(--faint);
+  font-size: var(--t-xs);
+  white-space: nowrap;
+}
+
+.composer-queue-hint kbd {
+  font-family: inherit;
+}
+
+/* 窄输入区放不下提示时隐藏，占位文字里仍写着快捷键。 */
+@container assistant-composer (max-width: 520px) {
+  .composer-queue-hint { display: none; }
+}
+
+/* 运行中发送按钮原位变为停止；继续发送走快捷键（见输入框占位提示）。 */
+.composer-send-button.stop:not(:disabled) {
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.composer-send-button.stop:not(:disabled):hover {
+  background: var(--n-700);
+}
+
+/*
+ * 停止按钮外一段沿圆角边框流动的弧线：视线在输入框时也能感知仍在运行，不必另占一行状态。
+ * 用 conic-gradient 加遮罩只画边框，转动的是渐变角度，按钮形状保持不动。
+ */
+@property --composer-run-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+.composer-send-button.stop {
+  position: relative;
+}
+
+.composer-send-button.stop::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  padding: 1.5px;
+  border-radius: calc(var(--r-md) + 3px);
+  background: conic-gradient(from var(--composer-run-angle), var(--accent) 0 22%, transparent 22% 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: composer-running 1.4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes composer-running {
+  to { --composer-run-angle: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-send-button.stop::after { animation: none; background: var(--accent-line); }
+}
+
+.composer-send-button.stop svg {
+  width: 13px;
+  height: 13px;
+  fill: currentColor;
+}
+
 /* 管理：页面自己滚动；侧栏并排时挤压页面，侧栏始终完整可见。 */
 .management-shell {
   display: flex;
@@ -2769,10 +2806,6 @@ svg {
 .multivac-panel .assistant-composer textarea {
   min-height: 56px;
   font-size: var(--t-sm);
-}
-
-.multivac-panel .streaming-behavior {
-  flex-wrap: wrap;
 }
 
 .multivac-panel .authorization-card,
@@ -3907,14 +3940,6 @@ svg {
 
   .composer-bar span {
     font-size: var(--t-xs);
-  }
-
-  .streaming-behavior {
-    flex-wrap: wrap;
-  }
-
-  .streaming-behavior > span {
-    width: 100%;
   }
 }
 

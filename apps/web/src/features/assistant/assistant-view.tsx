@@ -4,6 +4,7 @@ import { SUBAGENT_STATES, formatElapsed } from '../subagents/subagent-labels.js'
 import { FileDraftPreview, MessageFiles } from './file-input.js';
 import { CompactFeedback, ContextPanel } from './context-panel.js';
 import { MessageActions } from './message-copy.js';
+import { QueuedMessages } from './queued-messages.js';
 import { CANCELLED_SEND_ERRORS } from './command-feedback.js';
 import type { ComposerCommand } from '../skills/skill-picker.js';
 import type { SessionContext } from './session-context.js';
@@ -25,6 +26,7 @@ import {
   RefreshCw,
   RotateCw,
   ShieldAlert,
+  Square,
   Wrench,
   X,
 } from 'lucide-react';
@@ -73,6 +75,10 @@ import { BookReferenceLink } from './object-links.js';
 
 /** 距底部多少像素以内视为“贴近底部”，此时新内容会继续跟随。 */
 const FOLLOW_THRESHOLD_PX = 24;
+/** 展开的输入区里仍显示状态条的运行阶段：等授权、重试、压缩上下文、结果待核对、已取消。 */
+const ATTENTION_PHASES = new Set<RunFeedback['phase']>(['authorization', 'retry', 'compaction', 'unknown', 'cancelled']);
+/** 立即发送快捷键的修饰键名称：macOS 用 ⌘，其余用 Ctrl。 */
+const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 /** “处理完成”状态条的停留时长；之后淡出收起，失败与取消仍保持可见。 */
 const RUN_SUCCESS_VISIBLE_MS = 6000;
 
@@ -193,7 +199,7 @@ function AssistantSessionView({
 }) {
   const {
     status, pageState, runFeedback, runActive, runBusy, submitting, cancelling,
-    sendError, saveFeedback, streamingBehavior, canSubmit, canRetryUnknown,
+    sendError, saveFeedback, canSubmit, canQueue, canRetryUnknown,
     displayMessages, messages, timeline, visibleReplyCommands, echoId,
     hasMore, loadingEarlier, historyError, model: modelState,
   } = session;
@@ -499,25 +505,41 @@ function AssistantSessionView({
     composerRef.current?.focus();
   }
 
-  /** 发送时回到最新消息并恢复跟随；发送被拒绝则停止跟随。 */
-  function submitDraft(): Promise<void> {
-    return session.submitDraft({
-      contextRefs: pageState.quote?.sourceKind === 'book' ? 'text' in pageState.quote.sourceBook ? [{ kind: 'book', reference: pageState.quote.sourceBook }] : [] : context ? [context.ref] : [],
+  /** 发送时一并带上的上下文引用与当前视图；排队的消息在排队这一刻冻结。 */
+  function sendContext() {
+    return {
+      contextRefs: pageState.quote?.sourceKind === 'book' ? 'text' in pageState.quote.sourceBook ? [{ kind: 'book' as const, reference: pageState.quote.sourceBook }] : [] : context ? [context.ref] : [],
       view: readCurrentView?.() ?? null,
-      onStart() {
-        followLatestRef.current = true;
-        userPausedFollowRef.current = false;
-        prependRef.current = null;
-        const container = scrollRef.current;
-        if (!container) return;
-        // 流式内容会连续改变终点；直接定位避免平滑动画与后续跟随相互覆盖。
-        container.scrollTop = container.scrollHeight;
-        lastScrollTopRef.current = container.scrollTop;
-      },
-      onRejected() {
-        followLatestRef.current = false;
-      },
-    });
+    };
+  }
+
+  /** 发送后回到最新消息并恢复跟随；发送被拒绝则停止跟随。 */
+  const followHooks = {
+    onStart() {
+      followLatestRef.current = true;
+      userPausedFollowRef.current = false;
+      prependRef.current = null;
+      const container = scrollRef.current;
+      if (!container) return;
+      // 流式内容会连续改变终点；直接定位避免平滑动画与后续跟随相互覆盖。
+      container.scrollTop = container.scrollHeight;
+      lastScrollTopRef.current = container.scrollTop;
+    },
+    onRejected() {
+      followLatestRef.current = false;
+    },
+  };
+
+  /**
+   * 运行中发送按钮是停止，继续发送只走快捷键：回车排在输入框上方、本轮完成后发送；
+   * ⌘/Ctrl+回车排队后立即插入当前轮。
+   */
+  function submitDraft(immediately = false): Promise<void> {
+    if (runActive && !canRetryUnknown) {
+      const queued = canQueue ? session.queueDraft(sendContext()) : null;
+      return queued && immediately ? session.sendQueued(queued, followHooks) : Promise.resolve();
+    }
+    return session.submitDraft({ ...sendContext(), ...followHooks });
   }
 
   function captureAnchor(): void {
@@ -632,6 +654,7 @@ function AssistantSessionView({
     quote.sourceKind === 'file' ? `${quote.quoteKind === 'source' ? `${quote.sourceFile.root}/` : ''}${quote.sourceFile.path}${quote.sourceFile.line ? ` · 第 ${quote.sourceFile.line}${quote.sourceFile.endLine ? `-${quote.sourceFile.endLine}` : ''} 行` : quote.sourceFile.section ? ` · ${quote.sourceFile.section}` : ''}${quote.sourceSessionId !== session.sessionId ? ` · ${quote.sourceTitle ?? '来源会话'}` : ''}` :
     quote.sourceSessionId && quote.sourceSessionId !== session.sessionId ? quote.sourceTitle ?? null : null;
   const composerCollapsed = composerCollapsedNow;
+  const hasDraftContent = Boolean(pageState.draft.trim()) || session.imageDraft.items.length > 0 || session.fileDraft.items.length > 0;
   // 运行失败已有所属轨迹时不重复展示同一错误；未进入运行的发送错误仍在内容区反馈。
   const failedTrace = session.runTraces.find(trace => trace.commandId === session.runFeedbackCommandId && trace.status === 'failed');
   // 取消（含授权等待超时）已由输入区状态条说明原因，内容区不再重复同一句话。
@@ -639,12 +662,17 @@ function AssistantSessionView({
   const contentSendError = cancelledShown || runFeedback.phase === 'failed' && failedTrace &&
     (sendError === failedTrace.error?.message || sendError === runFeedback.failureReason || sendError === '消息处理失败，请重试。') ? '' : sendError;
   // 运行状态条：展开时位于输入区卡片顶部，折叠时跟在一行入口之后。
-  const runStatusBar = runFeedback.phase !== 'idle' && runFeedback.phase !== 'failed' && settledFeedback !== runFeedback && (
+  // 例行进度（发送、受理、处理中、正在用工具、完成）已由会话末尾的轨迹与停止按钮的转圈表达，展开时不再占一行；
+  // 只保留需要注意或解释为何在等的状态。输入区收起时没有发送/停止按钮，状态条仍是唯一入口，照常显示。
+  const runStatusVisible = runFeedback.phase !== 'idle' && runFeedback.phase !== 'failed' && settledFeedback !== runFeedback &&
+    (composerCollapsed || ATTENTION_PHASES.has(runFeedback.phase));
+  const runStatusBar = runStatusVisible && (
     <div className={`run-status ${runFeedback.phase}`} role="status" aria-live="polite">
       {/* 等待授权不是执行中：图标不旋转。 */}
       <RunIcon className={runBusy && runFeedback.phase !== 'authorization' ? 'spin' : ''} aria-hidden="true" />
       <span>{runFeedback.message}</span>
-      {runActive && (
+      {/* 展开的输入区里停止按钮在发送按钮的位置；收起时没有发送按钮，停止留在状态条上。 */}
+      {runActive && composerCollapsed && (
         <button
           type="button"
           onClick={() => void session.cancelCurrentRun()}
@@ -988,24 +1016,17 @@ function AssistantSessionView({
               onDragOver={event => { if (event.dataTransfer.types.includes('Files')) event.preventDefault(); }}
               onDrop={event => { if (event.dataTransfer.files.length) { event.preventDefault(); if (isCoordinator) { if (!submitting && !session.pendingSubmission?.unknown) session.fileDraft.add(Array.from(event.dataTransfer.files)); } else session.imageDraft.add(Array.from(event.dataTransfer.files)); } }}>
               {runStatusBar}
-              {runActive && (
-                <div className="streaming-behavior" role="group" aria-label="运行中消息行为">
-                  <span>运行中发送方式</span>
-                  <button
-                    type="button"
-                    aria-pressed={streamingBehavior === 'steer'}
-                    className={streamingBehavior === 'steer' ? 'active' : ''}
-                    onClick={() => session.selectStreamingBehavior('steer')}
-                  >立即调整
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={streamingBehavior === 'followUp'}
-                    className={streamingBehavior === 'followUp' ? 'active' : ''}
-                    onClick={() => session.selectStreamingBehavior('followUp')}
-                  >完成后继续
-                  </button>
-                </div>
+              {session.queuedSubmissions.length > 0 && (
+                <QueuedMessages
+                  items={session.queuedSubmissions}
+                  held={session.queueHeld}
+                  running={runActive}
+                  sendDisabled={submitting || Boolean(session.pendingSubmission?.unknown) || modelState.busy}
+                  editDisabled={hasDraftContent}
+                  onSend={(id) => void session.sendQueued(id, followHooks)}
+                  onEdit={(id) => { if (session.editQueued(id)) composerRef.current?.focus(); }}
+                  onRemove={(id) => session.removeQueued(id)}
+                />
               )}
               {!pageState.quote && context && (
                 <div className="composer-context" title={`正在看${context.label}`}>
@@ -1087,12 +1108,12 @@ function AssistantSessionView({
                     !event.nativeEvent.isComposing && event.keyCode !== 229
                   ) {
                     event.preventDefault();
-                    void submitDraft();
+                    void submitDraft(event.metaKey || event.ctrlKey);
                   }
                 }}
                 placeholder={pageState.quote
                   ? '基于这段内容继续讨论…'
-                  : runActive ? '输入运行中的调整或后续消息…'
+                  : runActive ? '回车排队，本轮完成后发送；⌘/Ctrl+回车立即插入当前轮…'
                     : variant === 'panel' ? '继续当前工作…' : '发送消息给 Multivac…'}
               />
               </div>
@@ -1128,21 +1149,30 @@ function AssistantSessionView({
                 <div className="composer-submit-actions">
                   {!remote && (isCoordinator || allowAgentSelection) && <McpSessionTools key={session.sessionId} sessionId={session.sessionId} disabled={status !== 'ready'} />}
                   {contextEnabled && <ContextPanel context={sessionContext} />}
-                  <button
-                    type="button"
-                    className="composer-send-button"
-                    aria-label="发送消息"
-                    title={!modelState.loaded ? '正在读取会话模型'
-                      : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
-                      : !modelState.available && !pageState.agentId && !session.currentExecutor ? '当前会话模型不可用，请查看模型选择状态'
-                      : runActive && !streamingBehavior && !canRetryUnknown
-                      ? '请先选择运行中发送方式'
-                      : canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '发送消息'}
-                    disabled={!canSubmit}
-                    onClick={() => void submitDraft()}
-                  >
-                    {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
-                  </button>
+                  {/* 运行中输入了内容：按钮仍是停止，在旁边提示继续发送的快捷键。 */}
+                  {runActive && !canRetryUnknown && hasDraftContent && (
+                    <span className="composer-queue-hint" aria-hidden="true"><kbd>↵</kbd> 排队 · <kbd>{MOD_KEY}</kbd><kbd>↵</kbd> 立即发送</span>
+                  )}
+                  {runActive && !canRetryUnknown ? (
+                    <button type="button" className="composer-send-button stop" onClick={() => void session.cancelCurrentRun()}
+                      disabled={cancelling} aria-label="取消当前处理" title={cancelling ? '停止中' : '停止当前处理'}>
+                      {cancelling ? <LoaderCircle className="spin" aria-hidden="true" /> : <Square aria-hidden="true" />}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="composer-send-button"
+                      aria-label="发送消息"
+                      title={!modelState.loaded ? '正在读取会话模型'
+                        : modelState.busy ? '模型选择正在提交或对账，暂不能发送'
+                        : !modelState.available && !pageState.agentId && !session.currentExecutor ? '当前会话模型不可用，请查看模型选择状态'
+                        : canRetryUnknown ? session.pendingSubmission?.agentId ? '核对发送结果' : '按原命令重试' : '发送消息'}
+                      disabled={!canSubmit}
+                      onClick={() => void submitDraft()}
+                    >
+                      {submitting ? <LoaderCircle className="spin" aria-hidden="true" /> : <ArrowRight aria-hidden="true" />}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

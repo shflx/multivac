@@ -104,9 +104,16 @@ export interface AssistantSession {
   sendError: string;
   streamingBehavior: AssistantStreamingBehavior | '';
   canSubmit: boolean;
+  canQueue: boolean;
   canRetryUnknown: boolean;
   pendingSubmission: { commandId: string; agentId: string | undefined; unknown: boolean; confirmed: boolean; checking: boolean } | null;
   failedSubmissions: readonly FailedSubmission[];
+  queuedSubmissions: readonly FailedSubmission[];
+  queueHeld: boolean;
+  queueDraft(hooks?: Pick<SubmitHooks, 'contextRefs' | 'view'>): string | null;
+  sendQueued(id: string, hooks?: Pick<SubmitHooks, 'onStart' | 'onRejected'>): Promise<void>;
+  editQueued(id: string): boolean;
+  removeQueued(id: string): void;
   readingQuote: ReadingDraftQuote | null;
   setReadingQuote(quote: ReadingDraftQuote | null): void;
   restoreFailedSubmission(commandId: string): boolean;
@@ -200,6 +207,12 @@ function useAssistantSessionController(sessionId: string, modelState: SessionMod
     cancelling: state.cancelling,
     sendError: state.sendError,
     failedSubmissions: state.failedSubmissions,
+    queuedSubmissions: state.queuedSubmissions,
+    queueHeld: state.queueHeld,
+    queueDraft: (hooks) => controller.queueDraft(hooks),
+    sendQueued: (id, hooks) => controller.sendQueued(id, hooks),
+    editQueued: (id) => controller.editQueued(id),
+    removeQueued: (id) => controller.removeQueued(id),
     readingQuote: state.readingQuote,
     setReadingQuote: (quote) => controller.setReadingQuote(quote),
     restoreFailedSubmission: (commandId) => controller.restoreFailedSubmission(commandId),
