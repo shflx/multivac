@@ -1,4 +1,5 @@
 import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { Guard } from 'typebox/guard';
 import { diagnosticError, type ExecutionDiagnostics, type ModelRequestObservation, type DiagnosticModel } from '../../application/execution-diagnostics.js';
 import { idleGuardedFetch } from './model-stream-idle-guard.js';
 
@@ -65,6 +66,24 @@ export function observedFetch(original: typeof fetch, observation: ModelRequestO
 /** 已验证支持 fetch 注入的协议；其他协议不注入，避免改变能力。 */
 const FETCH_INJECTABLE_APIS = ['openai-responses', 'openai-completions', 'anthropic-messages'];
 
+function responsesToolSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(responsesToolSchema);
+  if (!Guard.IsObjectNotArray(schema)) return schema;
+  const adapted = { ...schema };
+  delete adapted.uniqueItems;
+  // 只遍历子 Schema，避免把同名参数或示例数据中的字段当成 Schema 关键字。
+  for (const key of ['properties', '$defs', 'definitions']) {
+    const children = schema[key];
+    if (Guard.IsObjectNotArray(children)) {
+      adapted[key] = Object.fromEntries(Object.entries(children).map(([name, child]) => [name, responsesToolSchema(child)]));
+    }
+  }
+  for (const key of ['items', 'anyOf', 'allOf', 'additionalProperties']) {
+    if (Object.hasOwn(schema, key)) adapted[key] = responsesToolSchema(schema[key]);
+  }
+  return adapted;
+}
+
 /**
  * 代理仍从 getter 取得当前运行时；选模 activate/rollback 不改变观测身份或 SDK 调用语义。
  * 支持 fetch 注入的协议始终加流式空闲超时；执行诊断开启时再叠加传输观测。
@@ -74,15 +93,19 @@ export function observedModelRuntime(current: () => ModelRuntime, sessionId: str
     const runtime = current();
     const value = Reflect.get(runtime, property, runtime) as unknown;
     if (['stream', 'streamSimple', 'complete', 'completeSimple'].includes(String(property)) && typeof value === 'function') {
-      return (model: DiagnosticModel, context: unknown, rawOptions: Record<string, unknown> = {}) => {
+      return (model: DiagnosticModel, context: Parameters<ModelRuntime['stream']>[1], rawOptions: Record<string, unknown> = {}) => {
+        // Responses 不支持 uniqueItems；只调整发送给模型的声明，执行仍按原始 Schema 校验。
+        const requestContext = model.api === 'openai-responses' && context.tools?.length
+          ? { ...context, tools: context.tools.map(tool => ({ ...tool, parameters: responsesToolSchema(tool.parameters) })) }
+          : context;
         const httpObserved = FETCH_INJECTABLE_APIS.includes(model.api ?? '');
         const options = httpObserved
           ? { ...rawOptions, fetch: idleGuardedFetch((rawOptions.fetch as typeof fetch | undefined) ?? globalThis.fetch) }
           : rawOptions;
-        if (!diagnostics?.enabled) return value.call(runtime, model, context, options);
+        if (!diagnostics?.enabled) return value.call(runtime, model, requestContext, options);
         // 未注入 fetch 的协议仍记录 SDK 阶段。
         const observation = diagnostics.beginRequest(sessionId, model, httpObserved);
-        if (!observation) return value.call(runtime, model, context, options);
+        if (!observation) return value.call(runtime, model, requestContext, options);
         const payload = options.onPayload as ((...args: unknown[]) => unknown) | undefined;
         const guardedFetch = options.fetch as typeof fetch | undefined;
         const observedOptions = { ...options,
@@ -92,7 +115,7 @@ export function observedModelRuntime(current: () => ModelRuntime, sessionId: str
           ...(httpObserved && guardedFetch ? { fetch: observedFetch(guardedFetch, observation) } : {}),
         };
         try {
-          const result = value.call(runtime, model, context, observedOptions);
+          const result = value.call(runtime, model, requestContext, observedOptions);
           if (property === 'complete' || property === 'completeSimple') {
             return Promise.resolve(result).then(message => { observation.finish(message); return message; }, error => { observation.finish(undefined, error); throw error; });
           }
