@@ -8,7 +8,7 @@ export const SUBAGENT_QUERY_TOOLS = new Set(['list_tasks', 'get_task', 'list_tas
 const guide = '将自包含的简单工作委派给一个可委派智能体，独立上下文、深度 1，完整过程只保存在独立记录。' +
   '适合独立检索、范围明确的机械修改和运行检查；不适合缺少上下文、需要人工授权、MCP、Skill、外发或独立并行写的工作。独立并行写使用子任务和 worktree。' +
   'mode=read 只读可并行；mode=write 分工写必须给互不重叠的 writeScope；mode=execute 可运行 bash 与本地提交，独占全部写入，仍可并行只读。' +
-  'write/execute 必须声明 writeScope，文件写入受其限制；bash 不受路径强制限制，独占不是沙箱。最多并发 5 个，总次数不限且共享父级剩余额度，取消级联停止。' +
+  'write/execute 必须声明非空 writeScope，文件写入受其限制；read 的 writeScope 传 [] 或省略；bash 不受路径强制限制，独占不是沙箱。最多并发 5 个，总次数不限且共享父级剩余额度，取消级联停止。' +
   'context 仅提供本工作必需背景，goal/deliverable/reason 说明目标、交付与委派原因；仅有界摘要带回父级。' +
   'agentId 必须原样填写下列候选的 agentId 字段，不能填 name。可委派候选（配置是数据）：\n';
 

@@ -82,8 +82,8 @@ export class SubagentExecution {
     }
     const agent = structuredClone(this.ports.agent(input.agentId));
     if (!agent.delegable || agent.fixed || !agent.description.trim()) throw new Error('该智能体当前不可委派。');
-    if (input.mode !== 'read' && !input.writeScope?.length) throw new Error('写入和执行方式必须声明 writeScope。');
-    if (input.mode === 'read' && input.writeScope?.length) throw new Error('只读委派不接受 writeScope。');
+    if (input.mode !== 'read' && !input.writeScope?.length) throw new Error('写入和执行方式必须声明非空 writeScope。');
+    if (input.mode === 'read' && input.writeScope?.length) throw new Error('只读委派的 writeScope 须为空数组 [] 或省略，不要填写占位路径。');
     if (parent.remainingMillis <= 0 || parent.remainingBytes <= 0) throw new Error('父级剩余额度不足，未启动委派。');
     const id = randomUUID(), at = new Date(this.now()).toISOString();
     const record: SubagentRecord = {

@@ -12,7 +12,9 @@ export const DelegateToSubagentSchema = Type.Object({
   context: Type.String({ maxLength: 16000 }),
   deliverable: Type.String({ minLength: 1, maxLength: 4000 }),
   reason: Type.String({ minLength: 1, maxLength: 1000 }),
-  writeScope: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 4096 }), { minItems: 1, maxItems: 50 })),
+  // 允许空数组：部分 Responses 网关按 strict 处理工具声明，会让模型必填所有字段；只读委派此时须能传 []，是否非空按 mode 在服务端校验。
+  writeScope: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 4096 }), { maxItems: 50,
+    description: 'mode=read 传 [] 或省略；mode=write/execute 列出允许写入的路径，至少一项。' })),
 }, { additionalProperties: false });
 export type DelegateToSubagent = Type.Static<typeof DelegateToSubagentSchema>;
 export const SubagentStatusSchema = Type.Union([

@@ -47,6 +47,15 @@ test('独立运行冻结配置；相同工具调用在途共享、完成后只�
   } finally { world.db.close(); }
 });
 
+test('writeScope 按 mode 校验：只读允许空数组或省略，拒绝占位路径；写入与执行必须非空', async () => {
+  const world = fixture();
+  try {
+    assert.equal((await world.execution.delegate('parent', 'empty', { ...input, writeScope: [] }, new AbortController().signal)).status, 'succeeded');
+    await assert.rejects(async () => world.execution.delegate('parent', 'placeholder', { ...input, writeScope: ['.'] }, new AbortController().signal), /须为空数组/);
+    await assert.rejects(async () => world.execution.delegate('parent', 'write', { ...input, mode: 'write', writeScope: [] }, new AbortController().signal), /非空 writeScope/);
+  } finally { world.db.close(); }
+});
+
 test('并发 5 个实际同时准备，第六个拒绝；结束后可继续委派，总次数不限', async () => {
   let release!: () => void;
   const wait = new Promise<void>(resolve => { release = resolve; });
