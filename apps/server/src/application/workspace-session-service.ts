@@ -262,6 +262,8 @@ export class WorkspaceSessionService {
     return this.publicSession(record);
   }
 
+  workLabels(sessionIds: string[]) { return this.options.repository.workLabels(sessionIds); }
+
   /** 会话是否有进行中的一轮（含等待授权）；运行时尚未创建或已释放（如已归档）的会话不在运行。 */
   isRunning(sessionId: string): boolean {
     return this.options.runtimes.get(sessionId)?.isRunning?.() ?? false;

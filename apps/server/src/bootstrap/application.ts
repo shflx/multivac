@@ -353,7 +353,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       const root = await realpath(record.workingDirectory.path);
       return isPathWithin(root, path) || await isTargetInProjectDirectories(path, () => projectFiles(id, record.workingDirectory!)) || rememberedAccess(id, path, 'write');
     } catch { return false; }
-  }, id => managedProcesses.list(true).some(p => p.sessionId === id && !['exited', 'failed'].includes(p.state)));
+  }, id => managedProcesses.hasUnfinished({ sessionId: id }));
   const parentBashProcesses: BashExecutionPort = sessionBashExecution({
     toolGuard: writeCoordinator,
     sessions: store.sessions, workspaces: store.workspaces, projects: store.projects,
@@ -473,7 +473,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     skills: { catalog: context=>skills.catalog(context),context: id=>skills.context(id) },
     reading: readingService,
     runs: { list: (query) => runs.list(query) },
-    processQueries: { list: () => managedProcesses.list(), logs: (id, after) => managedProcesses.logs(id, after) },
+    processQueries: { page: (offset, limit) => managedProcesses.page(offset, limit), logs: (id, after) => managedProcesses.logs(id, after) },
     processControl: { stop: async (sessionId, id, commandId) => {
       const item = managedProcesses.get(id);
       if (!item || item.sessionId !== sessionId || item.taskId) throw new Error('只能停止当前工作会话的 bash 进程。');
@@ -1079,7 +1079,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     }
   }
   function assertSessionProcessesStopped(id: string) {
-    if (managedProcesses.list(true).some(item => item.sessionId === id && !['exited', 'failed'].includes(item.state))) throw new TaskServiceError('TASK_CONFLICT', '会话进程清理结果尚未确认。');
+    if (managedProcesses.hasUnfinished({ sessionId: id })) throw new TaskServiceError('TASK_CONFLICT', '会话进程清理结果尚未确认。');
   }
   const stopSessionProcesses = async (id: string, commandId: string) => {
     if (id !== GLOBAL_ASSISTANT_SESSION_ID) workspaceSessionService.resolve(id);
@@ -1105,10 +1105,10 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
     requiredProcessesStopped: (id) => {
       const run = store.taskRuns.get(id);
-      return managedProcesses.list(true).filter(item => item.runId === id && item.requiredWhileRunning).every(item => ['exited', 'failed'].includes(item.state)) && (!run || mcp.stopped(run.sessionId) && !subagents.occupies(run.sessionId));
+      return !managedProcesses.hasUnfinished({ runId: id }, true) && (!run || mcp.stopped(run.sessionId) && !subagents.occupies(run.sessionId));
     },
     directoryOccupied: (directory) => managedProcesses.hasDirectoryLease(directory),
-    confirmedStopped: (id) => !subagents.occupies(id) && adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && managedProcesses.list(true).filter(item => item.sessionId === id && item.requiredWhileRunning).every(item => ['exited', 'failed'].includes(item.state)) && taskGit.processesStopped(id) && mcp.stopped(id) && (!webAccess || webAccess.stopped(id)),
+    confirmedStopped: (id) => !subagents.occupies(id) && adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && !managedProcesses.hasUnfinished({ sessionId: id }, true) && taskGit.processesStopped(id) && mcp.stopped(id) && (!webAccess || webAccess.stopped(id)),
     prepare: (task, runId, signal) => taskDirectories.prepare(task, runId, signal),
     prepareDependencies: (task, directory, signal) => taskDirectories.prepareDependencies(task, directory, signal),
     describeDependencies: describeNodeDependencies,
@@ -1174,7 +1174,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
       const busy = adapter.isBusy(id);
       return !subagentRuntimes.get(id)?.commands.isRunning() && (!busy.ok || !busy.value) &&
         (!busy.ok || adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id)) && taskGit.processesStopped(id) && webAccess.stopped(id) &&
-        managedProcesses.list(true).filter(p => p.sessionId === id).every(p => ['exited', 'failed'].includes(p.state));
+        !managedProcesses.hasUnfinished({ sessionId: id });
     },
     summary: id => { const snapshot = adapter.readActiveBranch(id); return snapshot.ok ? snapshot.value.messages.filter(m => m.role === 'assistant').at(-1)?.text ?? '未提供结论。' : '结论暂不可读。'; },
     charge: (record, phase, _marker, bytes) => store.accountSubagent(facts => {
@@ -1270,7 +1270,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
   });
   const subagentGit: SubagentGitService = new SubagentGitService(store.subagents, taskGit.channel, writeCoordinator, taskProtectedPaths,
     (id, phase, marker, bytes) => subagents.lease(id, phase, marker, bytes),
-    id => managedProcesses.list(true).some(p => p.sessionId === id && p.state === 'exited' && p.exitCode === 0));
+    id => managedProcesses.hasSuccessfulExit(id));
   const webAccess: WebAccessService = new WebAccessService(() => webSettings.resolve(), {
     lease: (id, phase, marker, bytes) => store.subagents.bySession(id) ? subagents.lease(id, phase, marker, bytes) : store.taskRuns.bySession(id) ? taskExecution.nativeLease(id, phase, marker, bytes) : store.schedules.bySession(id) ? scheduleAgent.lease(id, phase, marker, bytes) : 512 * 1024,
     remainingMillis: id => {
@@ -1440,7 +1440,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     runtime(id) { return sessionRuntimes.acquire(workspaceSessionService.resolve(id)); },
     async stopTools(id, commandId) { scheduleInputs.cancel(id); await Promise.all([managedProcesses.bash.stopExecution(id, commandId), mcp.cancelSession(id)]); },
     stopped(id) { return !sessionRuntimes.get(id)?.commands.isRunning() && adapter.capabilities.toolStopProof && adapter.taskToolsStopped(id) && taskGit.processesStopped(id) && mcp.stopped(id) && webAccess.stopped(id)
-      && managedProcesses.list(true).filter(p => p.sessionId === id).every(p => ['exited','failed'].includes(p.state)); },
+      && !managedProcesses.hasUnfinished({ sessionId: id }); },
     waiting(id) { return scheduleInputs.all().some(r => r.sessionId === id && r.status === 'pending') || toolAuthorization.all().some(r => r.sessionId === id && r.status === 'pending') || mcp.authorizations.all().some(r => r.identity.sessionId === id && r.status === 'pending'); },
     summary(id) { return sessionTranscripts.readMessages(id).filter(m => m.role === 'assistant').at(-1)?.text ?? '执行未提供摘要。'; },
     notify(item, text) { const n = scheduleNotifications.deliver(item, new Date().toISOString(), text); workbenchEvents.publish({ type: 'inbox.changed', id: n.id, origin: UNKNOWN_CHANGE_ORIGIN }); return n.id; },

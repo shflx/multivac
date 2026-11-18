@@ -53,7 +53,7 @@ export interface InternalToolServices {
   inbox?: Pick<import('../inbox-service.js').InboxService, 'page' | 'get' | 'respond'>;
   externalPublish?: Pick<import('../git-publish-service.js').GitPublishService, 'propose'>;
   runs?: Pick<import('../runs-service.js').RunsService, 'list'>;
-  processQueries?: Pick<import('../managed-process-service.js').ManagedProcessService, 'list' | 'logs'>;
+  processQueries?: Pick<import('../managed-process-service.js').ManagedProcessService, 'page' | 'logs'>;
   processControl?: { stop(sessionId: string, processId: string, commandId: string): Promise<import('@multivac/contracts').ManagedProcess>; stopSession(sessionId: string): Promise<void> };
   managedStart?: { startSession(sessionId: string, input: import('../managed-process-service.js').ManagedStart): Promise<import('@multivac/contracts').ManagedProcess> };
   tasks?: Pick<TaskService, 'list' | 'detail' | 'get' | 'relations' | 'groups'>;

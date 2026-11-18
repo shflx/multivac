@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Check } from 'typebox/value';
-import { GLOBAL_ASSISTANT_SESSION_ID, isActiveManagedProcess, ProcessStopSchema } from '@multivac/contracts';
+import { GLOBAL_ASSISTANT_SESSION_ID, ProcessStopSchema } from '@multivac/contracts';
 import type { WorkspaceSessionService } from '../../application/workspace-session-service.js';
 import type { ManagedProcessService } from '../../application/managed-process-service.js';
 import { TaskService } from '../../application/task-service.js';
@@ -17,7 +17,7 @@ export function createProcessRequestHandler(processes: ManagedProcessService, ta
         const input = await readJsonBody(request) as { commandId?: unknown };
         if (typeof input.commandId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(input.commandId)) throw new Error('结束会话运行参数无效。');
         await stopSession(sessionStop[1]!, input.commandId);
-        response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ processes: processes.list(true).filter(item => item.sessionId === sessionStop[1]) }));
+        response.writeHead(200, { 'content-type': 'application/json' }); response.end(JSON.stringify({ processes: processes.forSession(sessionStop[1]!) }));
       } catch (error) { response.writeHead(409, { 'content-type': 'application/json' }); response.end(JSON.stringify({ error: { code: 'PROCESS_CONFLICT', message: error instanceof Error ? error.message : '会话进程停止失败。' } })); }
       return true;
     }
@@ -32,12 +32,15 @@ export function createProcessRequestHandler(processes: ManagedProcessService, ta
       const value = url.searchParams.get(allowed) ?? '0';
       if (!/^[0-9]+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) > Number.MAX_SAFE_INTEGER) throw new TaskServiceError('INVALID_REQUEST', '进程查询游标无效。');
       if (!match[1] && request.method === 'GET') {
-        const items = processes.list().filter(item => activeOnly !== 'true' || isActiveManagedProcess(item)); const offset = Number(value);
-        send(200, { processes: items.slice(offset, offset + 100).map((item) => {
-          let task = null; try { task = item.taskId ? tasks.get(item.taskId) : null; } catch {}
-          let session = null; try { session = sessions?.get(item.sessionId); } catch {}
-          return { ...item, sessionTitle: item.sessionId === GLOBAL_ASSISTANT_SESSION_ID ? 'Multivac' : session?.title ?? null, sessionAvailable: item.sessionId === GLOBAL_ASSISTANT_SESSION_ID || !!session && !session.archivedAt, taskTitle: task?.title ?? null, taskAvailable: !!task, taskRunning: task?.status === 'running' };
-        }), total: items.length, nextOffset: offset + 100 < items.length ? offset + 100 : null }); return true;
+        const page = processes.page(Number(value), 100, activeOnly === 'true');
+        const taskLabels = tasks.labels([...new Set(page.processes.flatMap(item => item.taskId ? [item.taskId] : []))]);
+        const sessionLabels = sessions?.workLabels([...new Set(page.processes.map(item => item.sessionId))]);
+        send(200, { ...page, processes: page.processes.map(item => {
+          const task = item.taskId ? taskLabels.get(item.taskId) : undefined;
+          const session = sessionLabels?.get(item.sessionId);
+          const global = item.sessionId === GLOBAL_ASSISTANT_SESSION_ID;
+          return { ...item, sessionTitle: global ? 'Multivac' : session?.title ?? null, sessionAvailable: global || !!session && !session.archivedAt, taskTitle: task?.title ?? null, taskAvailable: !!task, taskRunning: task?.status === 'running' };
+        }) }); return true;
       }
       if (match[1] && match[2] === 'logs' && request.method === 'GET') { send(200, await processes.logs(match[1], Number(value))); return true; }
       const item = processes.get(match[1]!);

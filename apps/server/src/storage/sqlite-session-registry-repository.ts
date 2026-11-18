@@ -128,15 +128,25 @@ export class SqliteSessionRegistryRepository implements SessionRegistryRepositor
     return row ? this.decodeSession(row) : undefined;
   }
 
-  private decodeSession(row: SessionRow): SessionRecord {
+  workLabels(sessionIds: string[]): Map<string, Pick<SessionRecord, 'title' | 'archivedAt'>> {
+    if (!sessionIds.length) return new Map();
+    const rows = this.database.prepare(`SELECT r.session_id, r.title, r.archived_at, nd.note_id AS host_note_id
+      FROM assistant_session_registry r LEFT JOIN app_note_discussion nd ON nd.session_id = r.session_id
+      WHERE r.kind = 'work' AND r.session_id IN (${sessionIds.map(() => '?').join(',')})`).all(...sessionIds) as unknown as SessionRow[];
+    return new Map(rows.map(row => [row.session_id, { title: this.protectedTitle(row) ?? row.title, archivedAt: row.archived_at }]));
+  }
+
+  private protectedTitle(row: Pick<SessionRow, 'host_note_id' | 'session_id' | 'title'>): string | undefined {
     const codec = noteCodecFor(this.database);
-    if (row.host_note_id && codec?.state(row.host_note_id)) {
-      // 注册表还承担启动恢复与普通列表投影；锁定时只暴露无内容占位。
-      let title = '加密笔记讨论';
-      try { title = codec.decode<string>(row.host_note_id, 'session-title', row.session_id, row.title); } catch { /* 内容入口另行强制验证凭证。 */ }
-      return sessionFromRow({ ...row, title, host_note_title: '加密笔记', origin_json: null });
-    }
-    return sessionFromRow(row);
+    if (!row.host_note_id || !codec?.state(row.host_note_id)) return undefined;
+    // 锁定时只暴露无内容占位；内容入口另行强制验证凭证。
+    try { return codec.decode<string>(row.host_note_id, 'session-title', row.session_id, row.title); }
+    catch { return '加密笔记讨论'; }
+  }
+
+  private decodeSession(row: SessionRow): SessionRecord {
+    const title = this.protectedTitle(row);
+    return sessionFromRow(title === undefined ? row : { ...row, title, host_note_title: '加密笔记', origin_json: null });
   }
 
   /** workspaceId 为 null 时跨全部工作区列出。 */

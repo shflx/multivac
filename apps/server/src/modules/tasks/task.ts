@@ -25,6 +25,7 @@ export interface TaskCommandRecord {
 /** 命令回执、业务事实与事件必须在同一个短事务中提交；事务入口见 TaskFactsStore。 */
 export interface TaskRepository {
   get(taskId: string): Task | null;
+  labels(taskIds: string[]): Map<string, Pick<Task, 'title' | 'status'>>;
   list(query: TaskQuery): TaskList;
   summaries(taskIds: string[]): Record<string, TaskRelationSummary>;
   relationContext(taskId: string, ancestorOffset: number): { ancestors: Task[]; nextAncestorOffset: number | null; dependencies: Task[] };

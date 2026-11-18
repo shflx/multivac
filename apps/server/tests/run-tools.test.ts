@@ -8,7 +8,7 @@ import { testToolServices } from './fixtures/tool-services.js';
 
 test('工作会话提供查询、日志与自身进程停止，受限启动仍只属于任务', async () => {
   const store = new SqliteAssistantStore(':memory:');
-  const services = { processQueries: { list: () => [], logs: async () => ({ text: 'data\n', cursor: 5, truncated: false, available: true, unchanged: false }) } } as unknown as InternalToolServices;
+  const services = { processQueries: { page: () => ({ processes: [], total: 0, nextOffset: null }), logs: async () => ({ text: 'data\n', cursor: 5, truncated: false, available: true, unchanged: false }) } } as unknown as InternalToolServices;
   const calls = store.internalToolCalls;
   const global = new InternalToolService({ tools: MULTIVAC_INTERNAL_TOOLS, services: testToolServices(services), calls, currentTurn: () => ({ commandId: 'turn', windowId: null }) });
   const work = new InternalToolService({ tools: WORK_SESSION_TASK_TOOLS, services: testToolServices(services), calls, currentTurn: () => ({ commandId: 'turn', windowId: null }) });

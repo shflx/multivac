@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { ProcessStopSchema, type ProcessStop, type ManagedProcess } from '@multivac/contracts';
 import { Check } from 'typebox/value';
 import type { ProcessSupervisors, TaskIsolation } from '../modules/processes/process-runtime.js';
-import type { ManagedProcessRecord, ManagedProcessRepository } from '../modules/processes/managed-process.js';
+import type { ManagedProcessRecord, ManagedProcessRepository, ProcessScope } from '../modules/processes/managed-process.js';
 import { fingerprint } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { readProcessLog } from './process-log.js';
@@ -42,7 +42,14 @@ export class ManagedProcessService {
     this.bash = new BashProcessService(repository, root, runtime.supervisors, changed);
   }
 
-  list(includeForegroundHistory = false): ManagedProcess[] { return (includeForegroundHistory ? this.repository.all() : this.repository.visible()).map((record) => record.public).sort((a, b) => Number(['exited', 'failed'].includes(a.state)) - Number(['exited', 'failed'].includes(b.state))); }
+  list(includeForegroundHistory = false): ManagedProcess[] {
+    if (!includeForegroundHistory) return this.page(0, -1).processes;
+    return this.repository.all().map(record => record.public).sort((a, b) => Number(['exited', 'failed'].includes(a.state)) - Number(['exited', 'failed'].includes(b.state)));
+  }
+  page(offset: number, limit: number, activeOnly = false) { return this.repository.page(offset, limit, activeOnly); }
+  forSession(sessionId: string) { return this.repository.forSession(sessionId).map(record => record.public); }
+  hasUnfinished(scope: ProcessScope, requiredOnly = false) { return this.repository.hasUnfinished(scope, requiredOnly); }
+  hasSuccessfulExit(sessionId: string) { return this.repository.hasSuccessfulExit(sessionId); }
   async logs(id: string, after = 0) {
     if (!Number.isSafeInteger(after) || after < 0) throw new TaskServiceError('INVALID_REQUEST', '日志游标无效。');
     if (!this.repository.get(id)) throw new TaskServiceError('NOT_FOUND', '托管进程不存在。');
@@ -95,12 +102,12 @@ export class ManagedProcessService {
   get activeCount(): number { return this.live.size + this.starting.size + this.bash.activeCount + Number(this.observing); }
   stopObservation(): void { this.closing = true; this.bash.beginClose(); }
   async recover(): Promise<void> {
-    for (const record of this.repository.all()) await this.reconcile(record.public.processId);
+    for (const record of this.repository.active()) await this.reconcile(record.public.processId);
   }
   async stopRequired(runId: string): Promise<boolean> {
-    const required = this.list().filter((item) => item.runId === runId && item.requiredWhileRunning);
-    await Promise.all(required.map((item) => this.stop(item.processId)));
-    return this.list().filter((item) => item.runId === runId && item.requiredWhileRunning).every((item) => ['exited', 'failed'].includes(item.state));
+    const required = this.repository.unfinished({ runId }, true);
+    await Promise.all(required.map(record => this.stop(record.public.processId)));
+    return !this.hasUnfinished({ runId }, true);
   }
   preview(id: string, task: { revision: number; status: string } | null) {
     const record = this.repository.get(id);
@@ -137,7 +144,7 @@ export class ManagedProcessService {
     const id = commandId ? `session-stop:${commandId}` : null;
     const previous = id ? this.repository.batchCommand(id) : null;
     if (previous && previous.fingerprint !== key) throw new TaskServiceError('COMMAND_ID_CONFLICT', '会话停止命令参数已改变。');
-    const processIds = previous?.processIds ?? this.repository.active().filter(item => item.public.sessionId === sessionId).map(item => item.public.processId);
+    const processIds = previous?.processIds ?? this.repository.unfinished({ sessionId }).map(item => item.public.processId);
     if (id && !previous) this.repository.saveBatchCommand(id, key, processIds);
     if (!previous) await this.bash.stopSession(sessionId);
     // 重试固定首次登记的清理范围，避免误停用户后来启动的服务。
@@ -177,7 +184,7 @@ export class ManagedProcessService {
   private async launch(input: ManagedStart, boundary: ManagedBoundary, key: string): Promise<ManagedProcess> {
     if (this.closing) throw new TaskServiceError('TASK_CONFLICT', '本地服务正在退出。');
     if (process.platform !== 'darwin') throw new TaskServiceError('INVALID_REQUEST', '当前平台未验证托管隔离。');
-    const active = this.list().filter((item) => !['exited', 'failed'].includes(item.state));
+    const active = this.repository.active().map(record => record.public);
     if (active.length >= 16 || active.filter((item) => item.taskId === boundary.taskId).length >= 4) throw new TaskServiceError('TASK_CONFLICT', '托管进程并发预算已用尽。');
     if (!input.commandId || !input.name || input.name.length > 200 || !input.script || input.script.length > 1024 || isAbsolute(input.script)
       || !(boundary.maxMillis > 0 && boundary.maxMillis <= 86400000) || !(boundary.maxBytes > 0 && boundary.maxBytes <= 64 * 1024 * 1024)

@@ -15,6 +15,9 @@ export interface ManagedProcessRecord {
   ownerId: string;
 }
 
+export type ProcessScope = { sessionId: string; runId?: never } | { runId: string; sessionId?: never };
+export type ProcessPage = { processes: ManagedProcess[]; total: number; nextOffset: number | null };
+
 /** 托管进程与命令回执的仓储端口；transaction 内的写入整体提交或回滚。 */
 export interface ManagedProcessRepository {
   transaction<T>(operation: () => T): T;
@@ -23,7 +26,11 @@ export interface ManagedProcessRepository {
   saveBatchCommand(id: string, key: string, processIds: string[]): void;
   saveCommand(id: string, key: string, result: ManagedProcess): void;
   all(): ManagedProcessRecord[];
-  visible(): ManagedProcessRecord[];
+  page(offset: number, limit: number, activeOnly?: boolean): ProcessPage;
+  forSession(sessionId: string): ManagedProcessRecord[];
+  unfinished(scope: ProcessScope, requiredOnly?: boolean): ManagedProcessRecord[];
+  hasUnfinished(scope: ProcessScope, requiredOnly?: boolean): boolean;
+  hasSuccessfulExit(sessionId: string): boolean;
   /** 活跃进程都可见；终态前台进程的隐藏规则不影响这两个计数。 */
   counts(activeOnly?: boolean): { processesRunning: number; processesRecovery: number };
   active(): ManagedProcessRecord[];

@@ -19,7 +19,7 @@ import { REMINDER_MIGRATION, SqliteReminderRepository } from './sqlite-reminder-
 import { NOTIFICATION_CHANNEL_MIGRATION } from './notification-channel-schema.js';
 import { SqliteNotificationChannelRepository } from './sqlite-notification-channel-repository.js';
 import { WECHAT_BINDING_MIGRATION, SqliteWechatBindingRepository } from './sqlite-wechat-binding-repository.js';
-import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION, MANAGED_PROCESS_COUNTS_MIGRATION } from './sqlite-managed-process-repository.js';
+import { SqliteManagedProcessRepository, MANAGED_PROCESS_MIGRATION, MANAGED_PROCESS_COUNTS_MIGRATION, MANAGED_PROCESS_QUERY_MIGRATION } from './sqlite-managed-process-repository.js';
 import { existsSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { SqliteNoteImagesRepository, NOTE_IMAGES_MIGRATION } from './sqlite-note-images-repository.js';
@@ -354,6 +354,7 @@ const MIGRATIONS = [
   SUBAGENT_MIGRATION,
   SUBAGENT_BUDGET_MIGRATION,
   SUBAGENT_TOOL_CALL_MIGRATION,
+  MANAGED_PROCESS_QUERY_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */

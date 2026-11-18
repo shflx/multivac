@@ -48,6 +48,13 @@ export class SqliteTaskRepository implements TaskRepository {
     return row ? taskFromRow(row) : null;
   }
 
+  labels(taskIds: string[]): Map<string, Pick<Task, 'title' | 'status'>> {
+    if (!taskIds.length) return new Map();
+    const rows = this.database.prepare(`SELECT task_id, status, json_extract(record_json, '$.title') AS title FROM task
+      WHERE task_id IN (${taskIds.map(() => '?').join(',')}) AND json_extract(record_json, '$.deletedAt') IS NULL`).all(...taskIds);
+    return new Map(rows.map(row => [String(row.task_id), { title: String(row.title), status: row.status as Task['status'] }]));
+  }
+
   list(query: TaskQuery): TaskList {
     const clauses: string[] = ["json_extract(record_json, '$.deletedAt') IS NULL"];
     const args: SQLInputValue[] = [];

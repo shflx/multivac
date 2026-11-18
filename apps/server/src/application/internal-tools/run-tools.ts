@@ -17,9 +17,9 @@ export const listProcessesTool = defineInternalTool({
   name: 'list_managed_processes', effect: 'query', requires: ['processQueries'], parameters: Page,
   description: '只读查询由工作会话或任务启动的托管进程，返回稳定 processId、真实端口和退出状态；不扫描或接管系统进程。任务结束不代表进程退出。',
   async execute(params, { services }) {
-    const items = services.processQueries.list(); const offset = params.offset ?? 0, limit = params.limit ?? 20;
-    return { content: JSON.stringify({ processes: items.slice(offset, offset + limit), total: items.length, nextOffset: offset + limit < items.length ? offset + limit : null }),
-      result: { summary: `读取托管进程，共 ${items.length} 条记录。`, refs: [] } };
+    const page = services.processQueries.page(params.offset ?? 0, params.limit ?? 20);
+    return { content: JSON.stringify(page),
+      result: { summary: `读取托管进程，共 ${page.total} 条记录。`, refs: [] } };
   },
 });
 export const readProcessLogTool = defineInternalTool({

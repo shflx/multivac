@@ -64,6 +64,8 @@ export class TaskService {
     return task;
   }
 
+  labels(taskIds: string[]) { return this.options.facts.tasks.labels(taskIds); }
+
   bySession(sessionId: string): Task {
     const run = this.options.facts.runs.bySession(sessionId);
     if (!run) throw new TaskServiceError('NOT_FOUND', '此会话没有关联任务。');

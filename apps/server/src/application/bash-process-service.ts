@@ -236,14 +236,15 @@ export class BashProcessService {
   }
   async stopExecution(sessionId: string, executionId: string) {
     this.stoppedExecutions.add(`${sessionId}:${executionId}`);
-    await this.stopMatching(item => item.sessionId === sessionId && item.executionId === executionId);
+    await this.stopMatching(item => item.executionId === executionId, sessionId);
   }
   async stopSession(sessionId: string) {
     this.stoppedSessions.add(sessionId);
-    await this.stopMatching(item => item.sessionId === sessionId);
+    await this.stopMatching(() => true, sessionId);
   }
-  async stopMatching(matches: (item: ManagedProcess) => boolean) {
-    await Promise.all(this.repository.active().filter(item => item.backend === 'bash' && matches(item.public) && !terminal(item.public)).map(item => this.stop(item.public.processId)));
+  private async stopMatching(matches: (item: ManagedProcess) => boolean, sessionId?: string) {
+    const records = sessionId === undefined ? this.repository.active() : this.repository.unfinished({ sessionId });
+    await Promise.all(records.filter(item => item.backend === 'bash' && matches(item.public)).map(item => this.stop(item.public.processId)));
   }
   resumeSession(sessionId: string) { this.stoppedSessions.delete(sessionId); }
   beginClose() { this.closing = true; }

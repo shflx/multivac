@@ -4,6 +4,8 @@ import { openEventStream } from './fixtures/sse-client.js';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { SqliteManagedProcessRepository } from '../src/storage/sqlite-managed-process-repository.js';
 import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
@@ -40,6 +42,16 @@ test('应用级接口逐篇授权，密钥在另一窗口可用不绕过正文�
     assert.equal((await f.request('/api/notes/one/lock', 'POST', undefined, token)).status, 200);
     assert.equal((await f.request('/api/notes/one', 'GET', undefined, token)).status, 423);
     assert.equal((await f.request('/api/notes/two')).body.body, '正文哨兵two');
+    const db = new DatabaseSync(join(f.root, 'data', 'multivac.sqlite'));
+    try {
+      new SqliteManagedProcessRepository(db).save({ commandId: 'note-process', fingerprint: 'test', directory: '.', token: 'test', pid: null, ownerId: 'test',
+        public: { processId: 'note-process', taskId: null, runId: null, sessionId, revision: 1, name: 'test', command: 'test', state: 'running',
+          requiredWhileRunning: false, startedAt: null, endedAt: null, port: null, exitCode: null, reason: '' } });
+      const processes = await f.request('/api/processes?activeOnly=true');
+      assert.equal(processes.status, 200);
+      assert.equal(processes.body.processes[0].sessionTitle, '加密笔记讨论');
+      db.exec("DELETE FROM managed_process WHERE process_id = 'note-process'");
+    } finally { db.close(); }
     const token2 = (await f.request('/api/notes/one/unlock', 'POST', { password: '共用密码' })).body.token;
     await f.restart();
     assert.equal((await f.request('/api/notes/one', 'GET', undefined, token2)).status, 423);
