@@ -194,7 +194,7 @@
 .task-filter-option > .task-filter-check { color: var(--accent); }
 .task-filter-option > .task-filter-count { flex: 0 0 auto; min-width: 20px; padding: 0 6px; border-radius: 999px; background: var(--surface-strong); color: var(--muted); font-size: var(--t-xs); font-weight: 400; font-variant-numeric: tabular-nums; line-height: 18px; text-align: center; }
 .task-filter-option.selected > .task-filter-count { background: var(--surface); color: var(--accent); }
-.task-properties select { padding: 7px 10px; border: 1px solid transparent; border-radius: var(--r-sm); font-size: var(--t-sm); background: var(--surface-subtle); color: var(--ink); }
+.task-properties select { padding: 7px 28px 7px 10px; border: 1px solid transparent; border-radius: var(--r-sm); font-size: var(--t-sm); background-color: var(--surface-subtle); color: var(--ink); }
 .task-panel-tools { display: flex; align-items: center; flex-shrink: 0; gap: 8px; margin-left: auto; }
 .task-view-modes { display: flex; gap: 2px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 3px; background: var(--surface-subtle); }
 .task-view-modes button { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; height: 30px; border: 0; border-radius: var(--r-sm); background: transparent; font-size: var(--t-sm); color: var(--muted); transition: background 150ms, color 150ms; }
@@ -467,6 +467,39 @@ textarea,
 input,
 select {
   font: inherit;
+}
+
+/*
+ * 下拉框统一外观：去掉原生样式，右侧画与图标体系一致的 chevron（颜色同 --muted，禁用时同 --n-400）。
+ * 组件只按需调整尺寸、边框与底色；改底色请用 background-color，不要用 background 简写，否则会清掉箭头；
+ * 改内边距时右侧至少留 24px 给箭头。
+ */
+select {
+  min-height: 28px;
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  appearance: none;
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235b6469' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 9px center;
+  background-size: 12px 12px;
+  background-repeat: no-repeat;
+  color: var(--ink);
+  font-size: var(--t-sm);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+select:hover:not(:disabled) {
+  border-color: var(--n-400);
+}
+
+select:disabled {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23aeb6bd' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  color: var(--faint);
+  cursor: default;
 }
 
 /* 不支持 text-wrap 的浏览器沿用默认换行，代码块和输入框保持原有行为。 */
@@ -1680,13 +1713,6 @@ svg {
 .receipt-agent {
   max-width: 100%;
   height: 28px;
-  padding: 0 22px 0 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  font-size: var(--t-sm);
 }
 
 .receipt-agent:focus {
@@ -2453,11 +2479,7 @@ svg {
 .thinking-select select {
   height: 28px;
   max-width: 140px;
-  padding: 0 22px 0 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-  color: var(--ink);
+  border-color: var(--line);
   font-size: var(--t-xs);
 }
 
@@ -3042,26 +3064,6 @@ svg {
 
 .settings-row-control select {
   min-width: 160px;
-  min-height: 28px;
-  padding: 0 26px 0 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  appearance: none;
-  /* 去掉原生外观后，箭头用两段渐变画出（与归档页筛选相同）。 */
-  background-color: var(--surface);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-  background-position: calc(100% - 13px) 55%, calc(100% - 9px) 55%;
-  background-size: 4px 4px;
-  background-repeat: no-repeat;
-  color: var(--ink);
-  font-size: var(--t-sm);
-  line-height: 1.2;
-}
-
-.settings-row-control select:hover:not(:disabled) {
-  border-color: var(--n-400);
 }
 
 .settings-row-control select:disabled {
@@ -3551,20 +3553,12 @@ svg {
   border: 1px solid var(--line-strong);
   border-radius: var(--r-sm);
   outline: 0;
-  background: var(--surface);
+  background-color: var(--surface);
   color: var(--ink);
 }
 
-/* 下拉框去掉原生外观，箭头用两段渐变画出（与设置行、归档页筛选相同）。 */
 .model-form-grid select {
-  padding-right: 26px;
-  appearance: none;
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-  background-position: calc(100% - 13px) 55%, calc(100% - 9px) 55%;
-  background-size: 4px 4px;
-  background-repeat: no-repeat;
+  padding-right: 30px;
 }
 
 .model-form-grid input:disabled,
@@ -4438,12 +4432,12 @@ svg {
 
 .parallel-count select {
   height: 24px;
-  padding: 0 4px;
+  min-height: 0;
+  padding: 0 20px 0 6px;
   border: 0;
-  border-radius: var(--r-sm);
-  background: var(--n-50);
-  color: var(--ink);
-  font-size: var(--t-sm);
+  background-color: var(--n-50);
+  background-position: right 5px center;
+  background-size: 10px 10px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -5277,12 +5271,6 @@ svg {
   width: 100%;
   min-width: 0;
   height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-  color: var(--ink);
-  font-size: var(--t-sm);
 }
 
 .confirm-card-fields select:focus {
@@ -5645,28 +5633,6 @@ svg {
   gap: 8px;
 }
 
-.archive-filters select {
-  appearance: none;
-  min-height: 28px;
-  padding: 0 26px 0 9px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  /* 去掉原生外观后，箭头用两段渐变画出。 */
-  background-color: var(--surface);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
-    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
-  background-position: calc(100% - 13px) 55%, calc(100% - 9px) 55%;
-  background-size: 4px 4px;
-  background-repeat: no-repeat;
-  color: var(--ink);
-  font-size: var(--t-sm);
-  line-height: 1.2;
-}
-
-.archive-filters select:hover {
-  border-color: var(--n-400);
-}
 
 /* 分段单选（按原型 .segmented）：浅底描边，选中项白底轻浮起；不显示计数。 */
 .segmented {

@@ -56,7 +56,8 @@
 .note-format-tools button { width: 28px; height: 28px; padding: 0; background: transparent; color: var(--muted); }
 .note-format-tools button:hover:not(:disabled), .note-format-tools button[aria-pressed="true"] { color: var(--ink); background: var(--surface-strong); }
 .note-format-tools button[aria-pressed="true"] { color: var(--accent); }
-.note-format-tools select { max-width: 82px; height: 28px; margin-right: 6px; padding: 0 4px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--muted); font: inherit; font-size: var(--t-xs); }
+.note-format-tools select { max-width: 82px; height: 28px; margin-right: 6px; padding: 0 18px 0 4px; border: 0; background-color: transparent; background-position: right 3px center; background-size: 10px 10px; color: var(--muted); font-size: var(--t-xs); }
+.note-format-tools select:hover:not(:disabled) { background-color: var(--surface-subtle); color: var(--ink); }
 .note-document-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .note-paper { width: 100%; max-width: 820px; margin: 0 auto; padding: 42px 48px 80px; }
 .note-document-header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px; }

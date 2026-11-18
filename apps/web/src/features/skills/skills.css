@@ -270,12 +270,14 @@
   padding: 0 10px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  background: var(--surface);
+  background-color: var(--surface);
   color: var(--ink);
   font: inherit;
   font-size: var(--t-sm);
   font-weight: 400;
 }
+
+.skills-page select { padding-right: 30px; }
 
 .skills-page input::placeholder { color: var(--faint); }
 
@@ -287,7 +289,7 @@
 }
 
 .skills-page input:disabled,
-.skills-page select:disabled { background: var(--surface-subtle); color: var(--faint); cursor: not-allowed; }
+.skills-page select:disabled { background-color: var(--surface-subtle); color: var(--faint); cursor: not-allowed; }
 
 .skills-inline-field {
   display: flex;
