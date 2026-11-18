@@ -5,8 +5,10 @@ import type {
 export class ModelAccessError extends Error {
   constructor(readonly code: ModelAccessErrorCode) { super(code); this.name = 'ModelAccessError'; }
 }
+export interface ModelCredentialInfo { storedApiKey: boolean; configurable: boolean }
 export interface ModelAccessBackend {
-  credentialInfo(profile: ModelProfileInput, signal: AbortSignal): Promise<{ storedApiKey: boolean; configurable: boolean }>;
+  credentialInfo(profile: ModelProfileInput, signal: AbortSignal): Promise<ModelCredentialInfo>;
+  credentialSnapshot?(profiles: readonly ModelProfileInput[], signal: AbortSignal): Promise<Map<string, ModelCredentialInfo>>;
   configure(profile: ModelProfileInput, apiKey: string, signal: AbortSignal, version?: string): Promise<void>;
   revoke(profile: ModelProfileInput, signal: AbortSignal, version?: string): Promise<void>;
   check(profile: ModelProfileInput, signal: AbortSignal): Promise<void>;

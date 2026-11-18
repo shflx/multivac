@@ -22,10 +22,13 @@ export async function securePiAuthFile(path: string): Promise<void> {
     const descriptor = await handle.stat();
     if (!descriptor.isFile() || descriptor.nlink !== 1 ||
       (process.getuid && descriptor.uid !== process.getuid())) throw new ModelAccessError('ACCESS_UNAVAILABLE');
-    await handle.chmod(0o600);
-    await handle.sync();
+    // chmod 会改变 ctime，使 Pi 原生凭据缓存失效；只修复不合规的权限。
+    if ((descriptor.mode & 0o7777) !== 0o600) {
+      await handle.chmod(0o600);
+      await handle.sync();
+    }
     const current = await lstat(path);
-    if (current.isSymbolicLink() || current.ino !== descriptor.ino || current.dev !== descriptor.dev ||
-      (current.mode & 0o777) !== 0o600) throw new ModelAccessError('ACCESS_UNAVAILABLE');
+    if (!current.isFile() || current.ino !== descriptor.ino || current.dev !== descriptor.dev || current.nlink !== 1 ||
+      (process.getuid && current.uid !== process.getuid()) || (current.mode & 0o7777) !== 0o600) throw new ModelAccessError('ACCESS_UNAVAILABLE');
   } finally { await handle.close(); }
 }

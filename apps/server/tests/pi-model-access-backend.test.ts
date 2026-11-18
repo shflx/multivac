@@ -58,6 +58,40 @@ for (const action of ['configure', 'revoke'] as const) {
   }
 }
 
+test('本地凭据快照复用空凭据缓存，未知模型不联网，合规文件不因检查变更', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'multivac-credential-cache-'));
+  const authPath = join(root, 'auth.json');
+  let lists = 0;
+  let readers = 0;
+  const backend = new PiModelAccessBackend({ authPath, temporaryRoot: root, createRuntime: async options => {
+    assert.equal(options.allowModelNetwork, false);
+    const runtime = await ModelRuntime.create(options);
+    const refresh = runtime.refresh.bind(runtime);
+    runtime.refresh = options => { assert.notEqual(options?.allowNetwork, true); return refresh(options); };
+    if (options.modelsPath === null) {
+      readers++;
+      const list = runtime.listCredentials.bind(runtime);
+      runtime.listCredentials = options => { lists++; return list(options); };
+    }
+    return runtime;
+  } });
+  try {
+    await securePiAuthFile(authPath);
+    const original = await stat(authPath, { bigint: true });
+    const unknown = { ...profile, provider: 'openai', modelId: 'unknown-test-model' };
+    const previews = [unknown, { ...unknown, profileId: 'second' }, { ...profile, profileId: 'custom' }];
+    const first = await backend.credentialSnapshot(previews, AbortSignal.timeout(1000));
+    assert.deepEqual([...first.values()], previews.map(() => ({ storedApiKey: false, configurable: true })));
+    await mkdir(`${authPath}.lock`);
+    // 缓存未命中时 SDK 会等待测试锁；在锁未释放前能读取，证明复读走缓存。
+    assert.deepEqual(await backend.credentialSnapshot(previews.slice(0, 2), AbortSignal.timeout(100)), new Map([...first].slice(0, 2)));
+    const current = await stat(authPath, { bigint: true });
+    assert.deepEqual([current.ino, current.mtimeNs, current.ctimeNs], [original.ino, original.mtimeNs, original.ctimeNs]);
+    assert.equal(lists, 2);
+    assert.equal(readers, 1);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test('真实 Pi Cloudflare 多字段 API Key 入口不宣称可配置，普通 Key Provider 仍可配置', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-pi-cloudflare-'));
   const authPath = join(root, 'auth.json');

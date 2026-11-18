@@ -117,9 +117,10 @@ export class ModelAccessService {
         const config = await this.configuration();
         this.cancelObsolete(config.revision);
         const signal = AbortSignal.timeout(this.options.timeoutMs ?? MODEL_CHECK_TIMEOUT_MS);
+        const localCredentials = await this.options.backend.credentialSnapshot?.(config.profiles, signal);
         const credentials = await Promise.all(config.profiles.map(async (profile) => ({
           profileId: profile.profileId, provider: profile.provider,
-          ...await this.options.backend.credentialInfo(profile, signal),
+          ...(localCredentials?.get(profile.profileId) ?? await this.options.backend.credentialInfo(profile, signal)),
           lastCommand: (() => {
             const entry = [...this.state!.commands].reverse().find((command) => command.provider === profile.provider && command.action !== 'check');
             return entry ? publicReceipt(entry) : null;

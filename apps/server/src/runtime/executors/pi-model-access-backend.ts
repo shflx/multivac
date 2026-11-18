@@ -7,12 +7,12 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { getAgentDir, ModelRuntime, type CreateModelRuntimeOptions } from '@earendil-works/pi-coding-agent';
 import type { ModelProfileInput } from '@multivac/contracts';
-import { ModelAccessError, type ModelAccessBackend } from '../../modules/model-settings/model-access.js';
+import { ModelAccessError, type ModelAccessBackend, type ModelCredentialInfo } from '../../modules/model-settings/model-access.js';
 import { buildPiModelsConfig, refreshPiModelCatalog } from './pi-model-settings-catalog.js';
 import { resolvePiRequestEndpoint } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
 import { supportsSingleApiKeyInput } from './pi-api-key-capabilities.js';
-import { createGuardedPiCredentialStore, isPiCredentialConflict } from './pi-guarded-credential-store.js';
+import { createGuardedPiCredentialStore, createPiCredentialStore, isPiCredentialConflict } from './pi-guarded-credential-store.js';
 export { securePiAuthFile } from './pi-credential-security.js';
 
 
@@ -31,6 +31,7 @@ export interface PiModelAccessBackendOptions {
 export class PiModelAccessBackend implements ModelAccessBackend {
   readonly authPath: string;
   private readonly createRuntime: (options: CreateModelRuntimeOptions) => Promise<ModelRuntime>;
+  private localReader: Promise<{ credentials: NonNullable<CreateModelRuntimeOptions['credentials']>; runtime: ModelRuntime }> | undefined;
   constructor(private readonly options: PiModelAccessBackendOptions = {}) {
     this.authPath = options.authPath ?? resolvePiInstancePaths(resolveRuntimeConfig(), getAgentDir).authPath;
     this.createRuntime = options.createRuntime ?? ModelRuntime.create;
@@ -62,6 +63,32 @@ export class PiModelAccessBackend implements ModelAccessBackend {
           Boolean(runtime.getProvider(profile.provider)?.auth.apiKey?.login),
       };
     });
+  }
+  async credentialSnapshot(profiles: readonly ModelProfileInput[], signal: AbortSignal): Promise<Map<string, ModelCredentialInfo>> {
+    if (!profiles.length) return new Map();
+    await securePiAuthFile(this.authPath);
+    signal.throwIfAborted();
+    this.localReader ??= createPiCredentialStore(this.authPath).then(async credentials => ({ credentials,
+      runtime: await this.createRuntime({ credentials, modelsPath: null, refreshOnCreate: false, allowModelNetwork: false }),
+    })).catch(error => { this.localReader = undefined; throw error; });
+    const { credentials, runtime } = await this.localReader;
+    const stored = new Map((await runtime.listCredentials({ signal })).map(entry => [entry.providerId, entry.type]));
+    const builtin = new Map<string, ModelCredentialInfo>();
+    const result = new Map<string, ModelCredentialInfo>();
+    for (const profile of profiles) {
+      const provider = profile.provider;
+      const type = stored.get(provider);
+      const info = (login: boolean): ModelCredentialInfo => ({ storedApiKey: type === 'api_key', configurable: type !== 'oauth' && supportsSingleApiKeyInput(provider) && login });
+      if (runtime.getProvider(provider)) {
+        if (!builtin.has(provider)) builtin.set(provider, info(!!runtime.getProvider(provider)?.auth.apiKey?.login));
+        result.set(profile.profileId, builtin.get(provider)!);
+      } else {
+        // 自定义 provider 的登录能力取决于此 profile 是否声明端点，不能跨 profile 复用。
+        result.set(profile.profileId, await this.withRuntime(profile, signal, async candidate =>
+          info(!!candidate.getProvider(provider)?.auth.apiKey?.login), credentials, false));
+      }
+    }
+    return result;
   }
   async configure(profile: ModelProfileInput, apiKey: string, signal: AbortSignal, version?: string): Promise<void> {
     await securePiAuthFile(this.authPath);
@@ -135,7 +162,7 @@ export class PiModelAccessBackend implements ModelAccessBackend {
   }
   private async withRuntime<T>(
     profile: ModelProfileInput, signal: AbortSignal, operation: (runtime: ModelRuntime) => Promise<T>,
-    credentials?: CreateModelRuntimeOptions['credentials'],
+    credentials?: CreateModelRuntimeOptions['credentials'], refreshCatalog = true,
   ): Promise<T> {
     await securePiAuthFile(this.authPath);
     const temporaryRoot = this.options.temporaryRoot ?? tmpdir();
@@ -146,7 +173,7 @@ export class PiModelAccessBackend implements ModelAccessBackend {
       await writeFile(basePath, '{"providers":{}}', { mode: 0o600 });
       const base = await this.createRuntime({ ...(credentials ? { credentials } : {}), authPath: this.authPath, modelsPath: basePath,
         modelsStorePath: join(dirname(this.authPath), 'models-store.json'), signal, allowModelNetwork: false });
-      await refreshPiModelCatalog(base, [profile], signal);
+      if (refreshCatalog) await refreshPiModelCatalog(base, [profile], signal);
       const { config } = buildPiModelsConfig([profile], base);
       const candidate = join(directory, 'candidate.json');
       await writeFile(candidate, JSON.stringify(config), { mode: 0o600 });
