@@ -49,7 +49,7 @@ import { SqliteProposalRepository } from './sqlite-proposal-repository.js';
 import { SqliteInternalToolCallRepository } from './sqlite-internal-tool-call-repository.js';
 import { SqliteTempDirectoryCleanupRepository } from './sqlite-temp-directory-cleanup-repository.js';
 import { SqlitePreferenceRepository } from './sqlite-preference-repository.js';
-import { SqliteSessionRegistryRepository } from './sqlite-session-registry-repository.js';
+import { SqliteSessionRegistryRepository, SESSION_ACTIVITY_MIGRATION } from './sqlite-session-registry-repository.js';
 import { SqliteTerminalRepository, TERMINAL_MIGRATION } from './sqlite-terminal-repository.js';
 import { SqliteWorkspaceRepository } from './sqlite-workspace-repository.js';
 import { SqliteWorkspaceSceneRepository } from './sqlite-workspace-scene-repository.js';
@@ -355,6 +355,7 @@ const MIGRATIONS = [
   SUBAGENT_BUDGET_MIGRATION,
   SUBAGENT_TOOL_CALL_MIGRATION,
   MANAGED_PROCESS_QUERY_MIGRATION,
+  SESSION_ACTIVITY_MIGRATION,
 ] as const;
 
 /** 工具正文清理绑定到它所属的那次迁移，后续新增迁移不会重复或错位执行。 */

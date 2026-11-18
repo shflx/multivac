@@ -556,8 +556,12 @@ export class WorkspaceSessionService {
     }
   }
 
+  publishActivity(record: SessionRecord): void {
+    this.sessionChanged('activity', this.publicSession(record), UNKNOWN_CHANGE_ORIGIN);
+  }
+
   private sessionChanged(
-    change: 'created' | 'renamed' | 'archived' | 'restored' | 'moved',
+    change: 'created' | 'renamed' | 'archived' | 'restored' | 'moved' | 'activity',
     session: WorkspaceSession,
     origin: WorkbenchChangeOrigin,
   ): void {

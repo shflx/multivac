@@ -27,15 +27,20 @@ interface SessionRow {
   last_activity_at?: string;
 }
 
+const ACTIVITY_TYPES = `('assistant.command.handed_to_pi', 'assistant.message.delta', 'assistant.turn.started', 'assistant.turn.ended', 'assistant.tool.ended')`;
+
+export const SESSION_ACTIVITY_MIGRATION = `CREATE INDEX IF NOT EXISTS assistant_event_projection_latest_activity
+  ON assistant_event_projection(assistant_id, occurred_at DESC) WHERE event_type IN ${ACTIVITY_TYPES};`;
+
 const SESSION_SELECT = `
   SELECT r.session_id, r.title, r.kind, r.workspace_id, r.created_at, r.archived_at,
          r.parent_session_id, r.origin_json, r.initial_model_json, r.working_directory_kind, r.working_directory_path,
          b.runtime_session_ref AS runtime_session_ref,
          nd.note_id AS host_note_id, json_extract(n.record_json, '$.title') AS host_note_title,
          d.book_id AS host_book_id, json_extract(book.record_json, '$.title') AS host_book_title,
-         COALESCE((SELECT MAX(e.occurred_at) FROM assistant_event_projection e
-           WHERE e.assistant_id = r.session_id AND e.event_type IN
-             ('assistant.command.handed_to_pi', 'assistant.message.delta', 'assistant.turn.started', 'assistant.turn.ended', 'assistant.tool.ended')), r.created_at) AS last_activity_at
+         COALESCE((SELECT e.occurred_at FROM assistant_event_projection e
+           WHERE e.assistant_id = r.session_id AND e.event_type IN ${ACTIVITY_TYPES}
+           ORDER BY e.occurred_at DESC LIMIT 1), r.created_at) AS last_activity_at
   FROM assistant_session_registry r
   LEFT JOIN assistant_session_binding b ON b.assistant_id = r.session_id
   LEFT JOIN reading_discussion d ON d.session_id = r.session_id

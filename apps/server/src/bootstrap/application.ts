@@ -994,7 +994,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     if (!record || record.kind !== 'work' || !record.workingDirectory) return;
     if (record.host?.kind === 'note') { notesService.changed(record.host.noteId); return; }
     if (record.host?.kind === 'reading') { workbenchEvents.publish({ type: 'reading.changed', bookId: record.host.bookId }); return; }
-    workbenchEvents.publish({ type: 'session.changed', change: 'activity', origin: { windowId: null, commandId: null }, session: workspaceSessionService.get(record.sessionId) });
+    workspaceSessionService.publishActivity(record);
   });
   const sessionAccess = {
     resolveSession: (sessionId: string) => workspaceSessionService.resolve(sessionId),
