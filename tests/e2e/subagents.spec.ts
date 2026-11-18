@@ -63,7 +63,7 @@ test('工作会话并行委派、委派行及只读会话视图，运行和用�
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '运行', exact: true }).click();
   const runPanel = page.getByRole('region', { name: '子智能体运行' });
   // 运行页只列未结束的委派。
-  await expect(runPanel).toContainText('没有正在运行的子智能体'); await expect(runPanel.locator('.subagent-open')).toHaveCount(0);
+  await expect(runPanel).toContainText('没有正在运行的子智能体'); await expect(runPanel.locator('.run-row')).toHaveCount(0);
   await page.getByRole('complementary', { name: '管理导航' }).getByRole('button', { name: '统计', exact: true }).click();
   // 子智能体用量归入父会话，统计页不再单列。
   await expect(page.locator('.usage-page')).not.toContainText('子智能体用量');

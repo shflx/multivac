@@ -6941,6 +6941,10 @@ svg {
 .run-row-facts dd > span, .run-row-facts .inline-link { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .run-row-facts dd svg { width: 13px; height: 13px; flex-shrink: 0; color: var(--muted); }
 .run-row-facts dd small { color: var(--muted); font-size: var(--t-xs); }
+/* 当前步骤可能很长：单行截断，工具次数跟在后面不换行。 */
+.run-row-facts dd.run-row-step { flex-wrap: nowrap; }
+.run-row-step > span { flex: 0 1 auto; }
+.run-row-step > small { flex: none; }
 .run-row-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .run-row-actions .secondary-button, .process-confirm .secondary-button { min-height: 30px; padding: 0 10px; font-size: var(--t-sm); white-space: nowrap; }
 .run-row-actions .secondary-button svg { width: 14px; height: 14px; }

@@ -38,16 +38,16 @@ export function useSubagents({ parentSessionId, taskId, activeOnly, active = tru
   return { page: snapshot?.key === key ? snapshot.page : null, error, offset, refresh };
 }
 
-export function SubagentGroups({ items, showParent = false }: { items: readonly SubagentListItem[]; showParent?: boolean }) {
+export function SubagentGroups({ items }: { items: readonly SubagentListItem[] }) {
   const [selected, setSelected] = useState<SubagentListItem | null>(null);
   const groups = new Map<string, SubagentListItem[]>();
   for (const item of items) { const key = `${item.parentSessionId}:${item.batchId ?? item.parentCommandId}`; groups.set(key, [...(groups.get(key) ?? []), item]); }
   return <>{[...groups].map(([key, group]) => {
     const running = group.filter(item => !item.stopConfirmed).length;
-    // 单项委派不需要分组标题；多项或跨会话列表才说明数量与来源。
-    const titled = group.length > 1 || showParent;
+    // 单项委派不需要分组标题；多项才说明数量。
+    const titled = group.length > 1;
     return <section key={key} className="subagent-group" aria-label="子智能体委派">
-      {titled && <header><Bot aria-hidden="true" /><span>子智能体 · {group.length} 项{running ? ` · ${running} 项处理中` : ''}</span>{showParent && <small>{group[0]!.parentTitle}{group[0]!.taskId ? ' · 任务' : ' · 工作会话'}</small>}</header>}
+      {titled && <header><Bot aria-hidden="true" /><span>子智能体 · {group.length} 项{running ? ` · ${running} 项处理中` : ''}</span></header>}
       {group.map(item => {
         const done = item.stopConfirmed;
         const Icon = !done ? LoaderCircle : item.status === 'succeeded' ? CheckCircle2 : CircleAlert;
@@ -68,7 +68,7 @@ export function SubagentGroups({ items, showParent = false }: { items: readonly 
 }
 
 /** empty：读取完成且没有委派时的占位内容。 */
-export function SubagentActivity({ empty, ...props }: Filter & { showParent?: boolean; empty?: ReactNode }) {
+export function SubagentActivity({ empty, ...props }: Filter & { empty?: ReactNode }) {
   const { page, error, offset, refresh } = useSubagents(props);
-  return <>{error && <p role="alert">{error}<button className="inline-link" onClick={() => void refresh(offset)}>重试</button></p>}{page?.total === 0 && empty}<SubagentGroups items={page?.items ?? []} showParent={props.showParent ?? false} />{page && (offset > 0 || page.nextOffset !== null) && <div className="subagent-pagination"><button className="inline-link" disabled={offset === 0} onClick={() => void refresh(Math.max(0, offset - 20))}>上一页委派</button><button className="inline-link" disabled={page.nextOffset === null} onClick={() => void refresh(page.nextOffset!)}>下一页委派</button></div>}</>;
+  return <>{error && <p role="alert">{error}<button className="inline-link" onClick={() => void refresh(offset)}>重试</button></p>}{page?.total === 0 && empty}<SubagentGroups items={page?.items ?? []} />{page && (offset > 0 || page.nextOffset !== null) && <div className="subagent-pagination"><button className="inline-link" disabled={offset === 0} onClick={() => void refresh(Math.max(0, offset - 20))}>上一页委派</button><button className="inline-link" disabled={page.nextOffset === null} onClick={() => void refresh(page.nextOffset!)}>下一页委派</button></div>}</>;
 }
