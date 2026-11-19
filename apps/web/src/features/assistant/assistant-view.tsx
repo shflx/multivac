@@ -1138,7 +1138,9 @@ function AssistantSessionView({
                     sessionId: session.sessionId, disabled: status !== 'ready' || runBusy || submitting,
                     onQuote: (quote: AssistantMcpQuote) => { session.setQuote(quote); composerRef.current?.focus(); },
                   } } : {})} />
+                  {/* 添加、Skill、智能体都是往本轮输入里插入内容，排在一起；模型是会话设置，放在最后。 */}
                   {skillPicker.trigger}
+                  {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} mentionTarget={agentMentionTarget} focusComposer={() => composerRef.current?.focus()} />}
                   {!remote && <ModelSelector
                     active={active}
                     running={runBusy || submitting}
@@ -1147,7 +1149,6 @@ function AssistantSessionView({
                     menuId={variant === 'page' ? 'assistant-model-menu'
                       : variant === 'sidebar' ? 'assistant-sidebar-model-menu' : `assistant-panel-model-menu-${panelMenuId}`}
                   />}
-                  {allowAgentSelection && !isCoordinator && !remote && <WorkSessionAgentPicker session={session} request={agentPickerRequest} mentionTarget={agentMentionTarget} focusComposer={() => composerRef.current?.focus()} />}
                   {remote && !modelState.available && <span role="status">当前模型不可用，请在本机配置。</span>}
                 </div>
                 {/* MCP、上下文与发送作为整体换行，避免夹在左侧操作的多行之间。 */}
