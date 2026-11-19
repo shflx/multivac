@@ -80,8 +80,12 @@ export function reconcilePiCompaction(identity: CoordinatorSessionRecoveryIdenti
 /** 只在严格核对文件后重建消息；不写摘要、不修改历史，也不重建模型或工具配置。 */
 function restore(session: AgentSession) {
   transcript(session.sessionFile!, session.sessionId);
-  session.sessionManager.setSessionFile(session.sessionFile!);
-  session.agent.state.messages = session.sessionManager.buildSessionContext().messages;
+  const { sessionId, sessionFile } = session;
+  session.sessionManager.setSessionFile(sessionFile!);
+  if (session.sessionManager.getSessionId() !== sessionId || session.sessionFile !== sessionFile) {
+    throw new Error('恢复后的会话身份不一致。');
+  }
+  session.refreshContext();
 }
 
 /** 使用 SDK 原生摘要链路。异常后丢弃受污染的内存分支，以已核对的磁盘为准。 */

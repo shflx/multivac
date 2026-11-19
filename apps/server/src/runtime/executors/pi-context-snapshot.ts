@@ -14,7 +14,7 @@ const coverage: ContextCoverage = {
 };
 
 /** 压缩后、首次有效回复前的粗估：全部内容按字符启发式计入，不是分词器计数。 */
-export const POST_COMPACTION_BASIS = 'pi-0.85.1:post-compaction-heuristic:system+tools+messages:chars/4:v1';
+export const POST_COMPACTION_BASIS = 'pi-1.5.2:post-compaction-heuristic:system+tools+messages:chars/4:v1';
 const postCompactionCoverage: ContextCoverage = {
   systemPrompt: { status: 'included', explanation: '按字符 / 4 粗估，不是分词器计数。' },
   toolDefinitions: { status: 'included', explanation: '名称、描述与参数结构按字符 / 4 粗估。' },
@@ -86,7 +86,7 @@ export function readPiContext(sessionId: string, session: PiCoordinatorAgentSess
     current = unavailable('最近请求之后模型配置已有变化，不能沿用旧用量计算当前占用。');
   } else if (lastRequest && native && validCount(native.tokens) && native.tokens > 0) {
     current = { ...base, source: 'current-estimate', tokens: native.tokens, measuredAt: now,
-      basis: 'pi-0.85.1:latest-usage-including-output+heuristic-tail', unavailableReason: null };
+      basis: 'pi-1.5.2:latest-usage-including-output+heuristic-tail', unavailableReason: null };
   }
   return { sessionId, revision, current, lastRequest,
     compaction: session.compactContext && !busy && matchesConfig

@@ -5,11 +5,12 @@ import { reconcilePiCompaction } from '../src/runtime/executors/pi-context-compa
 import type { ContextCompactionOperation } from '@multivac/contracts';
 import { POST_COMPACTION_BASIS, readPiContext } from '../src/runtime/executors/pi-context-snapshot.js';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import test, { after } from 'node:test';
 import { createHash } from 'node:crypto';
 import { createAgentSession, ModelRuntime, SessionManager } from '@earendil-works/pi-coding-agent';
+import { getCurrentSystemPrompt, getDeclaredTools } from '@earendil-works/pi-ai/utils/transcript';
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { DefaultPiCoordinatorSessionFactory, type PiCoordinatorSessionResources } from '../src/runtime/executors/pi-session-factory.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
@@ -30,7 +31,7 @@ const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 
 // 真实 Pi SDK、原生摘要生成与文件读写；仅模型传输替换为内存 SSE，不代表真实模型验证。
 // 临时目录限定在任务 cwd，禁止使用全局 Pi 配置、其他会话或真实凭据。
-async function fixture() {
+async function fixture(legacy = false) {
   const root = await mkdtemp(join(process.cwd(), '.pi-context-test-'));
   const cwd = join(root, 'work');
   const agentDir = join(root, 'agent');
@@ -38,8 +39,12 @@ async function fixture() {
   await mkdir(cwd); await mkdir(agentDir);
   const authPath = join(agentDir, 'auth.json');
   await writeFile(authPath, JSON.stringify({ openai: { type: 'api_key', key: 'offline-placeholder' } }), { mode: 0o600 });
-  const runtime = await ModelRuntime.create({ authPath, modelsPath: null, modelsStorePath: join(root, 'catalog.json'), allowModelNetwork: false });
-  const model = runtime.getModels('openai').find(item => item.api === 'openai-responses' && !item.reasoning && item.input.includes('image'))!;
+  const modelsPath = legacy ? join(agentDir, 'models.json') : null;
+  if (modelsPath) await writeFile(modelsPath, JSON.stringify({ providers: { openai: { models: [{
+    id: 'gpt-6.2-sol', input: ['text', 'image'],
+  }] } } }));
+  const runtime = await ModelRuntime.create({ authPath, modelsPath, modelsStorePath: join(root, 'catalog.json'), allowModelNetwork: false });
+  const model = legacy ? runtime.getModel('openai', 'gpt-6.2-sol')! : runtime.getModels('openai').find(item => item.api === 'openai-responses' && !item.reasoning && item.input.includes('image'))!;
   assert.ok(model);
   const config: CoordinatorRuntimeConfig = {
     systemPrompt: '受控系统提示，只验证上下文能力。', authorizedContext: [],
@@ -60,7 +65,10 @@ async function fixture() {
       actual = result.session;
       actual.agent.streamFunction = (requestModel, context, options) => {
         requests++;
-        contexts.push(context);
+        contexts.push({ messages: context.messages,
+          systemPrompt: getCurrentSystemPrompt(context.messages) || context.systemPrompt,
+          tools: context.tools ?? getDeclaredTools(context.messages),
+        });
         const events = mode === 'cancel' ? [{ type: 'response.created', response: { id: 'controlled' } }]
           : mode === 'failure' ? [terminal('response.failed', { error: { code: 'controlled_failure', message: 'controlled failure' } })]
             : [...completedItems(), terminal()];
@@ -71,7 +79,12 @@ async function fixture() {
     },
   });
   const input = { assistantSessionId: 'controlled', cwd, agentDir, sessionDir, config };
-  const resources = await factory.create(input);
+  const legacyPath = join(sessionDir, 'pi-0.85.1-session.jsonl');
+  if (legacy) {
+    await mkdir(sessionDir);
+    await copyFile(new URL('./fixtures/pi-0.85.1-session.jsonl', import.meta.url), legacyPath);
+  }
+  const resources = legacy ? await factory.open({ ...input, sessionPath: legacyPath }) : await factory.create(input);
   const sessionFile = actual.sessionFile!;
   const seed = () => {
     for (let index = 0; index < 4; index++) {
@@ -79,7 +92,7 @@ async function fixture() {
       actual.sessionManager.appendMessage({ role: 'assistant', content: [{ type: 'text', text: `受控回复 ${index}` }], api: model.api, provider: model.provider, model: model.id,
         usage: { input: 9, output: 5, cacheRead: 2, cacheWrite: 3, totalTokens: 19, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: 'stop', timestamp: Date.now() });
     }
-    actual.agent.state.messages = actual.sessionManager.buildSessionContext().messages;
+    actual.refreshContext();
   };
   return { root, cwd, sessionDir, sessionFile, model, config, resources, contexts, seed,
     get actual() { return actual; }, get requests() { return requests; },
@@ -90,12 +103,12 @@ async function fixture() {
   };
 }
 
-test('Pi 0.85.1：原生占用为 usage 加启发式尾部，不是完整请求 token 计数', async () => {
+test('Pi 1.5.2：原生占用为 usage 加启发式尾部，不是完整请求 token 计数', async () => {
   const f = await fixture();
   try {
     const snapshots = [{ stage: 'empty', ...f.actual.getContextUsage() }];
     assert.equal(f.actual.getContextUsage()?.tokens, 0, '空消息估算 0 没有包含真实系统提示和工具定义');
-    assert.ok(f.actual.agent.state.systemPrompt.length > 0);
+    assert.ok(f.actual.systemPrompt.length > 0);
     assert.ok(f.actual.getActiveToolNames().length > 0);
     f.seed();
     assert.equal(f.actual.getContextUsage()?.tokens, 19, '包括缓存输入及输出，不能标成最近请求实际输入');
@@ -105,11 +118,11 @@ test('Pi 0.85.1：原生占用为 usage 加启发式尾部，不是完整请求 
     const usage = last.message.usage;
     assert.equal(usage.input + usage.cacheRead + usage.cacheWrite, 14, '最近请求实际输入应包括缓存，不包含输出');
     f.actual.sessionManager.appendMessage({ role: 'toolResult', toolCallId: 'controlled', toolName: 'read', content: [{ type: 'text', text: 'x'.repeat(400) }], isError: false, timestamp: Date.now() });
-    f.actual.agent.state.messages = f.actual.sessionManager.buildSessionContext().messages;
+    f.actual.refreshContext();
     assert.equal(f.actual.getContextUsage()?.tokens, 119, '新增工具结果按字符 / 4 估算');
     snapshots.push({ stage: 'trailing-tool-result', ...f.actual.getContextUsage() });
     f.actual.sessionManager.appendMessage({ role: 'user', content: [{ type: 'image', data: 'controlled-image', mimeType: 'image/png' }], timestamp: Date.now() });
-    f.actual.agent.state.messages = f.actual.sessionManager.buildSessionContext().messages;
+    f.actual.refreshContext();
     assert.equal(f.actual.getContextUsage()?.tokens, 1319, '图片固定估算 1200，不是视觉 token');
     snapshots.push({ stage: 'trailing-image', ...f.actual.getContextUsage() });
     f.actual.agent.state.model = { ...f.model, id: 'another-model', contextWindow: 7777 };
@@ -198,7 +211,7 @@ test('Pi 无可压缩内容：拒绝且不发出模型请求', async () => {
   } finally { await f.close(); }
 });
 
-test('Pi 持久写入失败：内存已追加压缩而磁盘未提交，不能把异常解释为已回滚', async () => {
+test('Pi 持久写入失败后核对当前投影和磁盘', async () => {
   const f = await fixture();
   try {
     f.seed();
@@ -207,7 +220,7 @@ test('Pi 持久写入失败：内存已追加压缩而磁盘未提交，不能�
     await rename(f.sessionFile, backup);
     await mkdir(f.sessionFile); // 真实文件系统拒绝追加，不修改 Pi 实现或伪造异常。
     await assert.rejects(f.actual.compact(), /EISDIR/);
-    assert.equal(f.actual.sessionManager.getBranch().filter(entry => entry.type === 'compaction').length, 1);
+    assert.equal(f.actual.sessionManager.getBranch().filter(entry => entry.type === 'compaction').length, 0);
     assert.equal(f.actual.messages.some(message => message.role === 'compactionSummary'), false, 'Agent 消息尚未替换');
     assert.equal(await readFile(backup, 'utf8'), before);
     const memoryCompactionsAfterError = f.actual.sessionManager.getBranch().filter(entry => entry.type === 'compaction').length;
@@ -219,7 +232,7 @@ test('Pi 持久写入失败：内存已追加压缩而磁盘未提交，不能�
     assert.equal(await readFile(f.sessionFile, 'utf8'), before);
     observations.push({ scenario: 'native-persistence-failure', fault: '真实 EISDIR', memoryCompactionsAfterError, agentContextReplacedAfterError,
       persistedCompactionsAfterReopen: f.actual.sessionManager.getBranch().filter(entry => entry.type === 'compaction').length,
-      beforeFileSha256: digest(before), afterFileSha256: digest(await readFile(f.sessionFile, 'utf8')), nativeAutomaticRollback: false });
+      beforeFileSha256: digest(before), afterFileSha256: digest(await readFile(f.sessionFile, 'utf8')), nativeAutomaticRollback: memoryCompactionsAfterError === 0 });
   } finally { await f.close(); }
 });
 
@@ -231,7 +244,7 @@ test('Pi 真实请求携带系统、工具、工具结果、资料和图片；�
     assert.ok(assistant.role === 'assistant');
     f.actual.sessionManager.appendMessage({ ...assistant, content: [{ type: 'toolCall', id: 'controlled-call', name: 'read', arguments: { path: 'controlled.txt' } }] });
     f.actual.sessionManager.appendMessage({ role: 'toolResult', toolCallId: 'controlled-call', toolName: 'read', content: [{ type: 'text', text: '受控工具结果' }], isError: false, timestamp: Date.now() });
-    f.actual.agent.state.messages = f.actual.sessionManager.buildSessionContext().messages;
+    f.actual.refreshContext();
     await f.actual.sendCustomMessage({ customType: 'controlled-context', content: '受控资料', display: false });
     await f.actual.prompt('包含图片的受控请求', { images: [{ type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==' }] });
     const context = f.contexts.at(-1)!;
@@ -315,7 +328,7 @@ test('应用快照：后续回复缺失输入统计或同名模型被重新配�
       } else {
         f.actual.sessionManager.appendModelChange(f.model.provider, f.model.id);
       }
-      f.actual.agent.state.messages = f.actual.sessionManager.buildSessionContext().messages;
+      f.actual.refreshContext();
       const state = readPiContext('controlled', f.resources.session, f.config.model, '2026-10-26T00:00:00.000Z');
       assert.equal(state.current.source, 'unavailable');
       assert.equal(state.current.tokens, null);
@@ -387,6 +400,10 @@ test('可靠原生链路：失败、取消及无内容均核对磁盘并恢复�
       assert.equal(reconcilePiCompaction(identity(f), op).status, result.status, '取消与无内容的回执可恢复');
       f.setMode('success');
       await f.actual.prompt('操作终结后继续');
+      const request = JSON.stringify(f.contexts.at(-1)!.messages);
+      assert.match(request, /操作终结后继续/);
+      if (scenario !== 'empty') assert.match(request, /受控早期消息 0/);
+      assert.doesNotMatch(request, /compactionSummary/);
       assert.equal(reconcilePiCompaction(identity(f), op).status, result.status, '后续追加不改变原终态');
       f.seed();
       assert.equal((await f.resources.session.compactContext!(operation(f, 'later-operation'))).status, 'succeeded');
@@ -578,4 +595,21 @@ test('原生证据无法保存时不调用模型，前置拒绝准确标为未�
     assert.equal(stale.value.commitState, 'not-committed');
     assert.equal(f.requests, 0);
   } finally { adapter.dispose(); await f.close(); }
+});
+
+test('Pi 1.5.2 按原 ID 和路径恢复 Pi 0.85.1 实际写出的会话', async () => {
+  const f = await fixture(true);
+  try {
+    const sample = await readFile(new URL('./fixtures/pi-0.85.1-session.jsonl', import.meta.url), 'utf8');
+    const header = JSON.parse(sample.split('\n')[0]!);
+    assert.equal(f.actual.sessionId, header.id);
+    assert.equal(f.actual.sessionFile, join(f.sessionDir, 'pi-0.85.1-session.jsonl'));
+    assert.equal(await readFile(f.sessionFile, 'utf8'), sample);
+    await f.resources.session.prompt('继续旧会话');
+    const messages = JSON.stringify(f.contexts.at(-1)!.messages);
+    assert.match(messages, /legacy user context/);
+    assert.match(messages, /legacy assistant context/);
+    assert.match(messages, /继续旧会话/);
+    assert.ok((await readFile(f.sessionFile, 'utf8')).startsWith(sample));
+  } finally { await f.close(); }
 });

@@ -1,0 +1,5 @@
+{"type":"session","version":3,"id":"01a1ef81-13e8-763f-b0ce-ae951640328e","timestamp":"2026-11-18T16:32:56.298Z","cwd":"/pi-0.85.1-fixture"}
+{"type":"model_change","id":"bfd47f50","parentId":null,"timestamp":"2026-11-18T16:32:56.298Z","provider":"openai","modelId":"gpt-6.2-sol"}
+{"type":"thinking_level_change","id":"e593682c","parentId":"bfd47f50","timestamp":"2026-11-18T16:32:56.299Z","thinkingLevel":"off"}
+{"type":"message","id":"f5c4395d","parentId":"e593682c","timestamp":"2026-11-18T16:32:56.299Z","message":{"role":"user","content":[{"type":"text","text":"legacy user context"}],"timestamp":1795019576299}}
+{"type":"message","id":"76b1f0da","parentId":"f5c4395d","timestamp":"2026-11-18T16:32:56.299Z","message":{"role":"assistant","content":[{"type":"text","text":"legacy assistant context"}],"api":"openai-responses","provider":"openai","model":"gpt-6.2-sol","usage":{"input":16,"output":5,"cacheRead":0,"cacheWrite":0,"totalTokens":21,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1795019576299}}

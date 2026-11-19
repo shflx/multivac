@@ -780,11 +780,12 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         getActiveBranch: () => result.session.sessionManager.getBranch(),
         getContextUsage: () => result.session.getContextUsage(),
         estimateContextTokens: () => {
-          const { systemPrompt, tools, messages } = result.session.agent.state;
+          const { tools, messages } = result.session.agent.state;
+          const systemPrompt = result.session.systemPrompt;
           // 与 Pi 消息估算同一口径：字符数 / 4。
           const promptChars = systemPrompt.length + tools.reduce((sum, tool) =>
             sum + tool.name.length + tool.description.length + JSON.stringify(tool.parameters).length, 0);
-          return Math.ceil(promptChars / 4) + messages.reduce((sum, message) => sum + estimateTokens(message), 0);
+          return Math.ceil(promptChars / 4) + messages.reduce((sum, message) => sum + (message.role === 'system' ? 0 : estimateTokens(message)), 0);
         },
         compactContext: operation => compactPiContext(result.session, operation),
         prompt: (text, options) => result.session.prompt(text, options),
