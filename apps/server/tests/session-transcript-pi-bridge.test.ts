@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { getCurrentTools, type StreamFunction } from '@earendil-works/pi-ai';
 import { createAgentSession, ModelRuntime, SessionManager } from '@earendil-works/pi-coding-agent';
 import { GLOBAL_ASSISTANT_SESSION_ID, type CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { InternalToolService, MULTIVAC_INTERNAL_TOOLS, WORK_SESSION_TASK_TOOLS } from '../src/application/internal-tools/index.js';
@@ -67,14 +68,14 @@ test('真实Pi桥接：全局实际工具集合经受控脚本从最近预览定
       await runtime.setRuntimeApiKey('openai', 'controlled-test-only');
       return new Proxy(runtime, { get(target, key) {
         if (key === 'getModel') return () => controlledModel;
-        if (key === 'streamSimple') return (model: unknown, context: any, options: any) => {
-          declaredTools.push(context.tools.map((t: any) => t.name));
+        if (key === 'streamSimple') return ((model, context, options) => {
+          declaredTools.push(getCurrentTools(context.messages).map(tool => tool.name));
           let command: { name: string; arguments: Record<string, unknown> } | null = null;
           if (step++ === 0) command = { name: 'read_session_recent', arguments: { sessionId: 'target' } };
           else {
             const last = context.messages.at(-1);
-            assert.equal(last.role, 'toolResult'); assert.equal(last.isError, false);
-            const resultText = last.content.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
+            assert.ok(last && last.role === 'toolResult'); assert.equal(last.isError, false);
+            const resultText = last.content.filter(p => p.type === 'text').map(p => p.text).join('');
             assert.ok(resultText.length <= 12_000);
             assert.doesNotMatch(resultText, /third-private-entry|third-private-session|target\.jsonl|sourceRuntimeEntryId|秘密思考|原始工具输入|工具输出机密/);
             const page = JSON.parse(resultText);
@@ -101,7 +102,7 @@ test('真实Pi桥接：全局实际工具集合经受控脚本从最近预览定
             : { id: 'final', type: 'message', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: '受控脚本已读至T9和末尾依赖。', annotations: [] }] };
           const response = controlledFetch([...completedItems([item]), terminal('response.completed', {}, [item])]);
           return responsesSDK.streamSimple(model, context, { ...options, apiKey: 'controlled-test-only', fetch: response.fetch });
-        };
+        }) satisfies StreamFunction;
         const value = Reflect.get(target, key, target);
         return typeof value === 'function' ? value.bind(target) : value;
       } });
