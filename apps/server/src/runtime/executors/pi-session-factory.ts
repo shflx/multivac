@@ -809,11 +809,15 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
             turnInstructions = previous.instructions;
             agent.state.model = previous.model;
             agent.state.thinkingLevel = previous.thinkingLevel;
-            // Pi 会用最新助手消息中的模型恢复会话。临时模型生成过回复后，显式记录原模型，
-            // 让落盘对账与重开仍指向原选择；未生成回复时不增加无意义的 transcript 记录。
-            const persisted = buildSessionContext(result.session.sessionManager.getBranch());
+            // Pi 可能从临时助手回复恢复模型，也会在发送前记录临时推理等级。
+            // 仅补写与原选择不一致的记录，保证落盘对账与重开都能恢复原选择。
+            const sessionManager = result.session.sessionManager;
+            const persisted = buildSessionContext(sessionManager.getBranch());
             if (previous.model && (persisted.model?.provider !== previous.model.provider || persisted.model.modelId !== previous.model.id)) {
-              result.session.sessionManager.appendModelChange(previous.model.provider, previous.model.id);
+              sessionManager.appendModelChange(previous.model.provider, previous.model.id);
+            }
+            if (persisted.thinkingLevel !== previous.thinkingLevel) {
+              sessionManager.appendThinkingLevelChange(previous.thinkingLevel);
             }
           };
           // 只临时更新 Agent 的模型与推理等级。受控扩展在 before_agent_start 投影本轮指令。
