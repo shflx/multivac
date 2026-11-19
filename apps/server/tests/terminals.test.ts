@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { Project, ProjectTerminal } from '@multivac/contracts';
+import { TERMINAL_MIGRATION } from '../src/storage/sqlite-terminal-repository.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
 import { PreferencesService } from '../src/application/preferences-service.js';
 import { assertTerminalConnection, assertTerminalOperation, assertTerminalOwner, selectTerminalDirectory } from '../src/modules/terminals/terminal-record.js';
@@ -56,6 +58,32 @@ test('终端：SQLite持久化预设和元数据，重开后旧实例不能覆�
     assert.equal(store.terminals.list('p').length, 0);
     assert.equal(store.terminals.list('p', true).length, 1);
   } finally { store.close(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('终端：升级时保留旧项目记录，列表隔离日常与项目', () => {
+  const root = mkdtempSync(join(tmpdir(), 'multivac-terminal-migration-'));
+  const path = join(root, 'metadata.sqlite');
+  try {
+    const setup = new SqliteAssistantStore(path);
+    createProject(setup);
+    setup.close();
+    const legacy = new DatabaseSync(path, { enableForeignKeyConstraints: true });
+    try {
+      // 第 73 版将旧项目终端表迁移为按工作区归属。
+      legacy.exec(`DROP TABLE workspace_terminal; DELETE FROM schema_migrations WHERE version >= 73; ${TERMINAL_MIGRATION}`);
+      legacy.prepare('INSERT INTO project_terminal VALUES (?, ?, ?)').run(initial.terminalId, project.projectId, JSON.stringify(initial));
+    } finally { legacy.close(); }
+
+    const upgraded = new SqliteAssistantStore(path);
+    try {
+      const daily = { ...initial, terminalId: 'daily', projectId: null, directory: '/work/terminals' };
+      upgraded.terminals.insert(daily);
+      assert.deepEqual(upgraded.terminals.list('default'), [daily]);
+      assert.deepEqual(upgraded.terminals.list(project.projectId), [initial]);
+      assert.deepEqual(upgraded.terminals.get(initial.terminalId), initial);
+      assert.throws(() => upgraded.terminals.replace({ ...daily, projectId: project.projectId }, daily.instanceId), /归属/u);
+    } finally { upgraded.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
 test('终端：列表按最近活动排序，元数据更新不能改变身份或原命令', () => {

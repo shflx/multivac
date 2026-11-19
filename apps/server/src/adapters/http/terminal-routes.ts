@@ -26,7 +26,7 @@ export function createTerminalRoutes(service: TerminalService) {
       if (!match) throw new TerminalError(404, '终端接口不存在。');
       const [, id, action] = match;
       let value: unknown;
-      if (request.method === 'POST' && id === 'list' && !action && Check(ListTerminalsSchema, body)) value = { terminals: service.list(body.projectId, body.includeClosed) };
+      if (request.method === 'POST' && id === 'list' && !action && Check(ListTerminalsSchema, body)) value = { terminals: service.list('workspaceId' in body ? body.workspaceId : body.projectId, body.includeClosed) };
       else if (request.method === 'POST' && !id && Check(CreateTerminalSchema, body)) value = { terminal: await service.open(body) };
       else if (request.method === 'PATCH' && id && !action && Check(RenameTerminalSchema, body)) value = { terminal: service.rename(id, body.title) };
       else if (request.method === 'POST' && id && action === 'get' && Check(GetTerminalSchema, body)) value = { terminal: service.get(id) };
@@ -39,7 +39,7 @@ export function createTerminalRoutes(service: TerminalService) {
     } catch (error) {
       const status = error instanceof TerminalError ? error.status : error instanceof RequestBodyTooLargeError ? 413 : error instanceof SyntaxError ? 400 : 500;
       json(response, status, { error: { code: status === 404 ? 'NOT_FOUND' : status === 409 ? 'COMMAND_STATE_MISMATCH' : 'INVALID_REQUEST',
-        message: error instanceof TerminalError ? error.message : status === 500 ? '终端操作失败，请检查项目目录及进程状态。' : '终端请求体无效或超过上限。' } });
+        message: error instanceof TerminalError ? error.message : status === 500 ? '终端操作失败，请检查启动目录及进程状态。' : '终端请求体无效或超过上限。' } });
     }
     return true;
   };

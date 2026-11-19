@@ -1,10 +1,10 @@
-# 项目终端数据与传输契约
+# 工作区终端数据与传输契约
 
 PTY、HTTP/WebSocket 与独立界面已接入。使用方式、固定依赖和验证入口见 [项目终端](terminals.md)；本文件维护数据与传输契约。
 
 ## 对象与持久化
 
-`ProjectTerminal` 独立于会话和任务，以 `terminalId` 标识用户看到的终端，以 `instanceId` 标识一次进程运行。SQLite 的 `project_terminal` 表只接受 `ProjectTerminalSchema` 白名单字段：项目、原目录、标题、启动预设与 argv、状态、创建及活动时间、关闭时间、最近退出、未读与通知计数。不保存 PID、连接、水位、输入、输出或快照。自定义命令预设通过全局偏好的 `terminalCommandPresets` 保存。
+`ProjectTerminal` 独立于会话和任务，以 `terminalId` 标识用户看到的终端，以 `instanceId` 标识一次进程运行。SQLite 的 `workspace_terminal` 表按 `workspace_id` 保存终端，只接受 `ProjectTerminalSchema` 白名单字段：项目、原目录、标题、启动预设与 argv、状态、创建及活动时间、关闭时间、最近退出、未读与通知计数。项目终端保留原 `projectId`，日常终端的 `projectId` 为 `null`，归属默认工作区 `default`。升级时旧项目记录原样迁移。不保存 PID、连接、水位、输入、输出或快照。自定义命令预设通过全局偏好的 `terminalCommandPresets` 保存。
 
 `blank` 只开交互 shell；`claude` 与 `codex` 保存各自 argv；`custom` 分别保存 executable 与 argv。调用层必须逐参数转义后在 shell 内执行，不能把 argv 直接拼为命令文本。图标始终取预设，不识别前台程序。
 
@@ -20,14 +20,16 @@ PTY、HTTP/WebSocket 与独立界面已接入。使用方式、固定依赖和�
 
 | 路径与方法 | 参数 | 返回与语义 |
 | --- | --- | --- |
-| POST /api/terminals/list | ListTerminalsSchema；includeClosed 默认 false | `{ terminals }`，按 lastActivityAt 降序、terminalId 稳定排序；重连必须重读 |
+| POST /api/terminals/list | ListTerminalsSchema；includeClosed 默认 false | `{ terminals }`，仅列出指定工作区；按 lastActivityAt 降序、terminalId 稳定排序；重连必须重读 |
 | POST /api/terminals/:id/get | GetTerminalSchema（空对象） | `{ terminal }` |
-| POST /api/terminals | CreateTerminalSchema | `{ terminal }`；默认项目第一个目录，只能选择当前登记目录；实际存在性在启动时复核 |
+| POST /api/terminals | CreateTerminalSchema | `{ terminal }`；项目默认使用主目录，也可选择已登记目录；日常目录由服务端分配 |
 | PATCH /api/terminals/:id | RenameTerminalSchema | `{ terminal }`；更新标题 |
 | POST /api/terminals/:id/end | EndTerminalSchema | `{ terminal }`；实例匹配且未关闭；终态不可再次结束；信号发出后仍是 stopping，无法证实退出为 stop-unconfirmed |
 | POST /api/terminals/:id/close | CloseTerminalSchema | `{ terminal }`；运行中必须 confirmRunning=true，经结束及停止核对后才能写 closedAt；失败保留未关闭状态 |
-| POST /api/terminals/:id/reopen | ReopenTerminalSchema | `{ terminal }`；旧实例已结束，再校验项目、原目录，创建新实例；不是恢复 CLI 会话 |
+| POST /api/terminals/:id/reopen | ReopenTerminalSchema | `{ terminal }`；旧实例已结束，复核归属和原目录，创建新实例 |
 | POST /api/terminals/:id/read | ReadTerminalSchema | `{ terminal }`；实例匹配且未关闭，清除未读和通知 |
+
+创建和列表接受 `workspaceId`，项目调用仍可传 `projectId`。日常终端通过 `workspaceId: "default"` 创建，在工作文件根目录下共用 `terminals/`，服务端按需创建该目录。日常请求不能指定 `directory`。重开使用记录中的原目录，目录不可用时返回错误。
 
 浏览器同源 GET 可能不发送 Origin，且脚本不能自行设置该请求头。因此终端列表、详情也使用 application/json 的 POST，通过浏览器自动携带 Origin；仍拒绝所有缺 Origin 的终端请求。
 

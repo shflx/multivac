@@ -300,6 +300,8 @@ test('远程HTTP/SSE：实时与回放/JSON补漏一致，退出/轮换/关闭�
       const project = (await http(f.port, '/api/projects', 'POST', { name: '终端远程隔离' })).body.project;
       const terminal = f.app.terminals.create({ projectId: project.projectId, preset: { kind: 'custom', executable: '/bin/echo', argv: ['TERMINAL-PRIVATE-OUTPUT'] }, size: { cols: 80, rows: 24 } });
       await local.waitFor(messages => messages.some(item => item.event === WORKBENCH_SSE_EVENT_NAME && item.data.type === 'terminal.changed'));
+      assert.equal((await http(f.port, '/api/terminals/list', 'POST', { workspaceId: 'default' }, headers)).status, 403);
+      assert.equal((await http(f.port, '/api/terminals', 'POST', { workspaceId: 'default', preset: { kind: 'blank' }, size: { cols: 80, rows: 24 } }, headers)).status, 403);
       assert.equal((await http(f.port, `/api/terminals/${terminal.terminalId}/get`, 'POST', {}, headers)).status, 403);
       const socket = new WebSocket(`ws://127.0.0.1:${f.port}/api/terminals/${terminal.terminalId}/stream`, { headers });
       await new Promise<void>((resolve, reject) => {

@@ -16,7 +16,7 @@ function fixture() {
   let terminal = { ...record };
   let get = () => terminal;
   const services = testToolServices({
-    projects: { listWorkspaces: () => ({ workspaces: [{ workspaceId: 'project', name: '当前项目', project: { projectId: 'project', name: '当前项目' } }] }) },
+    projects: { listWorkspaces: () => ({ workspaces: [{ workspaceId: 'default', name: '默认工作区', project: null }, { workspaceId: 'project', name: '当前项目', project: { projectId: 'project', name: '当前项目' } }] }) },
     sessions: { list: () => ({ sessions: [] }), presentedScene: () => ({ scene: { parallelCount: 2, viewMode: 'focus', slots: [], focusedSessionId: null } }) },
     terminals: { get: () => get() },
   } as unknown as InternalToolServices);
@@ -53,6 +53,15 @@ test('工作会话当前视图明确报告终端和读取方式，不回退为�
   assert.equal((await f.invoke({ terminalId: 'terminal' })).ok, false);
 });
 
+test('当前视图核对日常终端的默认工作区归属', async () => {
+  const f = fixture();
+  f.setView({ ...view, workspace: { ...view.workspace!, workspaceId: 'default' } });
+  f.setRecord({ ...record, projectId: null });
+  const outcome = await f.invoke();
+  assert.equal(outcome.ok, true);
+  if (outcome.ok) assert.match(outcome.content, /当前焦点终端.*"terminalId":"terminal"/u);
+});
+
 test('当前视图在来源未核定或被撤销后不读取终端元数据，也不回退为焦点会话', async () => {
   const f = fixture();
   let lookups = 0;
@@ -83,14 +92,14 @@ test('当前终端失效、跨项目、服务缺失均如实说明，旧客户�
   f.setGet(() => ({ ...record, projectId: 'other-project' }));
   outcome = await f.invoke();
   assert.equal(outcome.ok, true);
-  if (outcome.ok) { assert.match(outcome.content, /与当前工作区项目不一致/u); assert.doesNotMatch(outcome.content, /read_terminal_|当前终端/u); }
+  if (outcome.ok) { assert.match(outcome.content, /终端不属于当前工作区/u); assert.doesNotMatch(outcome.content, /read_terminal_|当前终端/u); }
   // 服务暂时不可用不能冒充对象已不存在。
   f.setGet(() => { throw new Error('终端服务故障'); });
   assert.equal((await f.invoke()).ok, false);
   f.services.terminals = undefined;
   outcome = await f.invoke();
   assert.equal(outcome.ok, true);
-  if (outcome.ok) assert.match(outcome.content, /不支持项目终端，无法核对/u);
+  if (outcome.ok) assert.match(outcome.content, /不支持终端，无法核对/u);
   let hiddenLookups = 0;
   f.services.terminals = { get: () => { hiddenLookups++; return record; } } as NonNullable<InternalToolServices['terminals']>;
   for (const next of [{ ...view, panel: 'home' as const }, { ...view, panel: 'management' as const },

@@ -11,12 +11,16 @@ test('终端：尺寸、预设及创建参数严格校验', () => {
   for (const size of [{ cols: 9, rows: 4 }, { cols: 241, rows: 4 }, { cols: 80, rows: 3 }, { cols: 80, rows: 101 }, { cols: 80.5, rows: 24 }]) assert.equal(Check(TerminalSizeSchema, size), false);
   const request = { projectId: 'project', preset: { kind: 'custom', executable: 'printf', argv: ['%s', 'a b', "a'b", ''] }, size: { cols: 80, rows: 24 } };
   assert.ok(Check(CreateTerminalSchema, request));
+  const { projectId, ...fields } = request;
+  assert.ok(Check(CreateTerminalSchema, { workspaceId: 'default', ...fields }));
+  assert.equal(Check(CreateTerminalSchema, { workspaceId: 'default', projectId, ...fields }), false);
   for (const patch of [{ directory: '../outside' }, { preset: { kind: 'blank', argv: [] } }, { preset: { kind: 'custom', executable: ' ', argv: [] } }, { preset: { kind: 'codex', argv: ['\0'] } }, { title: ' ' }, { taskId: 'task' }]) assert.equal(Check(CreateTerminalSchema, { ...request, ...patch }), false);
   assert.equal(Check(TerminalCommandPresetsSchema, [{ presetId: 'p', title: '自定义', command: request.preset }]), true);
 });
 
 test('终端：列表与详情采用POST正文，拒绝未知筛选与实例正文', () => {
   assert.ok(Check(ListTerminalsSchema, { projectId: 'project', includeClosed: true }));
+  assert.ok(Check(ListTerminalsSchema, { workspaceId: 'default' }));
   assert.equal(Check(ListTerminalsSchema, { projectId: 'project', output: true }), false);
   assert.ok(Check(GetTerminalSchema, {}));
   assert.equal(Check(GetTerminalSchema, { pid: 123 }), false);

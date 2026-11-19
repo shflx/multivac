@@ -186,7 +186,7 @@ export const WorkbenchPreferencesChangedEventSchema = Type.Object({
 }, { additionalProperties: false });
 
 export const WorkbenchEventSchema = Type.Union([
-  Type.Object({ type: Type.Literal('terminal.changed'), seq: Seq, projectId: Type.String() }, { additionalProperties: false }),
+  Type.Object({ type: Type.Literal('terminal.changed'), seq: Seq, workspaceId: Type.String() }, { additionalProperties: false }),
   Type.Object({ type: Type.Literal('web-settings.changed'), seq: Seq }, { additionalProperties: false }),
   // 只通知重读；null 表示所有会话的展示状态可能变化。
   Type.Object({ type: Type.Literal('session-context.changed'), seq: Seq, sessionId: Type.String() }, { additionalProperties: false }),

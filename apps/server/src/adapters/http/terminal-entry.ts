@@ -10,13 +10,13 @@ export function isTerminalPath(path: string): boolean {
 /** 必须在读取终端、创建进程或附着前调用。HTTP 与 upgrade 采用相同身份及来源门禁。 */
 export function terminalEntryDenial(request: IncomingMessage, access: RemoteAccess,
   platform: Pick<NodeJS.Process, 'platform' | 'arch'> = process): string | null {
-  if (platform.platform !== 'darwin' || platform.arch !== 'arm64') return '项目终端仅支持 macOS arm64 本机桌面。';
+  if (platform.platform !== 'darwin' || platform.arch !== 'arm64') return '终端仅支持 macOS arm64 本机桌面。';
   const identity = access.identify(request);
   if (identity?.kind !== 'local' || !identity.authenticated || isRemoteRequest(request) || !access.allowsLocalEntry(request, true)) {
-    return '项目终端只允许有效的本机桌面来源。';
+    return '终端只允许有效的本机桌面来源。';
   }
   if (request.headers['sec-ch-ua-mobile'] === '?1' || /Android|iPhone|iPad|iPod|Mobile/iu.test(request.headers['user-agent'] ?? '')) {
-    return '项目终端仅支持本机桌面。';
+    return '终端仅支持本机桌面。';
   }
   return null;
 }

@@ -180,7 +180,6 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'project',
       'project_directory',
       'project_resource',
-      'project_terminal',
       'reading_annotation',
       'reading_annotation_command',
       'reading_book',
@@ -236,6 +235,7 @@ test('SQLite 完成迁移、binding/page state revision 并支持关闭后恢复
       'tool_authorization_request',
       'workspace',
       'workspace_scene',
+      'workspace_terminal',
     ].sort());
     assert.equal(schema.some((row) => /message_body|message_text|tool_payload/u.test(row.sql)), false);
   } finally {
@@ -488,7 +488,6 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'project',
       'project_directory',
       'project_resource',
-      'project_terminal',
       'reading_annotation',
       'reading_annotation_command',
       'reading_book',
@@ -544,6 +543,7 @@ test('两个独立进程并发启动时只执行一次完整 migration', async (
       'tool_authorization_request',
       'workspace',
       'workspace_scene',
+      'workspace_terminal',
     ].sort());
   } finally {
     if (lock.isOpen) {

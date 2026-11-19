@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { statSync } from 'node:fs';
-import { agentSessionTrackable, terminalIsActive, type CreateTerminal, type Project, type ProjectTerminal, type TerminalPreset, type TerminalExit, type TerminalSize } from '@multivac/contracts';
+import { mkdirSync, realpathSync, statSync } from 'node:fs';
+import { canonicalRuntimePath } from '../runtime-config.js';
+import { DEFAULT_WORKSPACE_ID, agentSessionTrackable, terminalIsActive, terminalWorkspaceId, type CreateTerminal, type Project, type ProjectTerminal, type TerminalPreset, type TerminalExit, type TerminalSize } from '@multivac/contracts';
 import { assertTerminalOperation, selectTerminalDirectory, type TerminalRepository } from '../modules/terminals/terminal-record.js';
 import { TerminalScreen } from '../modules/terminals/terminal-screen.js';
 import type { CodexThreads } from '../modules/terminals/codex-threads.js';
@@ -36,7 +37,7 @@ export class TerminalService {
   /** 当前 Codex app-server 的终端连接地址；不可用时为 null，Codex 以普通方式启动。 */
   private codexEndpoint: string | null = null;
   /** codexThreads 缺省时不跟踪 Codex 会话（Claude Code 的会话 ID 由 Multivac 生成，不依赖它）。 */
-  constructor(readonly repository: TerminalRepository, private readonly project: (id: string) => Project, private readonly events: WorkbenchEvents, private readonly createProcess: TerminalProcessFactory, private readonly codexThreads?: CodexThreads) {
+  constructor(readonly repository: TerminalRepository, private readonly project: (id: string) => Project, private readonly events: WorkbenchEvents, private readonly createProcess: TerminalProcessFactory, private readonly codexThreads?: CodexThreads, private readonly dailyDirectory?: string) {
     repository.endInterrupted(new Date().toISOString());
     this.unsubscribe = events.subscribe(event => {
       if (event.type !== 'workspace.changed' || !event.workspace.project) return;
@@ -47,7 +48,10 @@ export class TerminalService {
     });
   }
   get(id: string): ProjectTerminal { const record = this.repository.get(id); if (!record) throw new TerminalError(404, '终端不存在。'); return record; }
-  list(projectId: string, includeClosed = false) { this.requireProject(projectId); return this.repository.list(projectId, includeClosed); }
+  list(workspaceId: string, includeClosed = false) {
+    if (workspaceId !== DEFAULT_WORKSPACE_ID) this.requireProject(workspaceId);
+    return this.repository.list(workspaceId, includeClosed);
+  }
   runtime(id: string): TerminalRuntime | undefined { return this.runtimes.get(this.get(id).instanceId); }
   /** 模型读取不标记已读，不附着窗口，也不改变拥有者、尺寸或 PTY 流控。 */
   async readScreen(id: string, cursor?: string) {
@@ -72,7 +76,7 @@ export class TerminalService {
   }
   private save(record: ProjectTerminal): ProjectTerminal {
     if (!this.repository.replace(record, record.instanceId)) throw new TerminalError(409, '终端实例已变更。');
-    this.events.publish({ type: 'terminal.changed', projectId: record.projectId }); return record;
+    this.events.publish({ type: 'terminal.changed', workspaceId: terminalWorkspaceId(record) }); return record;
   }
   private requireProject(id: string): Project {
     try { const project = this.project(id); if (project) return project; } catch { /* 统一映射不存在的项目。 */ }
@@ -88,10 +92,32 @@ export class TerminalService {
     }
     throw new TerminalError(400, '终端目录不存在或不是目录。');
   }
+  private createDirectory(workspaceId: string, directory?: string): string {
+    if (workspaceId !== DEFAULT_WORKSPACE_ID) return this.directory(workspaceId, directory);
+    if (directory !== undefined) throw new TerminalError(400, '日常终端的启动目录由 Multivac 分配。');
+    const selected = this.dailyDirectory;
+    try {
+      // 允许首次创建目录，但拒绝指向其他位置的符号链接。
+      if (!selected || canonicalRuntimePath(selected) !== selected) throw new Error();
+      mkdirSync(selected, { recursive: true });
+      return this.originalDirectory({ projectId: null, directory: selected });
+    } catch {
+      throw new TerminalError(400, '日常终端目录不可用，请检查 Multivac 工作文件目录。');
+    }
+  }
+
+  private originalDirectory(record: Pick<ProjectTerminal, 'projectId' | 'directory'>): string {
+    if (record.projectId !== null) return this.directory(record.projectId, record.directory);
+    try {
+      if (realpathSync.native(record.directory) === record.directory && statSync(record.directory).isDirectory()) return record.directory;
+    } catch { /* 缺失目录也不能改用当前配置的日常目录。 */ }
+    throw new TerminalError(400, '日常终端的原启动目录不可用。');
+  }
+
   /** 新建终端（入口）：Codex 先在 app-server 中创建并命名会话，取得 ID 后再启动；app-server 不可用时以普通方式启动。 */
   async open(input: CreateTerminal): Promise<ProjectTerminal> {
     if (input.preset.kind === 'codex' && agentSessionTrackable(input.preset) && this.codexThreads) {
-      const directory = this.directory(input.projectId, input.directory);
+      const directory = this.createDirectory('workspaceId' in input ? input.workspaceId : input.projectId, input.directory);
       const sessionId = await this.codexSession(directory, terminalTitle(input));
       return this.create(input, sessionId ?? undefined);
     }
@@ -100,10 +126,11 @@ export class TerminalService {
   /** 新建终端；codexSessionId 为已在 app-server 中创建的 Codex 会话。 */
   create(input: CreateTerminal, codexSessionId?: string): ProjectTerminal {
     if (this.closing) throw new TerminalError(409, '终端服务正在退出。');
-    const directory = this.directory(input.projectId, input.directory);
+    const workspaceId = 'workspaceId' in input ? input.workspaceId : input.projectId;
+    const directory = this.createDirectory(workspaceId, input.directory);
     const now = new Date().toISOString();
     const agentSessionId = !agentSessionTrackable(input.preset) ? null : input.preset.kind === 'claude' ? randomUUID() : codexSessionId ?? null;
-    const record: ProjectTerminal = { terminalId: randomUUID(), instanceId: randomUUID(), projectId: input.projectId, directory, preset: input.preset,
+    const record: ProjectTerminal = { terminalId: randomUUID(), instanceId: randomUUID(), projectId: workspaceId === DEFAULT_WORKSPACE_ID ? null : workspaceId, directory, preset: input.preset,
       title: terminalTitle(input), status: 'starting', lastExit: null, createdAt: now, instanceStartedAt: now, lastActivityAt: now, closedAt: null,
       unread: false, notificationCount: 0, agentSessionId };
     this.repository.insert(record); return this.start(record, input.size, 'new');
@@ -226,7 +253,7 @@ export class TerminalService {
     const record = this.get(id);
     if (record.preset.kind === 'codex' && agentSessionTrackable(record.preset) && this.codexThreads) {
       this.assert(record, instance, 'reopen');
-      const sessionId = await this.codexSession(this.directory(record.projectId, record.directory), record.title, mode === 'resume' ? record.agentSessionId ?? null : null);
+      const sessionId = await this.codexSession(this.originalDirectory(record), record.title, mode === 'resume' ? record.agentSessionId ?? null : null);
       return this.reopen(id, instance, size, mode, sessionId ?? undefined);
     }
     return this.reopen(id, instance, size, mode);
@@ -234,7 +261,7 @@ export class TerminalService {
   /** 重开：用原目录与原命令创建新实例；coding agent 默认接回记录的会话，new 时开始新会话。 */
   reopen(id: string, instance: string, size: TerminalSize, mode: 'resume' | 'new' = 'resume', codexSessionId?: string) {
     if (this.closing) throw new TerminalError(409, '终端服务正在退出。');
-    const record = this.get(id); this.assert(record, instance, 'reopen'); this.directory(record.projectId, record.directory);
+    const record = this.get(id); this.assert(record, instance, 'reopen'); this.originalDirectory(record);
     this.release(instance);
     const now = new Date().toISOString();
     const trackable = agentSessionTrackable(record.preset);
@@ -253,7 +280,7 @@ export class TerminalService {
     runtime.process.dispose(); clearTimeout(runtime.metadataTimer); runtime.screen.dispose(); runtime.listeners.clear(); this.runtimes.delete(instance);
   }
   async endProject(projectId: string, reason: 'project-removed' | 'directory-removed' = 'project-removed'): Promise<void> {
-    const results = await Promise.allSettled(this.list(projectId).filter(record => terminalIsActive(record.status)).map(async record => {
+    const results = await Promise.allSettled(this.repository.list(this.requireProject(projectId).projectId).filter(record => terminalIsActive(record.status)).map(async record => {
       const ended = await this.end(record.terminalId, record.instanceId, reason);
       if (terminalIsActive(ended.status)) throw new TerminalError(409, '项目终端停止尚未确认。');
     }));

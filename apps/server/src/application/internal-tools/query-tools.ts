@@ -2,6 +2,7 @@ import { Type } from 'typebox';
 import {
   MANAGEMENT_PAGE_LABELS,
   RECENT_WORKSPACE_ID,
+  terminalWorkspaceId,
   INTERNAL_TOOL_RESULT_MAX_REFS,
   type AssistantToolObjectRef,
   type CurrentViewScene,
@@ -370,10 +371,10 @@ export const getCurrentViewTool = defineInternalTool({
           // 发送后终端可能已被移除；其他服务错误不能冒充对象不存在。
           if (!(error instanceof TerminalError && error.status === 404)) throw error;
         }
-        if (!services.terminals) lines.push('- 当前焦点终端：本实例不支持项目终端，无法核对。');
+        if (!services.terminals) lines.push('- 当前焦点终端：本实例不支持终端，无法核对。');
         else if (!terminal) lines.push(`- 当前焦点终端：id 为 ${terminalId} 的受管理终端已不存在。`);
-        else if (!workspace?.project || terminal.projectId !== workspace.project.projectId) {
-          lines.push(`- 当前焦点终端：id 为 ${terminalId} 的终端与当前工作区项目不一致，不能将其作为当前焦点。`);
+        else if (!workspace || workspace.workspaceId === RECENT_WORKSPACE_ID || terminalWorkspaceId(terminal) !== workspace.workspaceId) {
+          lines.push(`- 当前焦点终端：id 为 ${terminalId} 的终端不属于当前工作区，不能将其作为当前焦点。`);
         } else {
           const mode = terminalReadableMode(terminal);
           lines.push(`- 当前焦点终端：${JSON.stringify({ terminalId, name: terminal.title, preset: terminal.preset.kind, status: terminal.status, closed: terminal.closedAt !== null, readable: mode !== null, mode })}`);

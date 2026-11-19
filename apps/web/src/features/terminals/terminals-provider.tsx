@@ -1,7 +1,7 @@
 import { rememberedTerminalSelection } from './terminal-selection.js';
 import { SquareTerminal } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { Project, ProjectTerminal, TerminalPreset } from '@multivac/contracts';
+import { terminalWorkspaceId, type Project, type ProjectTerminal, type TerminalPreset } from '@multivac/contracts';
 import { ConfirmCard } from '../../components/confirm-card.js';
 import { createTerminal, listTerminals, terminalAvailable } from '../../data/terminal-api.js';
 import { updatePreferences } from '../../data/preferences-api.js';
@@ -91,8 +91,8 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
 
   const opened = useCallback((record: ProjectTerminal) => {
     setTerminals(current => [...current.filter(item => item.terminalId !== record.terminalId), record]);
-    select({ workspaceId: record.projectId, terminalId: record.terminalId });
-    setCreated(current => ({ workspaceId: record.projectId, terminalId: record.terminalId, sequence: (current?.sequence ?? 0) + 1 }));
+    select({ workspaceId: terminalWorkspaceId(record), terminalId: record.terminalId });
+    setCreated(current => ({ workspaceId: terminalWorkspaceId(record), terminalId: record.terminalId, sequence: (current?.sequence ?? 0) + 1 }));
   }, []);
 
   /** 预设在唯一目录中直接启动；自定义命令、多个目录或启动失败时打开创建卡。 */

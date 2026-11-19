@@ -935,7 +935,8 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     events: workbenchEvents,
   });
   // Codex 会话由 Multivac 管理的 app-server 创建，终端里的 Codex 按会话 ID 以 --remote 接入。
-  const terminals = new TerminalService(store.terminals, id => projectService.getProject(id), workbenchEvents, nativeTerminalProcess, nativeCodexThreads());
+  const terminals = new TerminalService(store.terminals, id => projectService.getProject(id), workbenchEvents, nativeTerminalProcess, nativeCodexThreads(),
+    join(realpathSync.native(workPaths.workRoot), 'terminals'));
   // 项目资料：新建与复制进来的文件放在工作文件根目录的 project-resources/ 下，移除时移到废纸篓。
   const projectResources = new ProjectResourceService({ resources: store.projectResources, projects: projectService, workPaths, trash });
   /** 会话所属的项目：任务执行会话取执行或任务记录上的项目，工作会话取所在工作区的项目。 */

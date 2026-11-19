@@ -1,5 +1,6 @@
 import { Type } from 'typebox';
 import { ProjectIdSchema } from './project.js';
+import { DEFAULT_WORKSPACE_ID } from './workspace-session.js';
 
 export const TERMINAL_LIMITS = {
   minCols: 10, maxCols: 240, minRows: 4, maxRows: 100,
@@ -72,7 +73,7 @@ export type TerminalStatus = Type.Static<typeof TerminalStatusSchema>;
 
 /** SQLite 仅保存这份元数据。无 PID、连接、正文、画面、输入或 ACK 水位。 */
 export const ProjectTerminalSchema = Type.Object({
-  terminalId: Id, projectId: ProjectIdSchema, instanceId: Id, title: Title,
+  terminalId: Id, projectId: Type.Union([ProjectIdSchema, Type.Null()]), instanceId: Id, title: Title,
   directory: Type.String({ minLength: 1, maxLength: 4096, pattern: '^/[^\u0000]*$' }),
   preset: TerminalPresetSchema, status: TerminalStatusSchema,
   lastExit: Type.Union([TerminalExitSchema, Type.Null()]),
@@ -90,15 +91,25 @@ export type ProjectTerminal = Type.Static<typeof ProjectTerminalSchema>;
 export const TerminalResponseSchema = Type.Object({ terminal: ProjectTerminalSchema }, { additionalProperties: false });
 export const TerminalListResponseSchema = Type.Object({ terminals: Type.Array(ProjectTerminalSchema) }, { additionalProperties: false });
 
-export const CreateTerminalSchema = Type.Object({
-  projectId: ProjectIdSchema, directory: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, pattern: '^/[^\u0000]*$' })),
+/** 项目工作区与项目同 id；日常终端没有项目。 */
+export function terminalWorkspaceId(terminal: Pick<ProjectTerminal, 'projectId'>): string {
+  return terminal.projectId ?? DEFAULT_WORKSPACE_ID;
+}
+
+const CreateTerminalFields = {
+  directory: Type.Optional(Type.String({ minLength: 1, maxLength: 4096, pattern: '^/[^\u0000]*$' })),
   preset: TerminalPresetSchema, title: Type.Optional(Title), size: TerminalSizeSchema,
-}, { additionalProperties: false });
+};
+export const CreateTerminalSchema = Type.Union([
+  Type.Object({ workspaceId: Id, ...CreateTerminalFields }, { additionalProperties: false }),
+  Type.Object({ projectId: ProjectIdSchema, ...CreateTerminalFields }, { additionalProperties: false }),
+]);
 export type CreateTerminal = Type.Static<typeof CreateTerminalSchema>;
 /** 浏览器同源 GET 可能不携带 Origin；终端读取也用带 JSON 正文的 POST，仍严格拒绝缺 Origin。 */
-export const ListTerminalsSchema = Type.Object({
-  projectId: ProjectIdSchema, includeClosed: Type.Optional(Type.Boolean()),
-}, { additionalProperties: false });
+export const ListTerminalsSchema = Type.Union([
+  Type.Object({ workspaceId: Id, includeClosed: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+  Type.Object({ projectId: ProjectIdSchema, includeClosed: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+]);
 export const GetTerminalSchema = Type.Object({}, { additionalProperties: false });
 export const RenameTerminalSchema = Type.Object({ title: Title }, { additionalProperties: false });
 export const EndTerminalSchema = Type.Object({ instanceId: Id }, { additionalProperties: false });

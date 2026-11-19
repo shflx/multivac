@@ -4,7 +4,7 @@ import {
 
 export interface TerminalRepository {
   get(terminalId: string): ProjectTerminal | undefined;
-  list(projectId: string, includeClosed?: boolean): ProjectTerminal[];
+  list(workspaceId: string, includeClosed?: boolean): ProjectTerminal[];
   insert(record: ProjectTerminal): void;
   /** 按当前实例做比较更新；旧运行回调不得改写重新打开后的实例。 */
   replace(record: ProjectTerminal, expectedInstanceId: string): boolean;
