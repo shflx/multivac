@@ -8,6 +8,11 @@ import { listTasksTool } from '../src/application/internal-tools/task-query-tool
 import { observedModelRuntime } from '../src/runtime/executors/observed-model-runtime.js';
 import { controlledFetch, controlledModel, responsesSDK, terminal } from './fixtures/responses-stream.js';
 
+type WireTool = { strict?: boolean; parameters: { properties: Record<string, object> } };
+function wireTools(body: { tools?: WireTool[]; input?: { type: string; tools?: WireTool[] }[] }): WireTool[] {
+  return [...(body.tools ?? []), ...(body.input ?? []).flatMap(item => item.type === 'additional_tools' ? item.tools ?? [] : [])];
+}
+
 for (const strict of [undefined, true]) test(`Responses strict=${strict}：移除不支持的数组关键字，保留本地校验`, async () => {
   const { name, description, parameters } = SUBAGENT_GIT_TOOLS[0];
   const gitTool = { name, description, parameters,
@@ -20,21 +25,26 @@ for (const strict of [undefined, true]) test(`Responses strict=${strict}：移�
   const raw = { streamSimple: responsesSDK.streamSimple } as unknown as ModelRuntime;
   const runtime = observedModelRuntime(() => raw, 'session');
   const source = controlledFetch([terminal()]);
-  let body: { tools: { strict?: boolean; parameters: { properties: Record<string, object> } }[] } | undefined;
-  const model = { ...controlledModel, compat: { supportsStrictMode: strict } };
-  const response = await runtime.streamSimple(model as never, { messages: [], tools: [gitTool, nestedTool] }, {
+  let tools: WireTool[] = [];
+  const additional = strict === undefined;
+  const model = { ...controlledModel, compat: { supportsStrictMode: strict, supportsMidConvoSystemMessages: additional, supportsAdditionalTools: additional } };
+  const response = await runtime.streamSimple(model as never, { messages: [
+    { role: 'system', content: '测试工具声明', timestamp: 0, toolsAdded: [gitTool, nestedTool] },
+  ] }, {
     apiKey: 'controlled',
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-      body = JSON.parse(String(init?.body)) as NonNullable<typeof body>;
-      const paths = body.tools[0].parameters.properties.paths;
+      const body = JSON.parse(String(init?.body));
+      tools = wireTools(body);
+      assert.equal(body.input.some((item: { type: string }) => item.type === 'additional_tools'), additional);
+      const paths = tools[0]!.parameters.properties.paths;
       if ('uniqueItems' in paths) return Response.json({ error: { code: 'invalid_json_schema', message: 'Unimplemented keys: ["uniqueItems"]' } }, { status: 400 });
       return source.fetch(input, init);
     },
   }).result();
 
   assert.equal(response.stopReason, 'stop', response.errorMessage);
-  assert.ok(body);
-  const [git, nested] = body.tools;
+  const [git, nested] = tools;
+  assert.ok(git && nested);
   assert.equal(git.strict, strict ?? false);
   assert.equal(nested.strict, false);
   assert.deepEqual(git.parameters.properties.paths, { type: 'array', minItems: 1, maxItems: 100,
@@ -55,7 +65,9 @@ test('Responses 的任务查询保留可选字段，并保留调用方对请求�
   const source = controlledFetch([terminal()]);
   const { name, description, parameters } = listTasksTool;
   let body: { metadata: { trace: string }; tools: { strict?: boolean; parameters: { required?: string[] } }[] } | undefined;
-  const response = await runtime.streamSimple(controlledModel as never, { messages: [], tools: [{ name, description, parameters }] }, {
+  const response = await runtime.streamSimple(controlledModel as never, { messages: [
+    { role: 'system', content: '', timestamp: 0, toolsAdded: [{ name, description, parameters }] },
+  ] }, {
     apiKey: 'controlled',
     onPayload: async (payload) => ({ ...payload as object, metadata: { trace: 'preserved' } }),
     fetch: async (input: RequestInfo | URL, init?: RequestInit) => {

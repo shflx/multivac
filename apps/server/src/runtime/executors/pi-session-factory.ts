@@ -405,6 +405,8 @@ export async function createCoordinatorSettingsManager(
   });
   const diagnostics = settingsDiagnostics(settingsManager, 'SETTINGS_LOAD_FAILED');
 
+  // Pi 从全局层读取预热模式，不读取 applyOverrides。仅覆盖本会话的读取入口，不写入全局配置。
+  settingsManager.getCacheWarmingMode = () => 'off';
   settingsManager.applyOverrides(runtimeSettings(input.config));
 
   await settingsManager.flush();

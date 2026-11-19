@@ -84,13 +84,34 @@ function responsesToolSchema(schema: unknown): unknown {
   return adapted;
 }
 
+type ModelContext = Parameters<ModelRuntime['stream']>[1];
+
+function responsesContext(context: ModelContext): ModelContext {
+  // Pi 1.5 可以在系统消息中增量声明工具。只改请求副本，保留本地校验与会话历史。
+  const adaptTools = (tools: NonNullable<ModelContext['tools']>) => tools.map(tool => ({
+    ...tool, parameters: responsesToolSchema(tool.parameters) as typeof tool.parameters,
+  }));
+  const messages = context.messages.map(message => message.role === 'system' && message.toolsAdded?.length
+    ? { ...message, toolsAdded: adaptTools(message.toolsAdded) }
+    : message);
+  return { ...context, messages, ...(context.tools?.length ? { tools: adaptTools(context.tools) } : {}) };
+}
+
 function responsesToolStrictness(payload: unknown): unknown {
-  if (!Guard.IsObjectNotArray(payload) || !Array.isArray(payload.tools)) return payload;
-  // Pi 可能省略 strict；在发出请求前明确保留可选参数，不覆盖已声明的严格模式。
-  return { ...payload, tools: payload.tools.map((tool: unknown) =>
+  if (!Guard.IsObjectNotArray(payload)) return payload;
+  // Pi 可能省略 strict。为请求级和增量声明保留可选参数，同时保留显式严格模式。
+  const adaptTools = (tools: unknown[]) => tools.map(tool =>
     Guard.IsObjectNotArray(tool) && tool.type === 'function' && tool.strict === undefined
       ? { ...tool, strict: false }
-      : tool) };
+      : tool);
+  return {
+    ...payload,
+    ...(Array.isArray(payload.tools) ? { tools: adaptTools(payload.tools) } : {}),
+    ...(Array.isArray(payload.input) ? { input: payload.input.map((item: unknown) =>
+      Guard.IsObjectNotArray(item) && (item.type === 'additional_tools' || item.type === 'tool_search_output') && Array.isArray(item.tools)
+        ? { ...item, tools: adaptTools(item.tools) }
+        : item) } : {}),
+  };
 }
 
 /**
@@ -102,17 +123,14 @@ export function observedModelRuntime(current: () => ModelRuntime, sessionId: str
     const runtime = current();
     const value = Reflect.get(runtime, property, runtime) as unknown;
     if (['stream', 'streamSimple', 'complete', 'completeSimple'].includes(String(property)) && typeof value === 'function') {
-      return (model: DiagnosticModel, context: Parameters<ModelRuntime['stream']>[1], rawOptions: Record<string, unknown> = {}) => {
-        // Responses 不支持 uniqueItems；只调整发送给模型的声明，执行仍按原始 Schema 校验。
-        const tools = model.api === 'openai-responses' ? context.tools : undefined;
-        const requestContext = tools?.length
-          ? { ...context, tools: tools.map(tool => ({ ...tool, parameters: responsesToolSchema(tool.parameters) })) }
-          : context;
+      return (model: DiagnosticModel, context: ModelContext, rawOptions: Record<string, unknown> = {}) => {
+        const responses = model.api === 'openai-responses';
+        const requestContext = responses ? responsesContext(context) : context;
         const httpObserved = FETCH_INJECTABLE_APIS.includes(model.api ?? '');
         const options = httpObserved
           ? { ...rawOptions, fetch: idleGuardedFetch((rawOptions.fetch as typeof fetch | undefined) ?? globalThis.fetch) }
           : rawOptions;
-        if (tools?.length) {
+        if (responses) {
           const onPayload = options.onPayload as ((payload: unknown, model: unknown) => unknown) | undefined;
           options.onPayload = async (payload: unknown, requestModel: unknown) => {
             const replacement = await onPayload?.(payload, requestModel);

@@ -49,7 +49,7 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
   await mkdir(agentDir, { recursive: true });
 
   try {
-    const settingsManager = SettingsManager.create(root, agentDir, { projectTrusted: false });
+    const { settingsManager } = await createCoordinatorSettingsManager({ cwd: root, agentDir, config });
     const input = {
       settingsManager,
       systemPrompt: config.systemPrompt,
@@ -137,8 +137,12 @@ test('受控 ResourceLoader 只提供内置的目录边界扩展，访问范围�
     assert.match(taskContext.messages[0]!.content, /后台隔离任务仅使用任务独立目录/);
     assert.doesNotMatch(taskContext.messages[0]!.content, /must-not-grant/);
 
-    // reload 不改变扩展列表：不会因重新读取设置而发现本地扩展。
+    // reload 不发现扩展，也不启用磁盘配置中的预热。
+    const diskSettings = JSON.stringify({ cacheWarming: 'idle' });
+    await writeFile(join(agentDir, 'settings.json'), diskSettings);
     await injected.reload();
+    assert.equal(settingsManager.getCacheWarmingMode(), 'off');
+    assert.equal(await readFile(join(agentDir, 'settings.json'), 'utf8'), diskSettings);
     assert.deepEqual(injected.getExtensions().extensions.map((extension) => extension.path), ['<inline:multivac-tool-boundary>']);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -162,9 +166,10 @@ test('SettingsManager 使用本次 runtime 配置且不持久化覆盖值', asyn
     });
 
     assert.equal(diagnostics[0]?.code, 'SETTINGS_LOAD_FAILED');
-    assert.deepEqual(settingsManager.getRetrySettings(), config.retry);
-    assert.deepEqual(settingsManager.getCompactionSettings(), config.compaction);
+    assert.partialDeepStrictEqual(settingsManager.getRetrySettings(), config.retry);
+    assert.partialDeepStrictEqual(settingsManager.getCompactionSettings(), config.compaction);
     assert.deepEqual(settingsManager.getDefaultTools(), []);
+    assert.equal(settingsManager.getCacheWarmingMode(), 'off');
     assert.equal(await readFile(settingsPath, 'utf8'), '{ invalid json');
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -313,8 +318,8 @@ test('默认 factory 直接装配受控资源、最终 settings 和 thinking 诊
       capturedAgentOptions.resourceLoader.getExtensions().extensions.map((extension) => extension.path),
       ['<inline:multivac-tool-boundary>'],
     );
-    assert.deepEqual(settingsManager.getRetrySettings(), config.retry);
-    assert.deepEqual(settingsManager.getCompactionSettings(), config.compaction);
+    assert.partialDeepStrictEqual(settingsManager.getRetrySettings(), config.retry);
+    assert.partialDeepStrictEqual(settingsManager.getCompactionSettings(), config.compaction);
     assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'SETTINGS_LOAD_FAILED'), true);
     assert.deepEqual(result.diagnostics.find((diagnostic) => diagnostic.code === 'THINKING_LEVEL_ADJUSTED'), {
       code: 'THINKING_LEVEL_ADJUSTED',
@@ -324,8 +329,8 @@ test('默认 factory 直接装配受控资源、最终 settings 和 thinking 诊
     });
 
     await capturedAgentOptions.resourceLoader.reload();
-    assert.deepEqual(settingsManager.getRetrySettings(), config.retry);
-    assert.deepEqual(settingsManager.getCompactionSettings(), config.compaction);
+    assert.partialDeepStrictEqual(settingsManager.getRetrySettings(), config.retry);
+    assert.partialDeepStrictEqual(settingsManager.getCompactionSettings(), config.compaction);
     await assert.rejects(access(installMarker));
   } finally {
     await rm(root, { recursive: true, force: true });

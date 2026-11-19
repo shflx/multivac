@@ -78,7 +78,7 @@ function applyRuntimeOverrides(input: ControlledResourceLoaderInput): void {
 
 /**
  * 纯内存 ResourceLoader 不接触 DefaultResourceLoader 的包管理器和目录发现逻辑。
- * 扩展只有服务端内置的目录边界扩展，不加载任何用户、项目或包中的扩展。
+ * 扩展只有服务端内置的目录边界扩展。用户、项目、包及 Pi CLI 的 MCP 和 Codemode 扩展均不在加载列表中。
  * reload 只刷新公开 SettingsManager，并立即恢复本次调用的 runtime overrides。
  */
 class ControlledResourceLoader implements ResourceLoader {
