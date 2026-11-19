@@ -42,7 +42,9 @@ test('前台 bash 经 SDK 返回输出，登记会话/调用/进程身份与失�
     assert.ok(record.public.pid); assert.equal(record.public.pid, record.public.processGroupId);
     await eventually(() => assert.equal(f.service.list(true)[0]!.state, 'exited'));
     assert.equal(f.service.list().length, 0);
-    await assert.rejects(tool.execute('failure-call', { command: 'echo broken; exit 7' }, undefined, undefined, undefined as never), /code 7/);
+    const failed = await tool.execute('failure-call', { command: 'echo broken; exit 7' }, undefined, undefined, undefined as never);
+    assert.equal(failed.isError, true);
+    assert.match(JSON.stringify(failed.content), /broken.*code 7/);
     assert.equal(f.store.managedProcesses.all()[0]!.public.exitCode, 7);
     assert.match((await f.service.logs(record.public.processId)).text, /hello/);
   } finally { await f.close(); }
