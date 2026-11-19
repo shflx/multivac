@@ -91,7 +91,7 @@ test('多图保持顺序、预览切图与失效反馈', async ({ page }) => {
   await expect(page.locator('.chat-row .image-load-error')).toHaveCount(2);
 });
 
-test('预览放大：适应窗口、以中心缩放、完整可滚动与拖动平移', async ({ page }) => {
+test('预览放大：适应窗口、以中心缩放、完整可滚动与拖动平移', async ({ page }, testInfo) => {
   const large = await sharp({ create: { width: 2400, height: 1600, channels: 3, background: '#2f9e44' } }).png().toBuffer();
   await page.getByLabel('选择图片文件').setInputFiles([{ name: 'large.png', mimeType: 'image/png', buffer: large }, { name: 'small.png', mimeType: 'image/png', buffer: png }]);
   await expect(page.getByLabel('发送消息')).toBeEnabled();
@@ -112,7 +112,7 @@ test('预览放大：适应窗口、以中心缩放、完整可滚动与拖动�
   expect(fitted!.width).toBeLessThanOrEqual(box!.width);
   expect(fitted!.height).toBeLessThanOrEqual(box!.height);
   expect(await stage.evaluate(element => element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight)).toBe(true);
-  await page.screenshot({ path: 'test-results/image-preview-fit.png' });
+  await page.screenshot({ path: testInfo.outputPath('image-preview-fit.png') });
 
   // 放大后视口中心仍对准图片中心，并且可以滚动到图片左上角。
   await dialog.getByRole('button', { name: '放大图片' }).click();
@@ -122,8 +122,10 @@ test('预览放大：适应窗口、以中心缩放、完整可滚动与拖动�
   const zoomed = (await picture.boundingBox())!;
   expect(Math.abs(zoomed.x + zoomed.width / 2 - (box!.x + box!.width / 2))).toBeLessThan(4);
   expect(Math.abs(zoomed.y + zoomed.height / 2 - (box!.y + box!.height / 2))).toBeLessThan(4);
-  await page.screenshot({ path: 'test-results/image-preview-zoomed.png' });
-  await stage.evaluate(element => element.scrollTo(0, 0));
+  await page.screenshot({ path: testInfo.outputPath('image-preview-zoomed.png') });
+  await stage.hover();
+  await page.mouse.wheel(-3000, -3000);
+  await expect.poll(async () => stage.evaluate(element => [element.scrollLeft, element.scrollTop])).toEqual([0, 0]);
   const corner = (await picture.boundingBox())!;
   expect(corner.x).toBeGreaterThanOrEqual(box!.x);
   expect(corner.y).toBeGreaterThanOrEqual(box!.y);
@@ -148,14 +150,15 @@ test('预览放大：适应窗口、以中心缩放、完整可滚动与拖动�
   await page.mouse.wheel(0, -120);
   await expect(dialog).toBeVisible();
   await picture.dblclick();
-  await expect(dialog.locator('.image-preview-zoom')).toContainText('100%');
+  await expect(dialog.getByRole('group', { name: '缩放' })).toContainText('100%');
+  await page.screenshot({ path: testInfo.outputPath('image-preview-double-click-fit.png') });
 
   // 切图回到 100%；小图保持原尺寸，不被放大。
   await dialog.getByRole('button', { name: '下一张图片' }).click();
   await expect(dialog.locator('.image-preview-count')).toHaveText('2 / 2');
   await expect.poll(async () => Math.round((await picture.boundingBox())?.width ?? 0)).toBe(80);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: 'test-results/image-preview-mobile.png' });
+  await page.screenshot({ path: testInfo.outputPath('image-preview-mobile.png') });
 
   // 点击画面空白处关闭。
   await page.mouse.click(10, 300);

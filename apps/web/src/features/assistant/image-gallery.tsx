@@ -201,10 +201,11 @@ export function ImagePreview({ sources, start, close, portalRoot }: { sources: I
         }}
         onPointerDown={event => {
           // 触屏使用原生滚动；鼠标左键在放大后拖动平移。
-          if (!pannable || event.pointerType !== 'mouse' || event.button !== 0) return;
+          if (!pannable || event.pointerType !== 'mouse' || event.button !== 0 || !(event.target instanceof Element)) return;
           event.preventDefault();
           drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, left: event.currentTarget.scrollLeft, top: event.currentTarget.scrollTop, moved: false };
-          event.currentTarget.setPointerCapture(event.pointerId);
+          // 从按下的元素捕获，拖动事件仍冒泡到舞台，图片上的单击和双击保留原目标。
+          event.target.setPointerCapture(event.pointerId);
           setDragging(true);
         }}
         onPointerMove={event => {
@@ -217,7 +218,6 @@ export function ImagePreview({ sources, start, close, portalRoot }: { sources: I
         onPointerUp={event => {
           if (drag.current?.pointerId !== event.pointerId) return;
           suppressClick.current = drag.current.moved;
-          event.currentTarget.releasePointerCapture(event.pointerId);
           endDrag();
         }}
         onPointerCancel={endDrag} onLostPointerCapture={endDrag}>
