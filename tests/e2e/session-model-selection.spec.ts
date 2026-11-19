@@ -83,8 +83,11 @@ test('首屏模型读取挂起时草稿框尚未就绪，首次读取完成后�
     const draft = page.getByLabel('Multivac 草稿');
     await expect(draft).toBeDisabled(); await expect(draft).toHaveAttribute('aria-busy', 'true');
     release(); await expect(draft).toBeEditable();
-    await draft.fill('首屏模型读取完成后立即发送'); await draft.press('Enter');
-    await expect(page.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+    const message = '首屏模型读取完成后立即发送';
+    await draft.fill(message); await draft.press('Enter');
+    const messages = page.getByRole('region', { name: 'Multivac 会话' }).getByRole('article');
+    await expect(messages.getByText(message, { exact: true })).toBeVisible();
+    await expect(messages.getByText('Fake Multivac 已处理当前消息。', { exact: true })).toBeVisible();
     await expect(draft).toHaveValue('');
   } finally { release(); }
 });
