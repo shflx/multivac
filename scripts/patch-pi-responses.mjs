@@ -8,15 +8,16 @@ import { fileURLToPath } from 'node:url';
 const patches = [
   {
     file: 'api/openai-responses-shared.js',
-    sha256: 'b5d9f001e97bfafa8dfeef2e292f923c39f77fa8aef014132bf3530760f222e3',
+    sha256: '00796997da00cd4cb77ae8c1c4bb92a3d4a4a4dd5bea18524de7173e4f877e4c',
     edits: [
       ['    let sawTerminalResponseEvent = false;', '    let sawTerminalResponseEvent = false;\n    const stopAtTerminal = model.api === "openai-responses";'],
       ['    const finalizeResponse = (response) => {', '    const finalizeResponse = (response, eventType) => {'],
-      ['    for await (const event of openaiStream) {\n        if (event.type === "response.created") {', `    for await (const event of openaiStream) {
+      ['    for await (const event of openaiStream) {\n        await options?.onProviderStreamEvent?.(event, model);\n        if (event.type === "response.created") {', `    for await (const event of openaiStream) {
         const terminalStatus = { "response.completed": "completed", "response.incomplete": "incomplete", "response.failed": "failed", "response.cancelled": "cancelled" }[event.type];
         if (stopAtTerminal && terminalStatus && event.response?.status !== terminalStatus) {
             throw new Error("OpenAI Responses terminal event has an invalid status");
         }
+        await options?.onProviderStreamEvent?.(event, model);
         if (event.type === "response.created") {`],
       ['            output.stopReason = "toolUse";\n        }\n    };', `            output.stopReason = "toolUse";
         }
@@ -26,12 +27,17 @@ const patches = [
     };`],
       ['        else if (event.type === "response.completed" || event.type === "response.incomplete") {\n            finalizeResponse(event.response);', `        else if (event.type === "response.completed" || event.type === "response.incomplete" || (stopAtTerminal && event.type === "response.cancelled")) {
             finalizeResponse(event.response, event.type);
-            // 协议终止不等待 EOF；退出迭代会取消并释放底层响应流。
-            if (stopAtTerminal) break;`],
+            // 协议终止不等待 EOF，但要等待正文取消完成。
+            if (stopAtTerminal) {
+                await options?.cancelResponseBody?.();
+                break;
+            }`],
       ['        else if (event.type === "error") {\n            throw new Error', '        else if (event.type === "error") {\n            try { options?.onProtocolEvent?.({ type: "error" }); } catch {}\n            throw new Error'],
       ['        else if (event.type === "response.failed") {\n            sawTerminalResponseEvent = true;\n            output.rawStopReason = event.response?.status;', `        else if (event.type === "response.failed") {
-            if (stopAtTerminal) finalizeResponse(event.response, event.type);
-            else {
+            if (stopAtTerminal) {
+                finalizeResponse(event.response, event.type);
+                await options?.cancelResponseBody?.();
+            } else {
                 sawTerminalResponseEvent = true;
                 output.rawStopReason = event.response?.status;
             }`],
@@ -39,12 +45,40 @@ const patches = [
   },
   {
     file: 'api/openai-responses.js',
-    sha256: '87085aa3c3c865fb51774bc13b669599461fd29e497fc6063bd6f5b9b5262d33',
-    edits: [['                serviceTier: options?.serviceTier,\n                grammarToolInputProperties,', '                serviceTier: options?.serviceTier,\n                onProtocolEvent: options?.onProtocolEvent,\n                grammarToolInputProperties,']],
+    sha256: 'c35b80b2eb7f84b0ea1d939784943038956aefec7b624ed7862ebe2fd9d40c4b',
+    edits: [
+      ['export const stream = (model, context, options) => {', `// OpenAI SDK 7 会先 abort，再忽略正文取消的结果。保留实际 reader 的取消承诺，供终态收尾核对。
+function trackResponseBody(fetch) {
+    let cancel;
+    return {
+        cancel: () => cancel?.(),
+        fetch: async (input, init) => {
+            const response = await fetch(input, init);
+            return new Proxy(response, { get(target, key) {
+                if (key === "body" && target.body) return new Proxy(target.body, { get(body, member) {
+                    if (member === "getReader") return (...args) => {
+                        const reader = body.getReader(...args);
+                        let cancellation;
+                        cancel = (reason) => cancellation ??= reader.cancel(reason);
+                        return { read: () => reader.read(), cancel, releaseLock: () => reader.releaseLock() };
+                    };
+                    const value = Reflect.get(body, member, body);
+                    return typeof value === "function" ? value.bind(body) : value;
+                } });
+                const value = Reflect.get(target, key, target);
+                return typeof value === "function" ? value.bind(target) : value;
+            } });
+        },
+    };
+}
+export const stream = (model, context, options) => {`],
+      ['            const client = createClient(model, normalizedContext, apiKey, options?.headers, options?.identity, options?.fetch, cacheSessionId);', '            const responseBody = trackResponseBody(options?.fetch ?? globalThis.fetch);\n            const client = createClient(model, normalizedContext, apiKey, options?.headers, options?.identity, responseBody.fetch, cacheSessionId);'],
+      ['                serviceTier: options?.serviceTier,\n                grammarToolInputProperties,', '                serviceTier: options?.serviceTier,\n                onProtocolEvent: options?.onProtocolEvent,\n                cancelResponseBody: responseBody.cancel,\n                grammarToolInputProperties,'],
+    ],
   },
   {
     file: 'api/simple-options.js',
-    sha256: '1caf860e028e22639578aba3ec8b79e5be9650c27bd3f19471c78502976555f3',
+    sha256: '7e80e985f50d968dfd4422ed501d87280236470bff996c8f05f18d220dce1e53',
     edits: [['        onResponse: options?.onResponse,', '        onResponse: options?.onResponse,\n        onProtocolEvent: options?.onProtocolEvent,']],
   },
 ];
@@ -68,7 +102,7 @@ export function patchedSource(source, patch) {
 
 export function patchPiResponses(check = false) {
   const manifest = findPackageJSON('@earendil-works/pi-ai', import.meta.resolve('@earendil-works/pi-coding-agent'));
-  if (!manifest || JSON.parse(readFileSync(manifest, 'utf8')).version !== '0.85.1') throw new Error('Responses 补丁只支持 pi-ai 0.85.1。');
+  if (!manifest || JSON.parse(readFileSync(manifest, 'utf8')).version !== '1.5.2') throw new Error('Responses 补丁只支持 pi-ai 1.5.2。');
   const root = join(dirname(manifest), 'dist');
   // 先核对全部文件，未知源码不会留下半套新补丁。
   const changes = patches.map(patch => {
