@@ -66,11 +66,10 @@ test('旧库升级先备份；普通历史、已有子级及新增账本在重�
   store.internalToolCalls.begin(normal);
   store.internalToolCalls.finish(normal.commandId, success, 'finished');
   store.close();
-  // 回到本次迁移前的结构，保留旧账本和子级记录。
+  // 子级工具账本由第 70 版迁移创建。保留原有记录，从该版本重新执行迁移。
   const previous = new DatabaseSync(path);
-  const version = (previous.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version;
   previous.exec('DROP TABLE subagent_tool_call');
-  previous.prepare('DELETE FROM schema_migrations WHERE version = ?').run(version);
+  previous.prepare('DELETE FROM schema_migrations WHERE version >= ?').run(70);
   previous.close();
 
   store = new SqliteAssistantStore(path);
