@@ -124,13 +124,14 @@ export function observedModelRuntime(current: () => ModelRuntime, sessionId: str
     const value = Reflect.get(runtime, property, runtime) as unknown;
     if (['stream', 'streamSimple', 'complete', 'completeSimple'].includes(String(property)) && typeof value === 'function') {
       return (model: DiagnosticModel, context: ModelContext, rawOptions: Record<string, unknown> = {}) => {
-        const responses = model.api === 'openai-responses';
-        const requestContext = responses ? responsesContext(context) : context;
+        const hasResponsesTools = model.api === 'openai-responses' &&
+          (context.tools?.length || context.messages.some(message => message.role === 'system' && message.toolsAdded?.length));
+        const requestContext = hasResponsesTools ? responsesContext(context) : context;
         const httpObserved = FETCH_INJECTABLE_APIS.includes(model.api ?? '');
         const options = httpObserved
           ? { ...rawOptions, fetch: idleGuardedFetch((rawOptions.fetch as typeof fetch | undefined) ?? globalThis.fetch) }
           : rawOptions;
-        if (responses) {
+        if (hasResponsesTools) {
           const onPayload = options.onPayload as ((payload: unknown, model: unknown) => unknown) | undefined;
           options.onPayload = async (payload: unknown, requestModel: unknown) => {
             const replacement = await onPayload?.(payload, requestModel);
