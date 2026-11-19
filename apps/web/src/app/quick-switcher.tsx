@@ -1,3 +1,4 @@
+import { terminalWorkspaceId } from '@multivac/contracts';
 import { MessageSquare, Search, SquareTerminal, X, ListTodo, type LucideIcon } from 'lucide-react';
 import { useTerminals } from '../features/terminals/terminals-provider.js';
 import { PRESET_LABELS } from '../features/terminals/terminal-presentation.js';
@@ -31,7 +32,7 @@ const PAGE_KEYWORDS: Record<ManagementPageId, string[]> = { skills: ['Skill', '�
 export function QuickSwitcher({ management, page, view, onSession, onTerminal, onPage, onClose, onTask }: {
   management: boolean; page: ManagementPageId; view: WorkspaceViewReport | null;
   onSession: (workspaceId: string, sessionId: string) => void;
-  /** 打开项目终端（终端所属项目的工作区即项目 id）。 */
+  /** 在所属工作区打开终端。 */
   onTerminal?: (workspaceId: string, terminalId: string) => void;
   onPage: (id: ManagementPageId) => void; onClose: () => void;
   onTask?: (id: string) => void;
@@ -59,10 +60,10 @@ export function QuickSwitcher({ management, page, view, onSession, onTerminal, o
       run: () => onSession(session.workspaceId, session.sessionId),
     };
   }));
-  // 未关闭的项目终端与会话一起列出，可按 claude、codex、终端搜索；Multivac 不读取终端内容。
+  // 未关闭的工作区终端与会话一起列出，可按 claude、codex、终端搜索；Multivac 不读取终端内容。
   const { terminals, selected: selectedTerminal } = useTerminals();
   const terminalItems: JumpItem[] = management || !onTerminal ? [] : groups.flatMap((group) => terminals
-    .filter((terminal) => terminal.projectId === group.project?.projectId && !terminal.closedAt)
+    .filter((terminal) => terminalWorkspaceId(terminal) === group.workspaceId && !terminal.closedAt)
     .map((terminal) => ({
       id: `terminal:${terminal.terminalId}`, label: terminal.title, hint: group.name, detail: PRESET_LABELS[terminal.preset.kind],
       group: group.name, groupId: group.workspaceId, icon: SquareTerminal, activity: Date.parse(terminal.lastActivityAt),

@@ -4,7 +4,7 @@ import { terminalAction } from '../../data/terminal-api.js';
 import { Archive, Bell, Check, Clock3, ChevronDown, ChevronRight, Columns2, Command, Folder, FolderInput, MessageSquare, MoreHorizontal, Pencil, Plus, SquareTerminal, X } from 'lucide-react';
 import { useEffect, useImperativeHandle, useRef, useState, type RefObject, type ReactNode, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { normalizeWorkspaceSessionTitle, terminalIsActive, TERMINAL_TITLE_MAX_LENGTH, WORKSPACE_SESSION_TITLE_MAX_LENGTH, RECENT_WORKSPACE_ID, recentSessions, type ProjectTerminal, type TerminalPreset, type Workspace, type WorkspaceSession } from '@multivac/contracts';
+import { normalizeWorkspaceSessionTitle, terminalIsActive, terminalWorkspaceId, TERMINAL_TITLE_MAX_LENGTH, WORKSPACE_SESSION_TITLE_MAX_LENGTH, RECENT_WORKSPACE_ID, recentSessions, type ProjectTerminal, type TerminalPreset, type Workspace, type WorkspaceSession } from '@multivac/contracts';
 import { SessionStatusBadge } from '../assistant/session-status-badge.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { NewProjectCard } from '../projects/new-project-card.js';
@@ -69,8 +69,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
   const projectTrigger = useRef<HTMLButtonElement>(null);
   const workSessions = (sessions ?? []).filter((session) => !session.taskId);
   // 当前工作区未关闭的终端也占栏位，“放进第 k 栏”的可选栏数随之增加。
-  const currentProjectId = props.workspaces.find((item) => item.workspaceId === props.workspaceId)?.project?.projectId;
-  const liveTerminalCount = currentProjectId ? terminals.terminals.filter((item) => item.projectId === currentProjectId && !item.closedAt).length : 0;
+  const liveTerminalCount = terminals.terminals.filter((item) => terminalWorkspaceId(item) === props.workspaceId && !item.closedAt).length;
 
   useEffect(() => { setMenu(null); setCreateMenu(null); setTerminalMenu(null); }, [props.workspaceId]);
 
@@ -141,10 +140,10 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
         // 任务会话只从任务详情进入独立视图，不计入工作区列表，与主区域的会话现场保持一致。
         const members = logical ? recentSessions(workSessions, props.recentDays, props.clock) : workSessions.filter((session) => session.workspaceId === id).slice().reverse();
         const live = members.filter((session) => session.archivedAt === null);
-        const projectTerminals = logical ? [] : terminals.terminals.filter(item => item.projectId === workspace.project?.projectId);
+        const workspaceTerminals = terminals.terminals.filter(item => terminalWorkspaceId(item) === id && !item.closedAt);
         const mixed = [
           ...live.map(session => ({ type: 'session' as const, session, at: session.lastActivityAt ?? session.createdAt })),
-          ...projectTerminals.filter(terminal => !terminal.closedAt).map(terminal => ({ type: 'terminal' as const, terminal, at: terminal.lastActivityAt })),
+          ...workspaceTerminals.map(terminal => ({ type: 'terminal' as const, terminal, at: terminal.lastActivityAt })),
         ].sort((a, b) => b.at.localeCompare(a.at));
         const open = !collapsed.includes(id);
         return <section className="rail-group" key={id} data-workspace-id={id}>
@@ -156,8 +155,8 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
               <span className="rail-folder-icon">{logical ? <Clock3 /> : <Folder />}<span>{open ? <ChevronDown /> : <ChevronRight />}</span></span>
               <span className="nav-label">{workspace.name}</span>{logical && <small>{props.recentDays} 天</small>}
             </button>
-            {!logical && <button type="button" className="icon-button" aria-label={workspace.project && terminals.available ? `在「${workspace.name}」新建会话或终端` : `在「${workspace.name}」新建会话`} title={workspace.project && terminals.available ? '新建会话或终端' : '新建会话'} aria-haspopup={workspace.project && terminals.available ? 'menu' : undefined} aria-expanded={workspace.project && terminals.available ? createMenu?.workspaceId === id : undefined} onClick={(event) => {
-              if (!workspace.project || !terminals.available) { props.onCreate(id); return; }
+            {!logical && <button type="button" className="icon-button" aria-label={terminals.available ? `在「${workspace.name}」新建会话或终端` : `在「${workspace.name}」新建会话`} title={terminals.available ? '新建会话或终端' : '新建会话'} aria-haspopup={terminals.available ? 'menu' : undefined} aria-expanded={terminals.available ? createMenu?.workspaceId === id : undefined} onClick={(event) => {
+              if (!terminals.available) { props.onCreate(id); return; }
               const trigger = event.currentTarget;
               setCreateMenu(createMenu?.workspaceId === id ? null : { workspaceId: id, trigger, ...anchored(trigger, 300) });
             }}><Plus /></button>}
@@ -254,9 +253,8 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
     }}>
       {(() => {
         const workspace = props.workspaces.find((item) => item.workspaceId === createMenu.workspaceId);
-        if (!workspace?.project) return null;
-        const project = workspace.project;
-        const pick = (kind: TerminalPreset['kind']) => { setCreateMenu(null); props.onSwitch(workspace.workspaceId); terminals.create(project, kind); };
+        if (!workspace) return null;
+        const pick = (kind: TerminalPreset['kind']) => { setCreateMenu(null); props.onSwitch(workspace.workspaceId); terminals.create(workspace, kind); };
         return <>
           <button type="button" role="menuitem" autoFocus onClick={() => { setCreateMenu(null); props.onCreate(workspace.workspaceId); }}>
             <span className="rail-create-icon"><MessageSquare /></span><span><strong>会话</strong><small>由 Multivac 管控的对话与执行</small></span>

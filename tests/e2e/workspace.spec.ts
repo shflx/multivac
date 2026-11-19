@@ -62,7 +62,7 @@ test('空工作区提供新会话；新建后出现在列表并聚焦，刷新�
   await expect(page.getByRole('heading', { name: '默认工作区还没有会话' })).toBeVisible();
   await expect(currentWorkspaceGroup(page).locator('.rail-item')).toHaveCount(0);
   // 工作区条不单设新会话按钮，统一从会话列表新建。
-  await expect(workspaceRail(page).getByRole('button', { name: '在「默认工作区」新建会话' })).toBeVisible();
+  await expect(workspaceRail(page).getByRole('button', { name: /^在「默认工作区」新建会话/ })).toBeVisible();
 
   // 空状态里的“新会话”同样可以新建。
   await page.locator('.workspace-empty').getByRole('button', { name: '新会话' }).click();

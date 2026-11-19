@@ -1,5 +1,6 @@
+import type { ProjectTerminal } from '@multivac/contracts';
 import { expect, test, type Page } from '@playwright/test';
-import { fakeApiRoot, openPanel, resetE2eState, ensureWorkspaceRail } from './test-state.js';
+import { fakeApiRoot, openPanel, resetE2eState, ensureWorkspaceRail, selectWorkspaceLayout } from './test-state.js';
 const view = (page: Page) => page.locator('.terminal-view');
 async function command(page: Page, text: string) {
   await view(page).locator('.xterm-helper-textarea').focus(); await page.keyboard.insertText(text); await page.keyboard.press('Enter');
@@ -10,6 +11,108 @@ async function output(page: Page) { return (await view(page).locator('.xterm-row
 async function menuAction(page: Page, name: string) {
   await view(page).getByRole('button', { name: /」的更多操作$/ }).click(); await view(page).getByRole('menuitem', { name, exact: true }).click();
 }
+test('日常终端：无项目时新建、核对 pwd、刷新接回、跨工作区跳转及关闭', async ({ page, request }) => {
+  test.skip(process.platform !== 'darwin' || process.arch !== 'arm64');
+  test.setTimeout(60_000);
+  await resetE2eState(request);
+  const projects = await request.get(`${fakeApiRoot}/api/projects`);
+  expect((await projects.json()).projects).toEqual([]);
+  const session = await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId: 'daily-terminal-session', title: '日常会话' } });
+  expect(session.ok()).toBe(true);
+  const list = async (workspaceId = 'default'): Promise<ProjectTerminal[]> => {
+    const response = await request.post(`${fakeApiRoot}/api/terminals/list`, { headers: { origin: fakeApiRoot }, data: { workspaceId } });
+    expect(response.ok()).toBe(true);
+    return (await response.json()).terminals;
+  };
+
+  await page.goto('/'); await openPanel(page, 'workspace'); await ensureWorkspaceRail(page);
+  const daily = page.locator('[data-workspace-id="default"]');
+  const create = daily.getByRole('button', { name: '在「默认工作区」新建会话或终端' });
+  await create.click();
+  const createMenu = page.getByRole('menu', { name: '新建' });
+  for (const name of [/^会话/, /^Claude Code/, /^Codex/, /^自定义命令…/]) await expect(createMenu.getByRole('menuitem', { name })).toBeVisible();
+  await createMenu.getByRole('menuitem', { name: /^空白终端/ }).click();
+  await expect(view(page)).toHaveAttribute('data-connection', 'connected');
+  const [record] = await list();
+  expect(record!.projectId).toBeNull();
+  expect(record!.directory).toMatch(/multivac-dev-155-e2e-work-[^/]+\/terminals$/);
+  const row = daily.locator(`[data-terminal-id="${record!.terminalId}"]`);
+  await expect(daily.locator('.rail-group-items .rail-item').first()).toHaveAttribute('data-terminal-id', record!.terminalId);
+
+  await selectWorkspaceLayout(page, 2);
+  await ensureWorkspaceRail(page);
+  await row.hover(); await row.locator('.rail-more').click();
+  await page.getByRole('menu', { name: '终端操作：终端' }).getByRole('menuitem', { name: '放进第 2 栏' }).click();
+  await expect(view(page).locator('.slot-tag')).toHaveText('第 2 栏');
+  await expect(page.locator('.workspace-page .conversation-panel:visible')).toHaveCount(1);
+  await view(page).getByRole('button', { name: '放大「终端」' }).click();
+  await expect(view(page).getByRole('button', { name: '返回并排' })).toBeVisible();
+  await expect(page.locator('.workspace-page .conversation-panel:visible')).toHaveCount(0);
+  await expect(view(page)).toHaveAttribute('data-connection', 'connected');
+  await command(page, 'pwd');
+  await expect.poll(async () => (await output(page)).split('\n').map(line => line.trim())).toContain(record!.directory);
+
+  await command(page, "printf 'DAILY-%s\\n' BEFORE-REFRESH");
+  await expect.poll(() => output(page)).toContain('DAILY-BEFORE-REFRESH');
+  await page.reload();
+  await expect(view(page)).toHaveAttribute('data-connection', 'connected');
+  await expect(view(page)).toHaveAttribute('data-terminal-id', record!.terminalId);
+  await expect.poll(() => output(page)).toContain('DAILY-BEFORE-REFRESH');
+  expect((await list())[0]!.instanceId).toBe(record!.instanceId);
+  await view(page).getByRole('button', { name: '返回并排' }).click();
+  await expect(view(page).locator('.slot-tag')).toHaveText('第 2 栏');
+
+  // 项目创建后，两种终端只出现在各自工作区。用 Command+K 从项目切回日常。
+  const created = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '终端分组项目' } });
+  expect(created.status()).toBe(201);
+  const { project } = await created.json();
+  const projectGroup = page.locator(`[data-workspace-id="${project.projectId}"]`);
+  await ensureWorkspaceRail(page);
+  await projectGroup.getByRole('button', { name: '在「终端分组项目」新建会话或终端' }).click();
+  await createMenu.getByRole('menuitem', { name: /^空白终端/ }).click();
+  await expect(projectGroup.locator('.rail-folder')).toHaveClass(/active/);
+  await expect(projectGroup.locator('[data-terminal-id]')).toHaveCount(1);
+  await expect(daily.locator('[data-terminal-id]')).toHaveCount(1);
+  const [projectRecord] = await list(project.projectId);
+  expect(projectRecord!.directory).toBe(project.directories[0].path);
+  const palette = page.getByRole('dialog', { name: '跳到会话' });
+  await page.keyboard.press('Meta+k');
+  await palette.getByRole('combobox').fill('默认工作区 终端');
+  await expect(palette.getByRole('option')).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(daily.locator('.rail-folder')).toHaveClass(/active/);
+  const dailyView = page.locator(`.terminal-view[data-terminal-id="${record!.terminalId}"]`);
+  await expect(dailyView).toHaveAttribute('data-connection', 'connected');
+
+  await menuAction(page, '结束进程');
+  await expect(dailyView).toContainText('用户结束');
+  await dailyView.getByRole('button', { name: '重新打开终端' }).click();
+  await expect(dailyView).toHaveAttribute('data-connection', 'connected');
+  const [reopened] = await list();
+  expect(reopened!.instanceId).not.toBe(record!.instanceId);
+  expect(reopened!.directory).toBe(record!.directory);
+  await menuAction(page, '关闭终端');
+  await page.getByRole('dialog', { name: '关闭「终端」' }).getByRole('button', { name: '结束并关闭' }).click();
+  await expect(row).toHaveCount(0);
+  await page.keyboard.press('Meta+k');
+  await palette.getByRole('combobox').fill('默认工作区 终端');
+  await expect(palette.getByRole('option')).toHaveCount(0);
+  expect(await list()).toEqual([]);
+  await page.keyboard.press('Escape');
+
+  await ensureWorkspaceRail(page);
+  await create.click();
+  await createMenu.getByRole('menuitem', { name: /^自定义命令…/ }).click();
+  const dialog = page.getByRole('dialog', { name: '新建终端' });
+  await expect(dialog.getByRole('radio', { name: '自定义命令' })).toBeChecked();
+  await expect(dialog.getByLabel('终端目录')).toHaveCount(0);
+  await dialog.getByLabel('终端命令').fill('/bin/echo DAILY-CUSTOM');
+  await dialog.getByRole('button', { name: '启动', exact: true }).click();
+  await expect.poll(() => output(page)).toContain('DAILY-CUSTOM');
+  const [custom] = await list();
+  expect(custom!.directory).toBe(record!.directory);
+});
+
 test('真实shell：新建、echo、改名、刷新、第二窗口、断网输出、接管、全屏、exit 1与重开', async ({ page, request, context }) => {
   test.skip(process.platform !== 'darwin' || process.arch !== 'arm64');
   test.setTimeout(60000);

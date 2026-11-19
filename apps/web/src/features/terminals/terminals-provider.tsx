@@ -1,7 +1,7 @@
-import { rememberedTerminalSelection } from './terminal-selection.js';
+import { rememberedTerminalSelection, type TerminalSelection } from './terminal-selection.js';
 import { SquareTerminal } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { terminalWorkspaceId, type Project, type ProjectTerminal, type TerminalPreset } from '@multivac/contracts';
+import { terminalWorkspaceId, type ProjectTerminal, type TerminalPreset, type Workspace } from '@multivac/contracts';
 import { ConfirmCard } from '../../components/confirm-card.js';
 import { createTerminal, listTerminals, terminalAvailable } from '../../data/terminal-api.js';
 import { updatePreferences } from '../../data/preferences-api.js';
@@ -19,9 +19,9 @@ export type TerminalColumns = Readonly<Record<number, string>>;
 interface TerminalContextValue {
   available: boolean; terminals: ProjectTerminal[]; error: string;
   /** 聚焦查看的终端；放在并排栏位中且处于并排时只表示选中。 */
-  selected: { workspaceId: string; terminalId: string } | null;
-  select(value: { workspaceId: string; terminalId: string } | null): void;
-  create(project: Project, kind?: TerminalPreset['kind']): void;
+  selected: TerminalSelection | null;
+  select(value: TerminalSelection | null): void;
+  create(workspace: Workspace, kind?: TerminalPreset['kind']): void;
   refresh(): Promise<void>;
   columnsOf(workspaceId: string): TerminalColumns;
   /** 把终端放进第 slot + 1 栏；它原来在别的栏时移过去。 */
@@ -62,7 +62,7 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
   const [columns, setColumns] = useState<Record<string, TerminalColumns>>(rememberedColumns);
   const [created, setCreated] = useState<TerminalContextValue['created']>(null);
   const [revealed, setRevealed] = useState<TerminalContextValue['revealed']>(null);
-  const [creating, setCreating] = useState<{ project: Project; kind: TerminalPreset['kind']; error?: string } | null>(null);
+  const [creating, setCreating] = useState<{ workspace: Workspace; kind: TerminalPreset['kind']; error?: string } | null>(null);
 
   useEffect(() => {
     if (remote || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) return;
@@ -78,7 +78,7 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
     if (!available || !workspaces) return;
     const version = ++sequence.current;
     try {
-      const lists = await Promise.all(workspaces.flatMap(workspace => workspace.project ? [listTerminals(workspace.project.projectId)] : []));
+      const lists = await Promise.all(workspaces.map(workspace => listTerminals(workspace.workspaceId)));
       if (version === sequence.current) { setTerminals(lists.flat()); setError(''); }
     } catch (error) { if (version === sequence.current) setError(error instanceof Error ? error.message : '终端列表读取失败。'); }
   }, [available, workspaces]);
@@ -96,12 +96,13 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /** 预设在唯一目录中直接启动；自定义命令、多个目录或启动失败时打开创建卡。 */
-  const create = useCallback((project: Project, kind: TerminalPreset['kind'] = 'blank') => {
-    if (kind === 'custom' || project.directories.length > 1) { setCreating({ project, kind }); return; }
+  const create = useCallback((workspace: Workspace, kind: TerminalPreset['kind'] = 'blank') => {
+    if (kind === 'custom' || (workspace.project?.directories.length ?? 0) > 1) { setCreating({ workspace, kind }); return; }
     const preset: TerminalPreset = kind === 'blank' ? { kind } : { kind, argv: [] };
-    void createTerminal({ projectId: project.projectId, directory: project.directories[0]!.path, preset, size: { cols: 80, rows: 24 } })
+    // 默认工作区不传目录，由服务端选择。项目的唯一目录也是服务端的默认值。
+    void createTerminal({ workspaceId: workspace.workspaceId, preset, size: { cols: 80, rows: 24 } })
       .then(opened)
-      .catch((cause: unknown) => setCreating({ project, kind, error: cause instanceof Error ? cause.message : '终端启动失败。' }));
+      .catch((cause: unknown) => setCreating({ workspace, kind, error: cause instanceof Error ? cause.message : '终端启动失败。' }));
   }, [opened]);
 
   const columnsOf = useCallback((workspaceId: string) => columns[workspaceId] ?? {}, [columns]);
@@ -122,20 +123,21 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
 
   return <Context.Provider value={{ available, terminals, error, selected, select, create, refresh, columnsOf, place, placeFirst, unplace, created, reveal, revealed }}>
     {children}
-    {creating && <TerminalCreation project={creating.project} initialKind={creating.kind} initialError={creating.error ?? ''} onCancel={() => setCreating(null)} onCreated={record => { opened(record); setCreating(null); }} />}
+    {creating && <TerminalCreation workspace={creating.workspace} initialKind={creating.kind} initialError={creating.error ?? ''} onCancel={() => setCreating(null)} onCreated={record => { opened(record); setCreating(null); }} />}
   </Context.Provider>;
 }
 
 const KINDS: readonly TerminalPreset['kind'][] = ['blank', 'claude', 'codex', 'custom'];
 
 /** 创建卡：选择预设与目录；Claude Code、Codex 可追加参数，自定义命令写成一行。 */
-function TerminalCreation({ project, initialKind, initialError, onCancel, onCreated }: {
-  project: Project; initialKind: TerminalPreset['kind']; initialError: string; onCancel(): void; onCreated(record: ProjectTerminal): void;
+function TerminalCreation({ workspace, initialKind, initialError, onCancel, onCreated }: {
+  workspace: Workspace; initialKind: TerminalPreset['kind']; initialError: string; onCancel(): void; onCreated(record: ProjectTerminal): void;
 }) {
   const { preferences } = usePreferences();
+  const directories = workspace.project?.directories ?? [];
   const saved = preferences?.terminalCommandPresets ?? [];
   const [kind, setKind] = useState<TerminalPreset['kind']>(initialKind);
-  const [directory, setDirectory] = useState(project.directories[0]!.path);
+  const [directory, setDirectory] = useState(directories[0]?.path ?? '');
   const [command, setCommand] = useState('');
   const [savePreset, setSavePreset] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -155,13 +157,13 @@ function TerminalCreation({ project, initialKind, initialError, onCancel, onCrea
       if (savePreset && preset.kind === 'custom' && !saved.some(item => joinCommandLine([item.command.executable, ...item.command.argv]) === joinCommandLine([preset.executable, ...preset.argv]))) {
         await updatePreferences({ terminalCommandPresets: [...saved, { presetId: crypto.randomUUID(), title: joinCommandLine([preset.executable, ...preset.argv]).slice(0, 80), command: preset }] });
       }
-      onCreated(await createTerminal({ projectId: project.projectId, directory, preset, size: { cols: 80, rows: 24 } }));
+      onCreated(await createTerminal({ workspaceId: workspace.workspaceId, ...(directory ? { directory } : {}), preset, size: { cols: 80, rows: 24 } }));
     } catch (cause) { setError(cause instanceof Error ? cause.message : '终端启动失败。'); setBusy(false); }
   }
 
   return <ConfirmCard
     title="新建终端"
-    description={`在「${project.name}」的项目目录中启动。终端是外部程序，Multivac 不管控它的文件访问与命令执行。`}
+    description={`${workspace.project ? `在「${workspace.name}」的项目目录中启动。` : `在「${workspace.name}」的共享终端目录中启动。`}终端是外部程序，Multivac 不管控它的文件访问与命令执行。`}
     icon={SquareTerminal}
     confirmLabel="启动"
     confirmDisabled={kind === 'custom' && !command.trim()}
@@ -178,9 +180,9 @@ function TerminalCreation({ project, initialKind, initialError, onCancel, onCrea
         </button>)}
       </div>
       <dl className="confirm-card-fields terminal-creation-fields">
-        {project.directories.length > 1 && <div><dt>目录</dt><dd>
+        {directories.length > 1 && <div><dt>目录</dt><dd>
           <select aria-label="终端目录" title={directory} value={directory} onChange={event => setDirectory(event.target.value)}>
-            {project.directories.map((dir, index) => <option key={dir.path} value={dir.path}>{index === 0 ? '主目录 · ' : ''}{dir.path}</option>)}
+            {directories.map((dir, index) => <option key={dir.path} value={dir.path}>{index === 0 ? '主目录 · ' : ''}{dir.path}</option>)}
           </select>
         </dd></div>}
         {kind === 'custom' && <div><dt>命令</dt><dd>
@@ -193,7 +195,7 @@ function TerminalCreation({ project, initialKind, initialError, onCancel, onCrea
         {(kind === 'claude' || kind === 'codex') && <div><dt>参数</dt><dd>
           <input aria-label="终端参数" value={command} spellCheck={false} autoCapitalize="off" autoCorrect="off" placeholder={kind === 'codex' ? '可选，例如 resume' : '可选，例如 --model sonnet'} onChange={event => setCommand(event.target.value)} />
         </dd></div>}
-        {project.directories.length === 1 && <div><dt>目录</dt><dd><code className="terminal-creation-path" title={directory}>{directory}</code></dd></div>}
+        {directories.length === 1 && <div><dt>目录</dt><dd><code className="terminal-creation-path" title={directory}>{directory}</code></dd></div>}
       </dl>
     </div>
   </ConfirmCard>;
