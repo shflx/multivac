@@ -9,6 +9,7 @@ import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:
 import { join } from 'node:path';
 import test, { after } from 'node:test';
 import { createHash } from 'node:crypto';
+import sharp from 'sharp';
 import { createAgentSession, ModelRuntime, SessionManager } from '@earendil-works/pi-coding-agent';
 import { getCurrentSystemPrompt, getDeclaredTools } from '@earendil-works/pi-ai/utils/transcript';
 import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
@@ -31,7 +32,7 @@ const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 
 // 真实 Pi SDK、原生摘要生成与文件读写；仅模型传输替换为内存 SSE，不代表真实模型验证。
 // 临时目录限定在任务 cwd，禁止使用全局 Pi 配置、其他会话或真实凭据。
-async function fixture(legacy = false) {
+async function fixture(legacy = false, firstResponseGate?: Promise<void>) {
   const root = await mkdtemp(join(process.cwd(), '.pi-context-test-'));
   const cwd = join(root, 'work');
   const agentDir = join(root, 'agent');
@@ -73,7 +74,14 @@ async function fixture(legacy = false) {
           : mode === 'failure' ? [terminal('response.failed', { error: { code: 'controlled_failure', message: 'controlled failure' } })]
             : [...completedItems(), terminal()];
         const source = controlledFetch(events);
-        return responsesSDK.streamSimple(requestModel, context, { ...options, apiKey: 'controlled', fetch: source.fetch, onResponse: () => started?.() });
+        const gate = requests === 1 ? firstResponseGate : undefined;
+        return responsesSDK.streamSimple(requestModel, context, { ...options, apiKey: 'controlled',
+          fetch: async (...args: Parameters<typeof fetch>) => {
+            if (gate) { started?.(); await gate; }
+            return source.fetch(...args);
+          },
+          onResponse: () => started?.(),
+        });
       };
       return result;
     },
@@ -597,19 +605,46 @@ test('原生证据无法保存时不调用模型，前置拒绝准确标为未�
   } finally { adapter.dispose(); await f.close(); }
 });
 
-test('Pi 1.5.2 按原 ID 和路径恢复 Pi 0.85.1 实际写出的会话', async () => {
-  const f = await fixture(true);
+test('Pi 1.5.2 恢复 0.85.1 会话后发送和追加图片，压缩后继续对话', { timeout: 10_000 }, async () => {
+  const gate = Promise.withResolvers<void>();
+  const f = await fixture(true, gate.promise);
+  const session = f.resources.session;
   try {
     const sample = await readFile(new URL('./fixtures/pi-0.85.1-session.jsonl', import.meta.url), 'utf8');
     const header = JSON.parse(sample.split('\n')[0]!);
     assert.equal(f.actual.sessionId, header.id);
     assert.equal(f.actual.sessionFile, join(f.sessionDir, 'pi-0.85.1-session.jsonl'));
     assert.equal(await readFile(f.sessionFile, 'utf8'), sample);
-    await f.resources.session.prompt('继续旧会话');
-    const messages = JSON.stringify(f.contexts.at(-1)!.messages);
-    assert.match(messages, /legacy user context/);
-    assert.match(messages, /legacy assistant context/);
-    assert.match(messages, /继续旧会话/);
+
+    const images = await Promise.all(['red', 'blue'].map(async background => ({
+      type: 'image' as const, mimeType: 'image/png',
+      data: (await sharp({ create: { width: 2, height: 2, channels: 3, background } }).png().toBuffer()).toString('base64'),
+    })));
+    const started = f.waitForRequest();
+    const turn = session.prompt('继续旧会话', { images: [images[0]!] });
+    try {
+      await Promise.race([started, turn.then(() => assert.fail('图片发送请求未到达受控上游'))]);
+      await session.followUp('追加图片', [images[1]!]);
+    } finally { gate.resolve(); }
+    await turn;
+    assert.equal(f.requests, 2);
+    const first = JSON.stringify(f.contexts[0]!.messages);
+    assert.match(first, /legacy user context/);
+    assert.match(first, /legacy assistant context/);
+    assert.match(first, /继续旧会话/);
+    assert.ok(first.includes(images[0]!.data));
+    assert.ok(JSON.stringify(f.contexts[1]!.messages).includes(images[1]!.data));
+
+    const result = await session.compactContext!(operation(f, 'legacy-compaction'));
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.commitState, 'committed');
+    assert.ok(result.runtimeCommitRef);
+    await session.prompt('压缩后继续');
+    const continued = JSON.stringify(f.contexts.at(-1)!.messages);
+    assert.match(continued, /压缩后继续/);
+    assert.match(continued, /完整输出/);
+    const summary = f.actual.sessionManager.getBranch().find(entry => entry.type === 'compaction');
+    assert.ok(summary?.type === 'compaction' && continued.includes(summary.summary));
     assert.ok((await readFile(f.sessionFile, 'utf8')).startsWith(sample));
-  } finally { await f.close(); }
+  } finally { gate.resolve(); await f.close(); }
 });
