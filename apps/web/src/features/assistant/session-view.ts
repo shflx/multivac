@@ -36,7 +36,7 @@ export function deriveSessionView(
   const { history, page, activePrompt, pendingCommand } = state;
   const { messages, echoId } = messagesWithEcho(history.messages, state.localEcho);
   // 正文与工具记录按服务端时间戳合并，工具记录不会堆在会话末尾。
-  const timeline = buildAssistantTimeline(messages, history.toolExecutions, history.commandAnchors, history.runTraces);
+  const timeline = buildAssistantTimeline(messages, history.toolExecutions, history.commandAnchors, history.runTraces, history.hasMore);
   const visibleReplyCommands = new Set(history.commandAnchors.flatMap((anchor) =>
     history.messages.some((message) => message.role === 'assistant' && message.runtimeEntryId === anchor.runtimeEntryId) ? [anchor.commandId] : []));
   for (const message of history.messages) {

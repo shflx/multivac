@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { groupAssistantTimeline, mergeAssistantTimeline, type RunTrace, type ToolExecution } from '../src/features/assistant/tool-executions.js';
+import { buildAssistantTimeline, groupAssistantTimeline, mergeAssistantTimeline, type RunTrace, type ToolExecution } from '../src/features/assistant/tool-executions.js';
 import { ToolExecutionGroup } from '../src/features/assistant/tool-execution.js';
 import type { VisibleAssistantMessage } from '../src/features/assistant/streaming-messages.js';
 
@@ -40,6 +40,15 @@ test('中断前没有回复时，持久化用户锚点让错误固定在原提�
   assert.deepEqual(order(timeline([old, next, reply], interrupted, anchors)), ['old-user', 'error:old-command', 'next-user', 'next-reply']);
   // 原轮次不在分页窗口里时，等加载到原消息再显示；不挂到新消息上。
   assert.deepEqual(order(timeline([next, reply], interrupted, anchors)), ['next-user', 'next-reply']);
+});
+
+test('完整历史缺少原消息时独立展示中断轨迹，尚可翻页时等原消息', () => {
+  const anchors = [{ commandId: interrupted.commandId, runtimeEntryId: old.runtimeEntryId }];
+  assert.deepEqual(order(buildAssistantTimeline([next], [], anchors, [interrupted], true)), ['next-user']);
+  const items = buildAssistantTimeline([next], [], anchors, [interrupted], false);
+  assert.deepEqual(order(items), ['error:old-command', 'next-user']);
+  assert.ok(items[0]?.kind === 'trace' && items[0].unanchored);
+  assert.deepEqual(order(buildAssistantTimeline([old, next], [], anchors, [interrupted], false)), ['old-user', 'error:old-command', 'next-user']);
 });
 
 test('旧中断缺少回执锚点但有唯一正文身份时，仍放回原回复之后', () => {

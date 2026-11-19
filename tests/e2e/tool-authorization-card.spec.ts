@@ -122,7 +122,6 @@ test('全局 Multivac 首页：等待授权时不显示执行中，刷新后卡�
   await card(home(page), pending).getByRole('button', { name: '仅这一次' }).click();
   await expect(card(home(page), pending)).toContainText('已批准（仅这一次）');
   await expect(card(home(page), pending).locator('.authorization-actions').getByRole('button')).toHaveCount(0);
-  await expect(home(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(home(page).locator('article.chat-row.assistant').last()).toContainText(`已写入 ${pending.targetPath}`);
   await expect(toolRow(home(page), pending).locator('em')).toHaveText('已完成 · 已批准（仅这一次）');
   expect(readFileSync(pending.targetPath, 'utf8')).toBe('Fake 越界写入');
@@ -166,7 +165,6 @@ test('侧栏里的全局 Multivac：收起时顶栏提示在等授权，工作�
   await card(sidebar(page), pending).getByRole('button', { name: '拒绝' }).click();
   await expect(card(sidebar(page), pending)).toContainText('已拒绝：没有执行，Multivac 已收到原因');
   await expect(card(sidebar(page), pending).locator('.authorization-actions').getByRole('button')).toHaveCount(0);
-  await expect(sidebar(page).getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
   await expect(sidebar(page).locator('article.chat-row.assistant').last())
     .toContainText('没有写入：用户拒绝了这次授权');
   await expect(toolRow(sidebar(page), pending).locator('em')).toHaveText('已拒绝');
@@ -228,7 +226,9 @@ test('工作会话：刷新后仍可批准；等待中服务重启后，卡片�
   await expectAwaiting(scope, approved);
   await card(scope, approved).getByRole('button', { name: '仅这一次' }).click();
   await expect(card(scope, approved)).toContainText('已批准（仅这一次）');
-  await expect(scope.getByRole('status').getByText('处理完成', { exact: true })).toBeVisible();
+  await expect(scope.locator('article.chat-row.assistant').last()).toContainText(`已写入 ${approved.targetPath}`);
+  await expect(toolRow(scope, approved).locator('em')).toHaveText('已完成 · 已批准（仅这一次）');
+  expect(readFileSync(approved.targetPath, 'utf8')).toBe('Fake 越界写入');
 
   const interrupted = await startOutsideWrite(scope, request, sessionId);
   await expectAwaiting(scope, interrupted);
@@ -242,8 +242,10 @@ test('工作会话：刷新后仍可批准；等待中服务重启后，卡片�
   await expect(scope.locator(`[data-tool-call-id="${interrupted.toolCallId}"].run-trace-tool em`)).toHaveText('已失效');
   await expect(scope.getByText('等待你的授权')).toHaveCount(0);
   await expect(scope.getByText('思考中', { exact: true })).toHaveCount(0);
-  // 中断的一轮随命令对账结束：轨迹不再运行，也不给出用时。
-  await expect(scope.locator('.run-trace').last().locator('summary')).toContainText('已结束');
+  // Fake 重启后原消息消失，中断的一轮仍有独立的失败记录，且不给出用时。
+  const interruptedTrace = scope.getByLabel('未关联消息的历史运行记录');
+  await expect(interruptedTrace.locator('summary')).toContainText('历史处理失败 · 查看原因');
+  await expect(interruptedTrace.locator('summary')).not.toContainText('运行中');
   await expect(scope.getByRole('button', { name: '取消当前处理' })).toHaveCount(0);
   expect(existsSync(interrupted.targetPath)).toBe(false);
   // Fake 的消息历史只在内存中，重启后更早的一轮不在窗口里；它的请求记录仍是批准。
@@ -284,7 +286,7 @@ test('等待超时后卡片显示已过期，状态条说明原因；等待中�
   const expiring = await startOutsideWrite(home(page), request);
   await expectAwaiting(home(page), expiring);
   await expect(card(home(page), expiring)).toContainText('已过期：等待超时，本轮已结束，没有执行', { timeout: 10_000 });
-  await expect(home(page).getByRole('status')).toHaveText('授权等待超时，本轮已结束');
+  await expect(home(page).locator('.run-status').and(home(page).getByRole('status'))).toHaveText('授权等待超时，本轮已结束');
   await expect(toolRow(home(page), expiring).locator('em')).toHaveText('已过期');
 
   expect((await request.post(`${fakeApiRoot}/api/__e2e/tool-authorization`, { data: { timeoutMs: null } })).ok()).toBe(true);

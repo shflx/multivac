@@ -771,8 +771,17 @@ export function buildAssistantTimeline(
   tools: ToolExecutionRecords,
   commandAnchors: readonly AssistantCommandAnchor[],
   traces: RunTraceRecords,
+  hasMoreHistory = true,
 ): AssistantGroupedTimelineItem[] {
-  const split = splitSteeredRuns(messages, tools, commandAnchors, traces);
+  // 完整历史里没有中断轮次的原消息时，保留独立的失败轨迹和授权结果。
+  // 尚可翻页时继续等原消息，避免提前把历史记录放在别的轮次旁。
+  let anchors = commandAnchors;
+  if (!hasMoreHistory) {
+    const interrupted = new Set(traces.filter(trace => trace.error?.code === 'COMMAND_INTERRUPTED').map(trace => trace.commandId));
+    const visibleEntries = new Set(messages.map(message => message.runtimeEntryId));
+    anchors = anchors.filter(anchor => !interrupted.has(anchor.commandId) || visibleEntries.has(anchor.runtimeEntryId));
+  }
+  const split = splitSteeredRuns(messages, tools, anchors, traces);
   const running = new Set(split.traces.flatMap((trace) => trace.status === 'running' ? [trace.commandId] : []));
   const grouped = groupAssistantTimeline(
     mergeAssistantTimeline(split.messages, split.tools, split.anchors, running, split.traces),
