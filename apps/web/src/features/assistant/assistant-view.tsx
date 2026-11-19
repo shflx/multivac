@@ -77,8 +77,6 @@ import { BookReferenceLink } from './object-links.js';
 const FOLLOW_THRESHOLD_PX = 24;
 /** 展开的输入区里仍显示状态条的运行阶段：等授权、重试、压缩上下文、结果待核对、已取消。 */
 const ATTENTION_PHASES = new Set<RunFeedback['phase']>(['authorization', 'retry', 'compaction', 'unknown', 'cancelled']);
-/** 立即发送快捷键的修饰键名称：macOS 用 ⌘，其余用 Ctrl。 */
-const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
 /** “处理完成”状态条的停留时长；之后淡出收起，失败与取消仍保持可见。 */
 const RUN_SUCCESS_VISIBLE_MS = 6000;
 
@@ -1156,10 +1154,6 @@ function AssistantSessionView({
                 <div className="composer-submit-actions">
                   {!remote && (isCoordinator || allowAgentSelection) && <McpSessionTools key={session.sessionId} sessionId={session.sessionId} disabled={status !== 'ready'} />}
                   {contextEnabled && <ContextPanel context={sessionContext} />}
-                  {/* 运行中输入了内容：按钮仍是停止，在旁边提示继续发送的快捷键。 */}
-                  {runActive && !canRetryUnknown && hasDraftContent && (
-                    <span className="composer-queue-hint" aria-hidden="true"><kbd>↵</kbd> 排队 · <kbd>{MOD_KEY}</kbd><kbd>↵</kbd> 立即发送 · <kbd>Esc</kbd> 停止</span>
-                  )}
                   {runActive && !canRetryUnknown ? (
                     <button type="button" className="composer-send-button stop" onClick={() => void session.cancelCurrentRun()}
                       disabled={cancelling} aria-label="取消当前处理" aria-keyshortcuts="Escape" title={cancelling ? '停止中' : '停止当前处理（Esc）'}>

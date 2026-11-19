@@ -2259,7 +2259,7 @@ svg {
 .composer-bar {
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 8px 12px;
+  gap: 8px;
 }
 
 .composer-meta {
@@ -2267,7 +2267,8 @@ svg {
   max-width: 100%;
   flex: 1 1 auto;
   flex-wrap: nowrap;
-  gap: 10px;
+  /* 按钮自带内边距，组内间距只需很小即可区分，避免左右组过早换行。 */
+  gap: 4px;
 }
 
 .composer-meta > button,
@@ -2295,16 +2296,22 @@ svg {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   margin-left: auto;
 }
 
+/* 模型名只展示有限字符，完整名称在悬停提示与弹层中。 */
+.composer-meta .model-selector-name { max-width: 16ch; }
+
+/* 窄输入卡片：Skill 与智能体只保留图标（按钮自带 aria-label），模型名进一步收短。 */
 @container assistant-composer (max-width: 480px) {
   .composer-meta .model-selector-trigger small { display: none; }
-}
-
-@container assistant-composer (max-width: 360px) {
-  .composer-meta { gap: 4px; }
+  .composer-meta .model-selector-name { max-width: 10ch; }
+  .composer-meta .skill-invoke-button > span,
+  .composer-meta .work-session-agent-picker .agent-invoke-button > span { display: none; }
+  /* 只剩图标的按钮与“添加”按钮同为 28px 方块，图标间距保持一致。 */
+  .composer-meta .skill-invoke-button,
+  .composer-meta .work-session-agent-picker .agent-invoke-button { justify-content: center; width: 28px; padding: 0; }
 }
 
 .sr-only {
@@ -2493,21 +2500,6 @@ svg {
 
 .composer-send-button:not(:disabled):hover {
   background: var(--accent-hover);
-}
-
-.composer-queue-hint {
-  color: var(--faint);
-  font-size: var(--t-xs);
-  white-space: nowrap;
-}
-
-.composer-queue-hint kbd {
-  font-family: inherit;
-}
-
-/* 窄输入区放不下提示时隐藏，占位文字里仍写着快捷键。 */
-@container assistant-composer (max-width: 520px) {
-  .composer-queue-hint { display: none; }
 }
 
 /* 运行中发送按钮原位变为停止；继续发送走快捷键（见输入框占位提示）。 */

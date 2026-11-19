@@ -78,5 +78,4 @@
 @container assistant-composer (max-width: 480px) {
   .context-panel .context-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .context-panel > summary { padding: 0 5px; }
-  .composer-submit-actions:has(> .context-panel) { gap: 6px; }
 }
