@@ -252,10 +252,11 @@ function TaskCreateBody({ proposal, options, onOptionsChange, disabled }: Propos
   if (!Check(TaskProposalPayloadSchema, proposal.payload)) return null;
   const task = proposal.payload;
   const agentId = Check(TaskProposalOptionsSchema, options) ? options.agentId : task.agentId ?? DEFAULT_AGENT_ID;
-  const { acceptance, acceptanceMode } = taskAcceptanceDefaults(task);
+  const preview = proposal.preview as { projectName?: string; sourceDirectory?: string | null; parentTitle?: string | null; dependencyTitles?: string[]; attachments?: { id: string; name: string; bytes: number }[];
+    acceptance?: boolean; acceptanceMode?: 'top-level' };
+  const { acceptance, acceptanceMode } = preview.acceptance === undefined ? taskAcceptanceDefaults(task) : preview;
   const acceptanceLabel = task.humanOnly ? '由你确认完成' : acceptanceMode === 'top-level' ? '随顶层任务验收'
     : acceptance ? (task.parentTaskId ? '单独验收' : '需要人工验收') : '服务端自检';
-  const preview = proposal.preview as { projectName?: string; sourceDirectory?: string | null; parentTitle?: string | null; dependencyTitles?: string[]; attachments?: { id: string; name: string; bytes: number }[] };
   return <><div><dt>标题</dt><dd>{task.title}</dd></div>{preview.attachments?.length ? <div><dt>输入附件</dt><dd>{preview.attachments.map(item => <p key={item.id}>{item.name} · {item.bytes.toLocaleString()} 字节</p>)}</dd></div> : null}<div><dt>目标</dt><dd>{task.goal}</dd></div><div><dt>处理方式</dt><dd>{task.humanOnly ? '我来处理（Agent 不会执行）' : 'Agent 处理'}</dd></div>{!task.humanOnly && <div><dt>执行</dt><dd>{remote ? <RemoteTaskAgent value={agentId} /> : <TaskAgentPicker value={agentId} disabled={disabled} onChange={(next) => onOptionsChange({ agentId: next })} />}</dd></div>}<div><dt>项目</dt><dd>{preview.projectName ?? task.projectId ?? '日常'}</dd></div><div><dt>父任务</dt><dd>{task.parentTaskId ? `${preview.parentTitle ?? task.parentTaskId}（${task.parentTaskId}）` : '无'}</dd></div><div><dt>前置任务</dt><dd>{task.dependencyIds?.map((id, index) => `${preview.dependencyTitles?.[index] ?? id}（${id}）`).join('、') || '无'}；全部进入审核中或已完成后可执行</dd></div><div><dt>执行目录</dt><dd>{task.humanOnly ? '无需 Agent 执行目录' : preview.sourceDirectory ? `${preview.sourceDirectory} 的独立副本；不写入原目录` : '新建任务独立目录'}</dd></div><div><dt>执行条件</dt><dd>{task.humanOnly ? '由你处理，Agent 不会执行' : 'macOS 原生受限执行，禁止派生子进程；不新增容器'}</dd></div><div><dt>范围</dt><dd>{task.scope || '任务独立目录'}</dd></div><div><dt>优先级</dt><dd>{({ high: '高', medium: '中', low: '低' })[task.priority ?? 'medium']}</dd></div><div><dt>验收</dt><dd>{acceptanceLabel}{!task.humanOnly && task.acceptanceCriteria ? ` · ${task.acceptanceCriteria}` : ''}</dd></div></>;
 }
 

@@ -135,3 +135,26 @@ test('超过百条子任务完整统计与分页，展开去重、深层关系�
   await expect(page.locator('.task-panel-list').getByRole('button', { name: `查看任务：${children[0]!.title}`, exact: true })).toHaveCount(1);
   await page.screenshot({ path: testInfo.outputPath('task-tree-1440.png'), animations: 'disabled' });
 });
+
+test('通用创建表单选父任务后默认随顶层验收，并可改为单独验收', async ({ page, request }) => {
+  await resetE2eState(request);
+  const parent = await create(request, '验收设置父任务');
+  await openTasks(page);
+  await page.getByRole('button', { name: '新建任务', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '创建任务' });
+  await expect(dialog.getByRole('checkbox', { name: '完成后需要我验收' })).toBeChecked();
+  await dialog.getByText('任务关系（选填）', { exact: true }).click();
+  await dialog.getByRole('button', { name: '选择父任务', exact: true }).click();
+  await dialog.getByRole('group', { name: '父任务', exact: true }).getByRole('textbox').fill(parent.title);
+  await dialog.getByRole('button', { name: `选择父任务：${parent.title}（${parent.taskId}）`, exact: true }).click();
+  await expect(dialog.getByText('随顶层任务验收', { exact: true })).toBeVisible();
+  await dialog.getByRole('checkbox', { name: '单独验收' }).check();
+  await dialog.getByLabel('任务名称', { exact: true }).fill('独立验收子任务');
+  await dialog.getByLabel('目标说明', { exact: true }).fill('独立验收成果');
+  await dialog.getByRole('button', { name: '创建任务', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const { tasks } = await (await request.get(`${fakeApiRoot}/api/tasks?parentTaskId=${parent.taskId}`)).json();
+  expect(tasks).toHaveLength(1);
+  expect(tasks[0].acceptance).toBe(true);
+  expect(tasks[0].acceptanceMode).toBeUndefined();
+});
