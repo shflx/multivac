@@ -2,7 +2,7 @@ import { TaskAttachments } from './task-attachments.js';
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { CircleAlert, Folder, LoaderCircle, Plus, X } from 'lucide-react';
-import type { Task } from '@multivac/contracts';
+import { taskAcceptanceDefaults, type Task } from '@multivac/contracts';
 import { focusableWithin, wrapFocusIndex } from '../../components/focus-trap.js';
 import { useTasks } from './tasks-provider.js';
 import { TaskFilter } from './task-filter.js';
@@ -27,7 +27,10 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
   const [scope, setScope] = useState('');
   const [projectId, setProjectId] = useState(() => parentTask ? parentTask.projectId ?? '' : projects.some((project) => project.id === initialProjectId) ? initialProjectId : '');
   const [humanOnly, setHumanOnly] = useState(false);
-  const [acceptance, setAcceptance] = useState(true);
+  const [topLevelAcceptance, setTopLevelAcceptance] = useState(true);
+  const [separateAcceptance, setSeparateAcceptance] = useState(false);
+  const acceptance = parentTaskId ? (separateAcceptance ? true : undefined) : topLevelAcceptance;
+  const { acceptanceMode } = taskAcceptanceDefaults({ parentTaskId, humanOnly, ...(acceptance !== undefined ? { acceptance } : {}) });
   const [busy, setBusy] = useState(false);
   const [attachmentDraftId] = useState(() => crypto.randomUUID());
   const [attachmentsBlocked, setAttachmentsBlocked] = useState(false);
@@ -68,7 +71,7 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
     try {
       const input = { attachmentDraftId, humanOnly, title: name.trim(), goal: goal.trim(), scope: scope.trim(), priority,
         projectId: projectId || null, parentTaskId, dependencyIds: [...dependencyIds].sort(),
-        acceptance, acceptanceCriteria: acceptance ? '' : '非空文本',
+        ...(!humanOnly && acceptance !== undefined ? { acceptance, acceptanceCriteria: acceptance ? '' : '非空文本' } : {}),
       };
       const key = JSON.stringify(input);
       if (creation.current?.key !== key) creation.current = { key, commandId: crypto.randomUUID() };
@@ -112,8 +115,11 @@ export function NewTaskDialog({ projects, initialProjectId, parentTask, onClose,
         <TaskAttachments draftId={attachmentDraftId} editable disabled={busy} onBlocked={setAttachmentsBlocked} />
         {invalidRelations && <p className="task-create-error" role="alert">关系已失效或不属于当前项目，请核对任务关系后重新选择。</p>}
         <label className="task-create-acceptance"><input type="checkbox" checked={humanOnly} disabled={busy} onChange={(event) => setHumanOnly(event.target.checked)} /><span>我来处理</span></label><p className="task-create-hint">选中后由你完成，Agent 不会执行。</p>
-        {!humanOnly && <label className="task-create-acceptance"><input type="checkbox" disabled={busy} checked={acceptance} onChange={(event) => setAcceptance(event.target.checked)} /><span>完成后需要我验收</span></label>}
-        {!humanOnly && !acceptance && <p className="task-create-hint">无需人工验收时，会检查成果内容非空。</p>}
+        {!humanOnly && (parentTaskId
+          ? <label className="task-create-acceptance"><input type="checkbox" disabled={busy} checked={separateAcceptance} onChange={(event) => setSeparateAcceptance(event.target.checked)} /><span>单独验收</span></label>
+          : <label className="task-create-acceptance"><input type="checkbox" disabled={busy} checked={topLevelAcceptance} onChange={(event) => setTopLevelAcceptance(event.target.checked)} /><span>完成后需要我验收</span></label>)}
+        {acceptanceMode === 'top-level' && <p className="task-create-hint">随顶层任务验收</p>}
+        {!humanOnly && acceptance === false && <p className="task-create-hint">无需人工验收时，会检查成果内容非空。</p>}
         {error && <p className="task-create-error" role="alert">{error}</p>}
       </div>
       <footer><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>取消</button><button type="submit" className="primary-button" disabled={busy || attachmentsBlocked || !name.trim() || !goal.trim() || invalidRelations}>{busy ? <LoaderCircle className="spin" /> : <Plus />}创建任务</button></footer>

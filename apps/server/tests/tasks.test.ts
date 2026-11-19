@@ -14,6 +14,37 @@ import { createMultivacApplication } from '../src/bootstrap/application.js';
 import { FakeCoordinatorAdapter } from '../src/runtime/executors/fake-coordinator-adapter.js';
 import { testApplicationEnvironment } from './fixtures/test-environment.js';
 
+test('创建和预览使用同一验收规则，保留显式选择和旧子任务', () => {
+  const store = new SqliteAssistantStore(':memory:');
+  const tasks = new TaskService({ afterCommit: () => {}, facts: store.taskFacts, requireProject: () => {} });
+  try {
+    const create = (commandId: string, fields: { parentTaskId?: string; acceptance?: boolean; humanOnly?: boolean } = {}) => {
+      const input = { title: commandId, goal: '核对', ...fields };
+      const preview = tasks.preview(input);
+      const task = tasks.create({ commandId, ...input }).task;
+      assert.equal(task.acceptance, preview.acceptance);
+      assert.equal(task.acceptanceMode, preview.acceptanceMode);
+      return task;
+    };
+    const root = create('root');
+    assert.equal(root.acceptance, true);
+    assert.equal(root.acceptanceMode, undefined);
+    const child = create('child', { parentTaskId: root.taskId });
+    assert.equal(child.acceptanceMode, 'top-level');
+    assert.equal(create('leaf', { parentTaskId: child.taskId }).acceptanceMode, 'top-level');
+    assert.equal(create('manual', { parentTaskId: root.taskId, acceptance: true }).acceptanceMode, undefined);
+    assert.equal(create('auto', { parentTaskId: root.taskId, acceptance: false }).acceptance, false);
+    assert.equal(create('human', { parentTaskId: root.taskId, humanOnly: true }).acceptanceMode, undefined);
+    const createdAgain = create('child', { parentTaskId: root.taskId });
+    assert.equal(createdAgain.taskId, child.taskId);
+    assert.throws(() => create('child', { parentTaskId: root.taskId, acceptance: true }), /同一个命令/);
+    assert.throws(() => create('manual', { parentTaskId: root.taskId }), /同一个命令/);
+    const detached = tasks.update(child.taskId, { commandId: 'detach', revision: child.revision, patch: { parentTaskId: null } }).task;
+    assert.equal(detached.acceptance, true);
+    assert.equal(detached.acceptanceMode, undefined);
+  } finally { store.close(); }
+});
+
 test('任务与回执落盘、分页、关系、版本冲突和无变化事件', async () => {
   const root = await mkdtemp(join(tmpdir(), 'multivac-tasks-'));
   const path = join(root, 'store.sqlite');

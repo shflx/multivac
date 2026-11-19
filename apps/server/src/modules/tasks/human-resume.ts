@@ -6,5 +6,6 @@ export function humanResumeBoundary(task: Task): string {
   return createHash('sha256').update(JSON.stringify([
     task.goal, task.scope, task.projectId, task.parentTaskId, task.dependencyIds,
     task.agentId, task.skill, task.humanOnly, task.acceptance, task.acceptanceCriteria, task.budget,
+    ...(task.acceptanceMode ? [task.acceptanceMode] : []),
   ])).digest('hex');
 }

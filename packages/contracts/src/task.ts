@@ -50,9 +50,19 @@ const TaskFields = {
   budget: Type.Optional(TaskBudgetSchema),
 };
 
+/** 只有新建且未指定验收设置的 Agent 子任务默认随顶层验收。 */
+export function taskAcceptanceDefaults(input: { parentTaskId?: string | null; humanOnly?: boolean; acceptance?: boolean }): {
+  acceptance: boolean; acceptanceMode?: 'top-level';
+} {
+  return input.parentTaskId && !input.humanOnly && input.acceptance === undefined
+    ? { acceptance: true, acceptanceMode: 'top-level' }
+    : { acceptance: input.acceptance ?? true };
+}
+
 /** Task 是长期目标；运行引用为空时，不能从目标文字推断执行事实。 */
 export const TaskSchema = Type.Object({
   taskId: TaskIdSchema, ...TaskFields,
+  acceptanceMode: Type.Optional(Type.Literal('top-level')),
   status: TaskStatusSchema,
   revision: Type.Integer({ minimum: 1 }),
   sessionId: NullableId,

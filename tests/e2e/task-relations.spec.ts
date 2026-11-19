@@ -27,6 +27,8 @@ test('创建日常子任务固定父项目，按身份选择同名多前置，�
   const dialog = page.getByRole('dialog', { name: '创建任务' });
   await expect(dialog.getByRole('button', { name: '任务所属项目：不关联项目', exact: true })).toBeDisabled();
   await expect(dialog.getByText(/从父任务创建，项目与父任务固定/)).toBeVisible();
+  await expect(dialog.getByText('随顶层任务验收', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('checkbox', { name: '单独验收' })).not.toBeChecked();
   await dialog.getByLabel('任务名称', { exact: true }).fill('日常子目标');
   await dialog.getByLabel('目标说明', { exact: true }).fill('仅记录目标');
   await dialog.getByRole('button', { name: '添加前置任务', exact: true }).click();
@@ -41,6 +43,7 @@ test('创建日常子任务固定父项目，按身份选择同名多前置，�
   await dialog.getByRole('button', { name: '创建任务', exact: true }).click();
   await expect(dialog).toHaveCount(0); await expect(inspector.getByRole('heading', { name: '日常子目标', exact: true })).toBeVisible();
   const child = (await (await request.get(`${fakeApiRoot}/api/tasks?query=日常子目标`)).json()).tasks[0] as Task;
+  expect(child.acceptanceMode).toBe('top-level');
   expect(child.parentTaskId).toBe(parent.taskId); expect(child.projectId).toBeNull();
   expect(new Set(child.dependencyIds)).toEqual(new Set([first.taskId, second.taskId])); expect(child.status).toBe('idle'); expect(child.currentRunId).toBeNull();
   await expect(inspector.getByText('还有 2 个前置任务未满足条件；这是执行条件。尚未申请执行。', { exact: true })).toBeVisible();

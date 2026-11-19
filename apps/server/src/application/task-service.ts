@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   ConfirmHumanTaskSchema, type ConfirmHumanTask, CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
-  UNKNOWN_CHANGE_ORIGIN, satisfiesTaskDependency,
+  UNKNOWN_CHANGE_ORIGIN, satisfiesTaskDependency, taskAcceptanceDefaults,
   DEFAULT_AGENT_ID,
   DEFAULT_TASK_BUDGET,
   type CreateTask, type UpdateTask, type CreateTaskGroup,
@@ -183,18 +183,23 @@ export class TaskService {
     const fields = {
       ...(input.skill ? { skill: input.skill } : {}),
       humanOnly: input.humanOnly ?? false, title: input.title.trim(), goal: input.goal.trim(), projectId: input.projectId ?? null,
-      scope: input.scope?.trim() ?? '', priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true,
+      scope: input.scope?.trim() ?? '', priority: input.priority ?? 'medium', ...taskAcceptanceDefaults(input),
       acceptanceCriteria: input.acceptanceCriteria?.trim() ?? '', groupId: input.groupId ?? null,
       parentTaskId: input.parentTaskId ?? null, dependencyIds: [...(input.dependencyIds ?? [])].sort(),
       budget: input.budget ?? this.options.defaultBudget?.() ?? DEFAULT_TASK_BUDGET,
       agentId: input.agentId ?? DEFAULT_AGENT_ID,
     };
     // 未标记“我来处理”、使用默认执行智能体与旧版缺省语义一致，保持升级前创建命令的重放指纹。
-    const { humanOnly, agentId, ...boundaryFields } = fields;
-    const key = fingerprint({ kind: 'create', ...(input.attachmentDraftId ? { attachmentDraftId: input.attachmentDraftId } : {}), ...boundaryFields, ...(humanOnly ? { humanOnly: true } : {}), ...(agentId === DEFAULT_AGENT_ID ? {} : { agentId }) });
+    const { humanOnly, agentId, acceptanceMode, ...boundaryFields } = fields;
+    const command = { kind: 'create', ...(input.attachmentDraftId ? { attachmentDraftId: input.attachmentDraftId } : {}), ...boundaryFields, ...(humanOnly ? { humanOnly: true } : {}), ...(agentId === DEFAULT_AGENT_ID ? {} : { agentId }) };
+    const mode = acceptanceMode ?? (input.parentTaskId && !humanOnly && input.acceptance === true ? 'separate' : undefined);
+    const legacyKey = fingerprint(command);
+    const key = mode ? fingerprint({ ...command, acceptanceMode: mode }) : legacyKey;
     let changed = false;
     const task = this.options.facts.transaction(() => {
-      const replay = this.replay<Task>(input.commandId, key);
+      // 升级前省略验收设置的子任务命令仍返回原记录。
+      const saved = mode ? this.options.facts.tasks.command(input.commandId) : null;
+      const replay = this.replay<Task>(input.commandId, saved?.fingerprint === legacyKey ? legacyKey : key);
       if (replay) return replay;
       const at = this.now();
       const task: Task = {
@@ -218,7 +223,7 @@ export class TaskService {
   }
   preview(input: Omit<CreateTask, 'commandId'>, attachmentSessionId?: string) {
     const at = this.now();
-    const task: Task = { ...(input.skill ? { skill: input.skill } : {}), humanOnly: input.humanOnly ?? false, agentId: input.agentId ?? DEFAULT_AGENT_ID, taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', acceptance: input.acceptance ?? true, acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
+    const task: Task = { ...(input.skill ? { skill: input.skill } : {}), humanOnly: input.humanOnly ?? false, agentId: input.agentId ?? DEFAULT_AGENT_ID, taskId: randomUUID(), title: input.title.trim(), goal: input.goal.trim(), scope: input.scope?.trim() ?? '', projectId: input.projectId ?? null, groupId: input.groupId ?? null, parentTaskId: input.parentTaskId ?? null, dependencyIds: input.dependencyIds ?? [], priority: input.priority ?? 'medium', ...taskAcceptanceDefaults(input), acceptanceCriteria: input.acceptanceCriteria ?? '', status: 'idle', revision: 1, sessionId: null, currentRunId: null, reason: '', nextStep: '', createdAt: at, updatedAt: at, completedAt: null };
     this.validate(task);
     this.options.requireAgent?.(task.agentId!);
     const project = task.projectId ? this.options.describeProject?.(task.projectId) : undefined;
@@ -230,7 +235,7 @@ export class TaskService {
       ...(task.skill ? { skill: task.skill } : {}),
       projectId: task.projectId, projectName: project?.name ?? (task.projectId ?? '日常'),
       sourceDirectory: project?.directories[0]?.path ?? null, constraints: project?.defaultConstraints ?? '',
-      scope: task.scope, acceptance: task.acceptance, title: task.title, goal: task.goal,
+      scope: task.scope, acceptance: task.acceptance, ...(task.acceptanceMode ? { acceptanceMode: task.acceptanceMode } : {}), title: task.title, goal: task.goal,
       parentTaskId: task.parentTaskId, dependencyIds: task.dependencyIds, parentTitle: parent?.title ?? null,
       dependencyTitles: task.dependencyIds.map((id) => byId.get(id)!.title),
       relationRevisions: [...(parent ? [parent] : []), ...dependencies].map((item) => ({ taskId: item.taskId, revision: item.revision })),
@@ -253,6 +258,7 @@ export class TaskService {
       if (current.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '任务已变化，请读取最新版本后重试。');
       if (['done', 'cancelled'].includes(current.status)) invalid('完成或取消的任务保留为历史，不能修改。');
       const next = { ...current, ...patch };
+      if (!next.parentTaskId || next.humanOnly || patch.acceptance !== undefined) delete next.acceptanceMode;
       if (patch.humanOnly !== undefined && !!current.humanOnly !== patch.humanOnly) {
         const reason = this.boundaryEditReason(current);
         if (reason) invalid(reason);
@@ -267,10 +273,10 @@ export class TaskService {
         this.options.requireAgent?.(patch.agentId);
       }
       if (!['idle', 'paused', 'failed'].includes(current.status)) {
-        const boundaries = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
+        const boundaries = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceMode', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
         if (boundaries.some((field) => fingerprint(next[field]) !== fingerprint(current[field]))) invalid('任务已进入执行流程，请先安全停止，再修改执行范围、关系或验收要求。');
       }
-      const boundaryFields = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
+      const boundaryFields = ['projectId', 'goal', 'scope', 'acceptance', 'acceptanceMode', 'acceptanceCriteria', 'parentTaskId', 'dependencyIds', 'budget'] as const;
       if (boundaryFields.some((field) => fingerprint(next[field]) !== fingerprint(current[field]))) {
         const reason = this.boundaryEditReason(current);
         if (reason) invalid(reason);

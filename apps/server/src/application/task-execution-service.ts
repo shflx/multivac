@@ -198,7 +198,7 @@ export class TaskExecutionService {
     for (const snapshot of children) {
       const child = this.options.tasks.get(snapshot.taskId);
       if (child.projectId !== task.projectId) throw new TaskServiceError('INVALID_REQUEST', '子任务项目与父任务执行环境不一致。');
-      if (previous?.treeTasks && ['goal', 'scope', 'parentTaskId', 'dependencyIds', 'humanOnly', 'acceptance', 'acceptanceCriteria'].some(key =>
+      if (previous?.treeTasks && ['goal', 'scope', 'parentTaskId', 'dependencyIds', 'humanOnly', 'acceptance', 'acceptanceMode', 'acceptanceCriteria'].some(key =>
         fingerprint(child[key as keyof Task]) !== fingerprint(snapshot[key as keyof Task]))) throw new TaskServiceError('TASK_CONFLICT', `子任务「${child.title}」边界已变化。`);
       const owner = this.options.tasks.executionOwner(child.taskId);
       const run = child.currentRunId ? this.options.runs.get(child.currentRunId) : null;
