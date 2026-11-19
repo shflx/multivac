@@ -8,6 +8,7 @@ import type { CoordinatorRuntimeConfig } from '@multivac/contracts';
 import { AssistantSessionService } from '../src/application/assistant-session-service.js';
 import { PiCoordinatorAdapter } from '../src/runtime/executors/pi-coordinator-adapter.js';
 import { resolvePiRequestEndpoint } from '../src/runtime/executors/pi-model-auth.js';
+import { createPiModelRuntime } from '../src/runtime/executors/pi-model-runtime.js';
 import { DefaultPiCoordinatorSessionFactory } from '../src/runtime/executors/pi-session-factory.js';
 import { FileModelSelectionRecoveryRepository } from '../src/storage/file-model-selection-recovery-store.js';
 import { SqliteAssistantStore } from '../src/storage/sqlite-assistant-store.js';
@@ -52,7 +53,7 @@ for (const { environmentMode, fallback } of [
       let sdkCalls = 0;
       let lastRuntime: ModelRuntime | undefined;
       try {
-        const original = await ModelRuntime.create({
+        const original = await createPiModelRuntime({
           authPath: join(agentDir, 'auth.json'), modelsPath: join(agentDir, 'models.json'), allowModelNetwork: false,
         });
         const model = original.getModels('azure-openai-responses')[0];
@@ -69,7 +70,7 @@ for (const { environmentMode, fallback } of [
           const factory = new DefaultPiCoordinatorSessionFactory({
             createModelRuntime: async (options) => {
               assert.equal(options.modelsPath, join(agentDir, 'models.json'));
-              lastRuntime = await ModelRuntime.create(options);
+              lastRuntime = await createPiModelRuntime(options);
               return lastRuntime;
             },
             createAgentSession: async (options) => {

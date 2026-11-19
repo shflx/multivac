@@ -17,7 +17,7 @@ async function loadPiStorage(): Promise<PiStorageModule> {
 }
 export async function createPiCredentialStore(path: string): Promise<Store> { return (await loadPiStorage()).AuthStorage.create(path); }
 
-/** Pi 0.85.1 未从根入口导出 AuthStorage；仅适配其原生存储接口，不解析/生成凭据 JSON。 */
+/** Pi 1.5.2 的公开入口只提供单次凭据读取。写入仍使用原生 backend 锁与序列化。 */
 export async function createGuardedPiCredentialStore(path: string, version: string,
   readVersion: () => Promise<string>): Promise<Store> {
   const sdk = await loadPiStorage();

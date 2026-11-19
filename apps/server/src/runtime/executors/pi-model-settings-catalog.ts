@@ -1,3 +1,4 @@
+import { createPiModelRuntime } from './pi-model-runtime.js';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { resolveRuntimeConfig } from '../../runtime-config.js';
 import { resolvePiInstancePaths } from './pi-instance-paths.js';
@@ -24,18 +25,7 @@ import {
 import { resolvePiRequestEndpoint, type PiModelAuthRuntime } from './pi-model-auth.js';
 import { securePiAuthFile } from './pi-credential-security.js';
 
-interface PiModelView {
-  provider: string;
-  id: string;
-  api: string;
-  baseUrl: string;
-  reasoning: boolean;
-  input: ('text' | 'image')[];
-  contextWindow: number;
-  maxTokens: number;
-  cost?: { input: number; output: number; cacheRead: number; cacheWrite: number };
-  thinkingLevelMap?: Partial<Record<CoordinatorThinkingLevel, string | null>>;
-}
+type PiModelView = NonNullable<ReturnType<ModelRuntime['getModel']>>;
 
 interface PiModelRuntimeView extends PiModelAuthRuntime<PiModelView> {
   getModel(provider: string, modelId: string): PiModelView | undefined;
@@ -50,7 +40,7 @@ interface PiModelRuntimeView extends PiModelAuthRuntime<PiModelView> {
 /** 新模型仅通过 Pi 官方目录解析；SDK 缓存提供离线回退，不按品牌猜测能力。 */
 export async function refreshPiModelCatalog(
   runtime: Pick<PiModelRuntimeView, 'getModel' | 'refresh'>,
-  profiles: readonly ModelProfileInput[],
+  profiles: readonly Pick<ModelProfileInput, 'provider' | 'modelId'>[],
   signal?: AbortSignal,
 ): Promise<void> {
   const providers = [...new Set(profiles.filter((profile) => !runtime.getModel(profile.provider, profile.modelId))
@@ -315,7 +305,7 @@ export class PiModelSettingsCatalogFactory implements ModelSettingsCatalogFactor
     this.authPath = options.authPath ?? resolvePiInstancePaths(resolveRuntimeConfig(), getAgentDir).authPath;
     this.createRuntime = options.createRuntime ?? (async (runtimeOptions) => {
       await securePiAuthFile(runtimeOptions.authPath ?? this.authPath);
-      return ModelRuntime.create(runtimeOptions);
+      return createPiModelRuntime(runtimeOptions);
     });
   }
 

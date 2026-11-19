@@ -1,3 +1,4 @@
+import { createPiModelRuntime } from './pi-model-runtime.js';
 import { stat } from 'node:fs/promises';
 import { resolveRuntimeConfig } from '../../runtime-config.js';
 import { resolvePiInstancePaths } from './pi-instance-paths.js';
@@ -34,7 +35,7 @@ export class PiModelAccessBackend implements ModelAccessBackend {
   private localReader: Promise<{ credentials: NonNullable<CreateModelRuntimeOptions['credentials']>; runtime: ModelRuntime }> | undefined;
   constructor(private readonly options: PiModelAccessBackendOptions = {}) {
     this.authPath = options.authPath ?? resolvePiInstancePaths(resolveRuntimeConfig(), getAgentDir).authPath;
-    this.createRuntime = options.createRuntime ?? ModelRuntime.create;
+    this.createRuntime = options.createRuntime ?? createPiModelRuntime;
   }
   async credentialVersion(): Promise<string> {
     try {

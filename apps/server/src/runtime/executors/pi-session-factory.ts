@@ -1,3 +1,4 @@
+import { createPiModelRuntime } from './pi-model-runtime.js';
 import { protectedPiSession } from './pi-protected-session.js';
 import type { ProtectedTranscriptStore } from '../../modules/notes/protected-transcript.js';
 import { compactPiContext } from './pi-context-compaction.js';
@@ -342,6 +343,8 @@ function runtimeSettings(config: CoordinatorRuntimeConfig) {
   return {
     retry: { ...config.retry },
     compaction: { ...config.compaction },
+    // 图片已由 Multivac 校验。发送时保留原始数据，能力准入以本轮模型目录为准。
+    images: { blockImages: false, autoResize: false },
     packages: [],
     extensions: [],
     skills: [],
@@ -429,7 +432,7 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
     this.createPiAgentSession = options.createAgentSession ?? createAgentSession;
     this.createModelRuntime = options.createModelRuntime ?? (async (runtimeOptions) => {
       await securePiAuthFile(runtimeOptions.authPath!);
-      return ModelRuntime.create(runtimeOptions);
+      return createPiModelRuntime(runtimeOptions);
     });
     this.createSettingsManager =
       options.createSettingsManager ??
@@ -785,8 +788,12 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         },
         compactContext: operation => compactPiContext(result.session, operation),
         prompt: (text, options) => result.session.prompt(text, options),
-        steer: (text, images) => result.session.steer(text, images),
-        followUp: (text, images) => result.session.followUp(text, images),
+        steer: async (text, images) => {
+          if (await result.session.steer(text, images) === 'handled') throw new Error('Pi 未将消息加入 steer 队列。');
+        },
+        followUp: async (text, images) => {
+          if (await result.session.followUp(text, images) === 'handled') throw new Error('Pi 未将消息加入 followUp 队列。');
+        },
         sendCustomMessage: (message, options) =>
           result.session.sendCustomMessage(message, options),
         abort: () => result.session.abort(),
@@ -794,12 +801,11 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
         getActiveToolNames: () => result.session.getActiveToolNames(),
         applyTurnConfig: (model, level, instructions) => {
           const agent = result.session.agent;
-          const previous = { model: agent.state.model, thinkingLevel: agent.state.thinkingLevel, systemPrompt: agent.state.systemPrompt, instructions: turnInstructions };
+          const previous = { model: agent.state.model, thinkingLevel: agent.state.thinkingLevel, instructions: turnInstructions };
           const restore = () => {
             turnInstructions = previous.instructions;
             agent.state.model = previous.model;
             agent.state.thinkingLevel = previous.thinkingLevel;
-            agent.state.systemPrompt = previous.systemPrompt;
             // Pi 会用最新助手消息中的模型恢复会话。临时模型生成过回复后，显式记录原模型，
             // 让落盘对账与重开仍指向原选择；未生成回复时不增加无意义的 transcript 记录。
             const persisted = buildSessionContext(result.session.sessionManager.getBranch());
@@ -807,13 +813,11 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
               result.session.sessionManager.appendModelChange(previous.model.provider, previous.model.id);
             }
           };
-          // Pi 0.85 通过可写 state 更新 Agent；不走会写入 transcript/settings 的会话 setter。
-          // 保留当前上下文、工具与系统边界；部分赋值失败也须恢复，不能留下半套配置。
+          // 只临时更新 Agent 的模型与推理等级。受控扩展在 before_agent_start 投影本轮指令。
           try {
             turnInstructions = instructions || undefined;
             agent.state.model = model;
             agent.state.thinkingLevel = level;
-            agent.state.systemPrompt = instructions ? `${previous.systemPrompt}\n\n${instructions}` : previous.systemPrompt;
           } catch (error) { restore(); throw error; }
           return restore;
         },
@@ -882,7 +886,11 @@ export class DefaultPiCoordinatorSessionFactory implements PiCoordinatorSessionF
       allowModelNetwork: false,
     };
     const { endpoint, protocol } = input.config.model;
-    if ((input.config.model.source ?? 'base') === 'base') return this.createModelRuntime(baseOptions);
+    if ((input.config.model.source ?? 'base') === 'base') {
+      const runtime = await this.createModelRuntime(baseOptions);
+      await refreshPiModelCatalog(runtime, [input.config.model]);
+      return runtime;
+    }
 
     const temporaryRoot = this.options.temporaryRoot ?? tmpdir();
     await mkdir(temporaryRoot, { recursive: true, mode: 0o700 });

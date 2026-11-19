@@ -101,10 +101,10 @@ test('真实 Pi 目录刷新缓存与 Anthropic 兼容推理实际传递 effort�
   let payload: Record<string, unknown> | undefined;
   let catalogRequests = 0;
   const server = createServer((request, response) => {
-    if (request.url === '/api/models/providers/deepseek') {
+    if (new URL(request.url!, 'http://localhost').pathname === '/api/models/providers/deepseek') {
       catalogRequests++;
       response.writeHead(200, { 'content-type': 'application/json', 'last-modified': 'Fri, 01 Jan 2100 00:00:00 GMT' });
-      response.end(JSON.stringify([{ ...runtimeModel, provider: 'deepseek', id: 'deepseek-flash',
+      response.end(JSON.stringify([{ ...runtimeModel, provider: 'deepseek', id: 'deepseek-controlled-flash',
         api: 'openai-completions', cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         thinkingLevelMap: { minimal: null, low: 'low', medium: null, high: 'high', max: 'max' } }]));
       return;
@@ -127,7 +127,7 @@ test('真实 Pi 目录刷新缓存与 Anthropic 兼容推理实际传递 effort�
     await writeFile(modelsPath, '{"providers":{}}');
     const options = { authPath, modelsPath, modelsStorePath, catalogBaseUrl: local, allowModelNetwork: false };
     const base = await ModelRuntime.create(options);
-    const target = { ...profile, provider: 'deepseek', modelId: 'deepseek-flash',
+    const target = { ...profile, provider: 'deepseek', modelId: 'deepseek-controlled-flash',
       protocol: 'anthropic-messages' as const, endpoint: `${local}/anthropic` };
     await refreshPiModelCatalog(base, [target]);
     assert.equal(catalogRequests, 1);

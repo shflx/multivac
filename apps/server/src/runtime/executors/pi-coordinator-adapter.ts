@@ -623,6 +623,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
       return this.sessionNotActive();
     }
 
+    if (images?.length && !this.supportsImageInput(assistantSessionId)) return failure({ code: 'RUNTIME_OPERATION_FAILED', message: '当前模型不支持图片输入或图片能力未确定。' });
     active.mapper.resetRunResult();
     try {
       // 服务端通知最先落入会话；上下文与引用随后，再发正文：引用紧挨正文，正文 entry 的父节点即引用 entry，
@@ -1036,6 +1037,7 @@ export class PiCoordinatorAdapter implements CoordinatorAdapter {
         active.mapper.markAbortRequested();
         await active.session.abort();
       } else {
+        if (images?.length && !this.supportsImageInput(assistantSessionId)) return failure({ code: 'RUNTIME_OPERATION_FAILED', message: '当前模型不支持图片输入或图片能力未确定。' });
         // 上下文与引用按与正文相同的方式入队，保证它们落在同一个接收点。
         if (context) await this.appendContext(active, context, action);
         if (skill) await this.appendSkill(active, skill, action);
