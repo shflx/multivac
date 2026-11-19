@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   ConfirmHumanTaskSchema, type ConfirmHumanTask, CreateTaskSchema, UpdateTaskSchema, DeleteTaskSchema, CreateTaskGroupSchema, TaskQuerySchema, TaskSchema,
   UNKNOWN_CHANGE_ORIGIN, satisfiesTaskDependency, taskAcceptanceDefaults,
@@ -16,7 +16,7 @@ import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { blocksTask } from '../modules/tasks/external-operation.js';
 
 /** 任务状态转换：在任务事实事务内由当前任务计算下一状态，相关写入只经 facts 完成。 */
-export type TaskChange = (task: Task, facts: TaskFacts) => Task;
+export type TaskChange = (task: Task, facts: TaskFacts, related: Task[]) => Task;
 
 function invalid(message: string): never { throw new TaskServiceError('INVALID_REQUEST', message); }
 
@@ -266,7 +266,12 @@ export class TaskService {
         next.reason = patch.humanOnly ? '由你处理，等待完成确认。' : '尚未启动执行。';
         next.nextStep = patch.humanOnly ? '处理后标记完成。' : '启动任务。';
       }
-      if (patch.parentTaskId !== undefined && patch.parentTaskId !== current.parentTaskId && this.options.facts.runs.tree(taskId).length) invalid('已执行的任务树不能更换父任务以重置共享预算。');
+      if (next.parentTaskId !== current.parentTaskId || !!next.humanOnly !== !!current.humanOnly) {
+        if (next.parentTaskId !== current.parentTaskId && this.options.facts.runs.tree(taskId).length) invalid('已执行的任务树不能更换父任务以重置共享预算。');
+        if (this.descendants(taskId).some(child => child.acceptanceMode === 'top-level' && child.status === 'review')) {
+          invalid('已有子任务交付并等待随顶层任务验收，暂不能更改验收归属。');
+        }
+      }
       if (patch.agentId !== undefined && patch.agentId !== (current.agentId ?? DEFAULT_AGENT_ID)) {
         // 恢复执行沿用原执行会话，已执行过的任务换智能体不会生效，因此只允许在首次执行前更换。
         if (current.currentRunId || this.options.facts.runs.list(taskId).length) invalid('任务已有执行记录，执行会话沿用原智能体的模型和指令，不能更换执行智能体。');
@@ -395,12 +400,13 @@ export class TaskService {
    */
   transition(taskId: string, command: { commandId: string; revision?: number; key: string; kind: string; summary: string }, change: TaskChange, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN): TaskReceipt {
     let changed = false;
+    const related: Task[] = [];
     const task = this.options.facts.transaction((facts) => {
       const replay = this.replay<Task>(command.commandId, command.key);
       if (replay) return replay;
       const current = this.get(taskId);
       if (command.revision !== undefined && current.revision !== command.revision) throw new TaskServiceError('TASK_CONFLICT', '任务已变化，请读取最新版本后重试。');
-      const next = change({ ...current }, facts);
+      const next = change({ ...current }, facts, related);
       if (!Check(TaskSchema, next)) invalid('任务状态事实不符合契约。');
       changed = fingerprint(next) !== fingerprint(current);
       if (changed) {
@@ -412,7 +418,16 @@ export class TaskService {
       return changed ? next : current;
     });
     if (changed) this.committed(task, origin);
+    this.publishExecutionChildren(related, origin);
     return { commandId: command.commandId, task };
+  }
+
+  /** 整体验收与子任务状态写入同一事务，提交后再发布子任务事件。 */
+  saveReviewChild(facts: TaskFacts, previous: Task, change: Partial<Task>, decisionId: string): Task {
+    const task = { ...previous, ...change, revision: previous.revision + 1, updatedAt: this.now() };
+    facts.tasks.save(task, previous.revision);
+    this.record(`group-review:${createHash('sha256').update(fingerprint([decisionId, task.taskId])).digest('hex')}`, decisionId, task, 'group-review', task.reason);
+    return task;
   }
 
   private record(commandId: string, key: string, task: Task, kind: string, summary: string): void {

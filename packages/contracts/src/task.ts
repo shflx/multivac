@@ -2,7 +2,7 @@ import { TaskAttachmentSchema, TaskInputSnapshotSchema } from './task-attachment
 import { SkillRefSchema } from './skill.js';
 import { Type } from 'typebox';
 import { WorkingDirectorySchema } from './workspace-session.js';
-import { HumanRequestSchema } from './human-request.js';
+import { CompletionReportSchema, HumanRequestSchema } from './human-request.js';
 import { ArtifactVersionSchema } from './artifact.js';
 import { DEFAULT_TASK_BUDGET_MILLIS } from './preferences.js';
 import { AgentIdSchema } from './agent.js';
@@ -82,10 +82,7 @@ export const TaskSchema = Type.Object({
   artifactVersionId: Type.Optional(NullableId),
   executionTaskId: Type.Optional(TaskIdSchema),
   executionProgress: Type.Optional(Type.Union([Type.Literal('pending'), Type.Literal('processing'), Type.Literal('ready'), Type.Literal('paused')])),
-  completionReport: Type.Optional(Type.Object({
-    reportId: TaskIdSchema, sessionId: TaskIdSchema,
-    summary: Type.String({ minLength: 1, maxLength: 3000 }), createdAt: Type.String(),
-  }, { additionalProperties: false })),
+  completionReport: Type.Optional(CompletionReportSchema),
 }, { additionalProperties: false });
 export type Task = Type.Static<typeof TaskSchema>;
 

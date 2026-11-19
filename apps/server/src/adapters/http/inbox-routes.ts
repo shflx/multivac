@@ -28,11 +28,15 @@ export function createInboxHandler(service: InboxService, artifacts?: ArtifactSe
           query[key] = ['offset', 'limit'].includes(key) ? Number(value) : value;
         }
         json(200, service.page(query as InboxQuery));
-      } else if (url.searchParams.size) throw new TaskServiceError('INVALID_REQUEST', '详情接口不接受查询参数。');
+      } else if (url.searchParams.size && !(id && match[2] === 'artifact' && request.method === 'GET')) throw new TaskServiceError('INVALID_REQUEST', '详情接口不接受查询参数。');
       else if (id && !match[2] && request.method === 'GET') json(200, { item: service.get(id) });
       else if (id && match[2] === 'artifact' && request.method === 'GET') {
-        // 只读取请求绑定的固定成果版本，入口不接受任意 versionId。
-        const versionId = service.get(id).artifactVersionId;
+        // 只读取请求绑定的整体或子任务版本，入口不接受任意 versionId。
+        const child = url.searchParams.get('child');
+        if (url.searchParams.size && (url.searchParams.size !== 1 || !child)) throw new TaskServiceError('INVALID_REQUEST', '只接受单个子任务标识。');
+        const item = service.get(id);
+        const member = child ? item.human?.reviewItems?.find(entry => entry.taskId === child) : null;
+        const versionId = child ? (member?.kind === 'artifact' ? member.versionId : null) : item.artifactVersionId;
         if (!versionId || !artifacts) throw new TaskServiceError('NOT_FOUND', '此请求没有绑定成果。');
         json(200, await artifacts.read(versionId));
       }

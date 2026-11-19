@@ -296,3 +296,60 @@ test('真实任务会话带任务身份并排除栏位补位，工作会话和�
     await f.close();
   }
 });
+
+test('多级成果只有一个整体验收，自检失败后修复，退回后绑定新版本', { skip: process.platform !== 'darwin' }, async () => {
+  const f = await fixture(); const { app, adapter } = f;
+  try {
+    const create = (title: string, fields = {}) => app.tasks.create({ commandId: crypto.randomUUID(), title, goal: '验证交付', ...fields }).task;
+    const root = create('整体', { acceptance: false, acceptanceCriteria: '非空文本' });
+    const branch = create('分支', { parentTaskId: root.taskId });
+    const leaf = create('JSON 子项', { parentTaskId: branch.taskId, acceptanceCriteria: '有效 JSON' });
+    const pending = () => app.humanRequests.list().filter(item => item.kind === 'review' && item.status === 'pending');
+    const run = async (step: number, action: 'start' | 'resume' | null, json: string) => {
+      if (action) {
+        adapter.armPromptCompletionBarrier();
+        await app.taskExecution.control(root.taskId, { commandId: `run-${step}`, revision: app.tasks.get(root.taskId).revision, action });
+      }
+      await adapter.waitForPromptCompletionBarrierEntry();
+      const run = app.tasks.detail(root.taskId).runs![0]!;
+      for (const [task, file, content] of [[leaf, 'leaf.json', json], [branch, 'branch.md', `分支成果 ${step}`]] as const) {
+        await writeFile(join(run.directory!.path, file), content);
+        app.artifacts.reportChild(run.sessionId, `child-${step}-${file}`, task.taskId, '已整理成果', task.title, file);
+      }
+      await writeFile(join(run.directory!.path, 'root.md'), `整体成果 ${step}`);
+      app.artifacts.registerSession(run.sessionId, `root-${step}`, '整体成果', 'root.md');
+      adapter.releasePromptCompletionBarrier();
+      await app.taskExecution.idle();
+    };
+    await run(1, 'start', '坏 JSON');
+    await until(() => app.tasks.get(root.taskId).status === 'failed');
+    assert.match(app.tasks.get(root.taskId).reason, /JSON 子项.*自检未通过/);
+    assert.match(app.tasks.get(leaf.taskId).reason, /不是有效 JSON/);
+    assert.equal(app.artifacts.list(leaf.taskId)[0]!.checks.at(-1)?.passed, false);
+    assert.equal(pending().length, 0);
+    await run(2, 'resume', '{"fixed":true}');
+    await until(() => pending().length === 1);
+    const [first] = pending();
+    assert.equal(first!.taskId, root.taskId);
+    assert.match(first!.question, /子任务需要人工判断/);
+    assert.deepEqual(first!.reviewItems?.map(item => [item.title, item.requiresJudgment]), [['分支', true], ['JSON 子项', false]]);
+    assert.equal(app.tasks.get(branch.taskId).status, 'review');
+    const childRunId = app.tasks.get(leaf.taskId).currentRunId!;
+    await assert.rejects(app.artifacts.submit(leaf.taskId, { commandId: 'replace-bound', revision: app.tasks.get(leaf.taskId).revision, runId: childRunId, title: '覆盖', text: '{}' }), /需先处理整体验收/);
+    adapter.armPromptCompletionBarrier();
+    await app.humanRequests.decide(first!.requestId, { commandId: 'return', revision: first!.revision, decision: 'changes', answer: '补充验证过程' });
+    assert.ok(app.tasks.detail(leaf.taskId).events.some(event => event.kind === 'group-review' && event.task.status === 'paused'));
+    assert.equal(app.artifacts.list(leaf.taskId)[0]!.status, 'changes');
+    await run(3, null, '{"verified":true}');
+    await until(() => pending().length === 1);
+    const [second] = pending();
+    assert.notEqual(second!.artifactVersionId, first!.artifactVersionId);
+    assert.deepEqual(second!.reviewItems?.map(item => item.kind === 'artifact' && app.artifacts.get(item.versionId).version), [2, 3]);
+    await app.humanRequests.decide(second!.requestId, { commandId: 'approve', revision: second!.revision, decision: 'accept' });
+    for (const task of [root, branch, leaf]) {
+      assert.equal(app.tasks.get(task.taskId).status, 'done');
+      assert.equal(app.artifacts.list(task.taskId)[0]!.status, 'accepted');
+    }
+    assert.equal(pending().length, 0);
+  } finally { adapter.releasePromptCompletionBarrier(); await f.close(); }
+});

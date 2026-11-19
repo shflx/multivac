@@ -10,6 +10,7 @@ import type { TaskRunRepository } from '../modules/tasks/task.js';
 import { TaskService, fingerprint, type TaskChange } from './task-service.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { HumanRequestService } from './human-request-service.js';
+import { applyTaskReviewItems, assertChildReviewIsEditable, collectTaskReviewItems, inheritsTaskReview } from './task-review-group.js';
 import { returnParentForChildChanges } from '../modules/tasks/task-control.js';
 
 const MAX_BYTES = 512 * 1024;
@@ -25,11 +26,21 @@ export class ArtifactService {
   /** 任务事实提交后：子任务被退回时父任务回到修改，任务进入等待或审核时复核成果。 */
   afterTaskCommit(task: Task): void {
     if (this.disposed) return;
+    if (task.status === 'cancelled' && !task.parentTaskId && !task.humanOnly) {
+      // 保留固定成果，但解除已经没有整体验收入口的子项。
+      for (const child of this.tasks.descendants(task.taskId)) {
+        if (child.acceptanceMode !== 'top-level' || child.status !== 'review' || this.requests.pending(child.taskId)) continue;
+        this.tasks.transition(child.taskId, {
+          commandId: `group-cancelled:${digest(Buffer.from(`${task.taskId}:${child.taskId}`))}`,
+          key: task.taskId, kind: 'group-cancelled', summary: '顶层任务已取消，保留已交付的子任务成果。',
+        }, current => ({ ...current, status: 'paused', pauseSource: 'user', reason: '顶层任务已取消，原成果已保留。', nextStep: '核对原成果后决定是否单独继续。' }));
+      }
+    }
     if (task.status === 'paused' && task.executionTaskId) {
       const parent = this.tasks.get(task.executionTaskId);
       if (parent.status === 'review') {
         this.tasks.transition(parent.taskId, { commandId: `child-returned:${task.taskId}:${task.revision}`, key: String(task.revision), kind: 'child-returned', summary: `子任务「${task.title}」需要修改，整体交付等待重新核对。` }, returnParentForChildChanges);
-        this.requests.invalidate(parent.taskId, '子任务被退回，整体成果需要重新核对。');
+        this.requests.invalidate(parent.taskId, '子任务被退回，整体成果需要重新核对。', 'review');
       }
     }
     // 执行收尾会显式调用结算；这里只在任务后续变化时复核，同一任务在途时复用原结算。
@@ -45,7 +56,7 @@ export class ArtifactService {
         const page = this.tasks.list({ statuses: ['waiting', 'review'], offset, limit: 100 });
         for (const task of page.tasks) {
           const run = task.currentRunId ? this.runs.get(task.currentRunId) : null;
-          if (run && this.awaitingSettlement(task, run)) void this.settle(task.taskId);
+          if (run && (this.awaitingSettlement(task, run) || task.artifactVersionId)) void this.settle(task.taskId);
         }
         if (page.nextOffset === null) break;
         offset = page.nextOffset;
@@ -94,13 +105,23 @@ export class ArtifactService {
       const remaining = [...(run.childResults ?? [])];
       while (remaining.length) {
         const index = remaining.findIndex(result => this.readyForDelivery(this.tasks.get(result.taskId), run));
-        if (index < 0) throw new TaskServiceError('INVALID_REQUEST', '子任务依赖或人工任务尚未满足，不能交付整体成果。');
+        if (index < 0) {
+          const failed = (run.treeTasks ?? []).map(child => this.tasks.get(child.taskId)).find(child => child.status === 'failed');
+          throw new TaskServiceError('INVALID_REQUEST', failed ? `子任务「${failed.title}」交付失败。${failed.reason}` : '子任务依赖或人工任务尚未满足，不能交付整体成果。');
+        }
         const result = remaining.splice(index, 1)[0]!;
         const task = this.tasks.get(result.taskId);
         if (!satisfiesTaskDependency(task.status)) {
           const existing = this.versions.get(digest(Buffer.from(`${task.taskId}:${result.commandId}`)));
-          if (existing) await this.finalize(task.taskId, existing.versionId);
-          else await this.submit(task.taskId, { commandId: result.commandId, title: result.title, path: result.path, runId: run.runId, revision: task.revision });
+          try {
+            if (existing) await this.finalize(task.taskId, existing.versionId);
+            else await this.submit(task.taskId, { commandId: result.commandId, title: result.title, path: result.path, runId: run.runId, revision: task.revision });
+          } catch (error) {
+            this.processingFailed(this.tasks.get(task.taskId), error);
+            throw new TaskServiceError('INVALID_REQUEST', `子任务「${task.title}」交付失败。${this.tasks.get(task.taskId).reason}`);
+          }
+          const delivered = this.tasks.get(task.taskId);
+          if (delivered.status === 'failed') throw new TaskServiceError('INVALID_REQUEST', `子任务「${task.title}」交付失败。${delivered.reason}`);
         }
       }
       if (run.artifactCandidate) {
@@ -213,6 +234,7 @@ export class ArtifactService {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || digest(await readFile(join(this.root, version.fileKey))) !== version.sha256) throw new TaskServiceError('TASK_CONFLICT', '成果存储失败或版本内容冲突。');
     }
     this.tasks.transition(taskId, { commandId: input.commandId, revision: input.revision, key: fingerprint(input), kind: 'artifact', summary: `已保存成果「${version.title}」版本 ${version.version}。` }, (current, facts) => {
+      assertChildReviewIsEditable(this.tasks, facts, current);
       facts.artifacts.save(version);
       return { ...current, artifactVersionId: versionId, reason: current.status === 'cancelled' ? current.reason : '成果候选已保存，等待执行终结与核对。' };
     });
@@ -273,31 +295,67 @@ export class ArtifactService {
     const version = this.get(versionId);
     const run = this.runs.get(version.runId);
     if (!run?.stopConfirmed || run.status !== 'settled' || task.currentRunId !== run.runId || version.status !== 'submitted' || task.artifactVersionId !== versionId || ['done', 'cancelled'].includes(task.status)) return;
+    if (run.taskId !== taskId && this.tasks.get(run.taskId).status === 'cancelled') return;
     if (run.treeTasks?.length && !this.readyForDelivery(task, run)) throw new TaskServiceError('INVALID_REQUEST', '子任务或依赖已变化，整合成果暂不能交付。');
     const { content } = await this.read(versionId);
-    let machine = task.acceptanceCriteria === '非空文本';
-    if (task.acceptanceCriteria === '有效 JSON') { try { JSON.parse(content); machine = true; } catch { machine = false; } }
-    const canComplete = task.status !== 'paused' && !task.acceptance && machine && run.toolFailures === 0 && !this.requests.pending(taskId) && task.dependencyIds.every((id) => satisfiesTaskDependency(this.tasks.get(id).status));
+    // 读取正文期间任务可能已取消或被新版替换。接下来的判断和写入均同步执行。
+    if (this.tasks.get(taskId).revision !== task.revision || run.taskId !== taskId && this.tasks.get(run.taskId).status === 'cancelled') return;
+    const criterion = task.acceptanceCriteria;
+    const machine = criterion === '非空文本' || criterion === '有效 JSON';
+    let passed = true;
+    if (criterion === '有效 JSON') { try { JSON.parse(content); } catch { passed = false; } }
+    const checks = machine ? [...version.checks.filter(check => check.name !== criterion), {
+      name: criterion, passed, evidence: passed ? '服务端已核对固定成果的结构。' : '固定成果正文不是有效 JSON。',
+    }] : version.checks;
+    if (!passed) {
+      this.tasks.transition(taskId, { commandId: `artifact-check-failed:${versionId}`, key: versionId, revision: task.revision, kind: 'artifact-error', summary: '成果自检未通过：正文不是有效 JSON。' }, (current, facts) => {
+        facts.artifacts.save({ ...version, checks });
+        return { ...current, status: 'failed', reason: '成果自检未通过：正文不是有效 JSON。', nextStep: '修复成果后提交新版本。' };
+      });
+      return;
+    }
+    const inherited = this.tasks.facts(facts => inheritsTaskReview(this.tasks, facts, task));
+    if (inherited) {
+      if (task.status === 'paused' || this.requests.pending(taskId)) return;
+      this.tasks.transition(taskId, { commandId: `artifact-group-ready:${versionId}`, key: versionId, revision: task.revision, kind: 'artifact-ready', summary: '成果已固定，等待随顶层任务验收。' }, (current, facts) => {
+        facts.artifacts.save({ ...version, checks });
+        return { ...current, status: 'review', reason: '成果已固定，等待随顶层任务验收。', nextStep: '在顶层任务查看整体验收。' };
+      });
+      return;
+    }
+    const reviewItems = this.tasks.facts(facts => collectTaskReviewItems(this.tasks, facts, task, run.treeTasks ?? []));
+    const childNeedsJudgment = reviewItems.some(item => item.requiresJudgment);
+    const canComplete = task.status !== 'paused' && !task.acceptance && machine && run.toolFailures === 0 && !childNeedsJudgment && !this.requests.pending(taskId) && task.dependencyIds.every((id) => satisfiesTaskDependency(this.tasks.get(id).status));
     if (canComplete) {
-      this.tasks.transition(taskId, { commandId: `artifact-verified:${versionId}`, key: versionId, kind: 'verified', summary: '成果通过已声明的服务端结构自检。' }, (current, facts) => {
-        if (run.treeTasks?.length && !this.readyForDelivery(current, run)) throw new TaskServiceError('TASK_CONFLICT', '子任务或依赖已变化，不能完成整体成果。');
-        if (current.artifactVersionId !== versionId || current.currentRunId !== run.runId || ['done', 'cancelled', 'paused'].includes(current.status)) throw new TaskServiceError('TASK_CONFLICT', '成果候选已变化。');
-        facts.artifacts.save({ ...version, status: 'accepted', checks: [...version.checks, { name: task.acceptanceCriteria, passed: true, evidence: '服务端按声明的结构规则核对，运行已停止且没有工具失败。' }] });
+      this.tasks.transition(taskId, { commandId: `artifact-verified:${versionId}`, key: versionId, revision: task.revision, kind: 'verified', summary: '成果通过已声明的服务端结构自检。' }, (current, facts, related) => {
+        applyTaskReviewItems(this.tasks, facts, reviewItems, { id: versionId, rootTaskId: taskId, accept: true, feedback: '', automatic: true }, related);
+        facts.artifacts.save({ ...version, status: 'accepted', checks });
         return { ...current, status: 'done', completedAt: new Date().toISOString(), reason: '固定成果版本通过服务端自检。', nextStep: '查看成果。' };
       });
-    } else this.requests.create(taskId, 'review', `请验收「${version.title}」版本 ${version.version}。${!task.acceptance && !machine ? '当前验收要求需要人工判断。' : ''}`, `artifact-review:${versionId}`, versionId);
+    } else {
+      if (machine) this.tasks.facts(facts => facts.artifacts.save({ ...version, checks }));
+      const reason = !task.acceptance && childNeedsJudgment ? '随顶层验收的子任务需要人工判断。' : !task.acceptance && !machine ? '当前验收要求需要人工判断。' : '';
+      this.requests.create(taskId, 'review', `请验收「${version.title}」版本 ${version.version}。${reason}`,
+        `artifact-review:${versionId}`, versionId, undefined, undefined, reviewItems.length ? reviewItems : undefined);
+    }
   }
+
   /** 人工审核成果：核对版本、运行停止与依赖后，返回在任务事实事务内执行的转换。 */
   async prepareReview(request: HumanRequest, input: DecideHumanRequest): Promise<TaskChange> {
     if (!request.artifactVersionId || !['accept', 'changes'].includes(input.decision)) throw new TaskServiceError('INVALID_REQUEST', '成果审核决定无效。');
     if (input.decision === 'changes' && !input.answer?.trim()) throw new TaskServiceError('INVALID_REQUEST', '请填写修改意见。');
     const { version } = await this.read(request.artifactVersionId);
-    return (task, facts) => {
+    for (const item of request.reviewItems ?? []) if (item.kind === 'artifact') await this.read(item.versionId);
+    return (task, facts, related) => {
       const run = facts.runs.get(version.runId);
       if (task.artifactVersionId !== version.versionId || task.currentRunId !== version.runId || request.runId !== version.runId || !run?.stopConfirmed || task.status === 'cancelled') throw new TaskServiceError('TASK_CONFLICT', '成果版本或执行状态已变化，不能审核旧候选。');
       if (input.decision === 'accept' && run.treeTasks?.length && !this.readyForDelivery(task, run)) throw new TaskServiceError('INVALID_REQUEST', '子任务或依赖尚未满足，不能验收整体成果。');
       if (input.decision === 'accept' && this.requests.pending(task.taskId, request.requestId)) throw new TaskServiceError('INVALID_REQUEST', '还有其他待处理请求，请先处理后再验收。');
       if (input.decision === 'accept' && task.dependencyIds.some((id) => !satisfiesTaskDependency(this.tasks.get(id).status))) throw new TaskServiceError('INVALID_REQUEST', '前置任务尚未满足依赖，不能以验收绕过依赖。');
+      if (version.checks.some(check => !check.passed)) throw new TaskServiceError('INVALID_REQUEST', '成果自检未通过，请修复后提交新版本。');
+      applyTaskReviewItems(this.tasks, facts, request.reviewItems ?? [], {
+        id: request.requestId, rootTaskId: task.taskId, accept: input.decision === 'accept', feedback: input.answer?.trim() ?? '',
+      }, related);
       facts.artifacts.save({ ...version, status: input.decision === 'accept' ? 'accepted' : 'changes', feedback: input.answer?.trim() ?? '' });
       return input.decision === 'accept'
         ? { ...task, status: 'done', completedAt: new Date().toISOString(), reason: `成果版本 ${version.version} 已由用户验收。`, nextStep: '查看已验收成果。' }

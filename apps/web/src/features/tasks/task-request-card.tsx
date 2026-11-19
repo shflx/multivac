@@ -2,6 +2,7 @@ import { ObjectLink } from '../assistant/object-links.js';
 import { CircleHelp, Check, Pause, Play } from 'lucide-react';
 import type { HumanRequest } from '@multivac/contracts';
 import { useTaskRequests } from './task-requests-provider.js';
+import { TaskReviewItems } from './task-review-items.js';
 import { ArtifactPreview } from './artifact-preview.js';
 import { SESSION_REQUEST_KINDS } from './task-session-timeline.js';
 
@@ -18,6 +19,7 @@ export function TaskRequestCard({ request, inInbox = false }: { request: HumanRe
     {request.clarificationScope && <div className="request-scope"><strong>本次引用范围</strong><ul>{request.clarificationScope.materials.map((material) => <li key={material}>{material}</li>)}</ul><p>{request.clarificationScope.scope}</p><p>用途：{request.clarificationScope.purpose}</p><p>依据：{request.clarificationScope.evidence}</p><p>此决定不扩大目录或工具权限；目录外访问仍须单独授权。</p></div>}
     {request.kind === 'review' && request.completionReportId && <p>工作会话完成说明 · {request.completionReportId}。此说明没有后台运行或文件成果自检证据，请核对原文与来源。</p>}
     {request.kind === 'review' && request.artifactVersionId && <ArtifactPreview versionId={request.artifactVersionId} />}
+    {request.kind === 'review' && <TaskReviewItems request={request} />}
     {request.kind === 'recovery' && <div><p>{request.recovery?.reason}</p><p>最后检查点：{request.recovery?.checkpoint ?? '没有已持久化检查点'} · 未核对工具：{request.recovery?.pendingTools ?? '未知'}</p><p>保留目录：{request.recovery?.directory ?? '尚无执行目录'}。继续复用原会话；安全重做使用新会话核对已有变更，不回滚或重放旧操作。</p>{!request.recovery?.canResume && <p>停止或副作用尚未核实，继续和重做暂不可用。保持停止不会充当停止证明。</p>}</div>}
     {request.kind !== 'recovery' && <textarea aria-label={request.kind === 'review' ? '修改意见' : '澄清回应'} maxLength={4000} rows={3} value={drafts[request.requestId] ?? ''} onChange={(event) => store.draft(request.requestId, event.target.value)} />}
     {errors[request.requestId] && <p className="proposal-error" role="alert">{errors[request.requestId]} <button type="button" onClick={() => void store.retryDraft(request.requestId)}>保留本窗口草稿并重试保存</button></p>}

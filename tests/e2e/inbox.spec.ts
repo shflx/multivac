@@ -240,3 +240,55 @@ test('Inbox 重新进入管理页只显示剩余待处理事项，全部处理�
   await expect(management.locator('.inbox-decision-result')).toHaveCount(0);
   await expect(management.getByRole('heading', { name: questions[1], exact: true })).toHaveCount(0);
 });
+
+test('Inbox 一次验收整体、后台成果和工作会话完成说明', async ({ page, request }) => {
+  await resetE2eState(request);
+  const sessionId = 'group-review-work';
+  const create = async (title: string, fields: Record<string, unknown> = {}) => {
+    const response = await request.post(`${fakeApiRoot}/api/tasks`, { data: { commandId: crypto.randomUUID(), title, goal: title, ...fields } });
+    expect(response.ok()).toBeTruthy();
+    return (await response.json()).task;
+  };
+  const detail = async (id: string) => (await (await request.get(`${fakeApiRoot}/api/tasks/${id}`)).json());
+  const complete = async (id: string, summary: string) => {
+    const { task } = await detail(id);
+    const result = await request.post(`${fakeApiRoot}/api/sessions/${sessionId}/turns`, { data: {
+      commandId: crypto.randomUUID(), assistantSessionId: sessionId, contextRefs: [],
+      text: `内部工具：complete_task ${JSON.stringify({ taskId: id, revision: task.revision, summary })}`,
+    } });
+    expect(result.ok()).toBeTruthy();
+    await expect.poll(async () => (await detail(id)).task.status).toBe('review');
+  };
+  expect((await request.post(`${fakeApiRoot}/api/sessions`, { data: { sessionId, title: '验收来源会话' } })).ok()).toBeTruthy();
+  const root = await create('汇总验收', { acceptance: false });
+  const artifact = await create('后台数据', { parentTaskId: root.taskId, acceptanceCriteria: '有效 JSON' });
+  const report = await create('来源判断', { parentTaskId: root.taskId });
+  const start = await request.post(`${fakeApiRoot}/api/tasks/${artifact.taskId}/control`, { data: { commandId: 'group-start', revision: artifact.revision, action: 'start' } });
+  expect(start.ok()).toBeTruthy();
+  await expect.poll(async () => (await detail(artifact.taskId)).runs[0]?.status).toBe('settled');
+  const { task: settled } = await detail(artifact.taskId);
+  const saved = await request.post(`${fakeApiRoot}/api/tasks/${artifact.taskId}/artifacts`, { data: {
+    commandId: 'group-data', revision: settled.revision, runId: settled.currentRunId, title: '固定数据成果', text: '{"quality":42}',
+  } });
+  expect(saved.ok()).toBeTruthy();
+  await complete(report.taskId, '已核对三份来源，资料取舍需要人工判断。');
+  await complete(root.taskId, '整体结果已整合，交付汇总报告。');
+  const { items } = await (await request.get(`${fakeApiRoot}/api/inbox`)).json();
+  expect(items).toHaveLength(1);
+  expect(items[0].taskId).toBe(root.taskId);
+  expect((await request.get(`${fakeApiRoot}/api/inbox/${items[0].id}/artifact?child=${root.taskId}`)).status()).toBe(404);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Inbox，1 项待处理', exact: true }).click();
+  const drawer = page.getByRole('dialog', { name: 'Inbox', exact: true });
+  await drawer.locator('.inbox-item').click();
+  await expect(drawer.locator('.inbox-evidence').getByText('整体结果已整合，交付汇总报告。', { exact: false })).toBeVisible();
+  await drawer.getByText('后台数据 · 服务端自检通过', { exact: true }).click();
+  await expect(drawer.getByText('有效 JSON：通过', { exact: false })).toBeVisible();
+  await expect(drawer.getByText('{"quality":42}', { exact: true })).toBeVisible();
+  await drawer.getByText('来源判断 · 需要人工判断', { exact: true }).click();
+  await expect(drawer.getByText('已核对三份来源，资料取舍需要人工判断。', { exact: true })).toBeVisible();
+  await drawer.getByRole('button', { name: '接受成果', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Inbox，0 项待处理', exact: true })).toBeVisible();
+  for (const task of [root, artifact, report]) expect((await detail(task.taskId)).task.status).toBe('done');
+});

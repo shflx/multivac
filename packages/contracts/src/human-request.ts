@@ -9,6 +9,18 @@ export const ClarificationScopeSchema = Type.Object({
   evidence: Type.String({ minLength: 1, maxLength: 1000 }),
 }, { additionalProperties: false });
 export type ClarificationScope = Type.Static<typeof ClarificationScopeSchema>;
+export const CompletionReportSchema = Type.Object({
+  reportId: Id, sessionId: Id,
+  summary: Type.String({ minLength: 1, maxLength: 3000 }), createdAt: Type.String(),
+}, { additionalProperties: false });
+const ReviewItemFields = {
+  taskId: Id, title: Type.String({ minLength: 1, maxLength: 200 }), requiresJudgment: Type.Boolean(),
+};
+export const TaskReviewItemSchema = Type.Union([
+  Type.Object({ ...ReviewItemFields, kind: Type.Literal('artifact'), versionId: Id }, { additionalProperties: false }),
+  Type.Object({ ...ReviewItemFields, kind: Type.Literal('completion-report'), report: CompletionReportSchema }, { additionalProperties: false }),
+]);
+export type TaskReviewItem = Type.Static<typeof TaskReviewItemSchema>;
 export const HumanRequestSchema = Type.Object({
   requestId: Id, taskId: Id, runId: NullableId, sessionId: NullableId,
   kind: HumanRequestKindSchema, revision: Type.Integer({ minimum: 1 }),
@@ -16,6 +28,7 @@ export const HumanRequestSchema = Type.Object({
   question: Type.String({ minLength: 1, maxLength: 4000 }),
   artifactVersionId: NullableId, authorizationRequestId: NullableId,
   completionReportId: Type.Optional(Id),
+  reviewItems: Type.Optional(Type.Array(TaskReviewItemSchema)),
   decision: Type.Union([HumanDecisionSchema, Type.Null()]),
   answer: Type.String({ maxLength: 4000 }), reason: Type.String({ maxLength: 4000 }),
   createdAt: Type.String(), updatedAt: Type.String(),

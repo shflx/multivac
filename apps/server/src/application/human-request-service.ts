@@ -1,11 +1,12 @@
 import { satisfiesTaskDependency } from '@multivac/contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { Check } from 'typebox/value';
-import { ClarificationScopeSchema, type ClarificationScope, CompleteTaskSchema, type CompleteTask, DecideHumanRequestSchema, HumanRequestQuerySchema, UNKNOWN_CHANGE_ORIGIN, type DecideHumanRequest, type HumanRequest, type HumanRequestQuery, type HumanRequestList, type Task, type WorkbenchChangeOrigin } from '@multivac/contracts';
+import { ClarificationScopeSchema, type ClarificationScope, CompleteTaskSchema, type CompleteTask, DecideHumanRequestSchema, HumanRequestQuerySchema, UNKNOWN_CHANGE_ORIGIN, type DecideHumanRequest, type HumanRequest, type HumanRequestQuery, type HumanRequestList, type Task, type TaskReviewItem, type WorkbenchChangeOrigin } from '@multivac/contracts';
 import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 import { humanResumeBoundary } from '../modules/tasks/human-resume.js';
 import type { TaskRunRepository } from '../modules/tasks/task.js';
 import { TaskService, fingerprint, type TaskChange } from './task-service.js';
+import { applyTaskReviewItems, collectTaskReviewItems, inheritsTaskReview } from './task-review-group.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import type { TaskExecutionService } from './task-execution-service.js';
 import type { WorkbenchEvents } from './workbench-events.js';
@@ -102,24 +103,31 @@ export class HumanRequestService {
       commandId: input.commandId, revision: input.revision,
       key: fingerprint({ kind: 'session-completion', taskId, sessionId, ...input }),
       kind: 'completion-report', summary: `工作会话 ${sessionId} 提交完成说明：${input.summary.trim()}`,
-    }, (task, facts) => {
+    }, (task, facts, related) => {
       if (!['idle', 'paused', 'failed'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '任务当前不能提交手动完成说明，请查询最新状态。');
       if (task.humanOnly) throw new TaskServiceError('INVALID_REQUEST', '“我来处理”的任务须由用户确认完成，Agent 不能自行提交完成说明。');
       this.checkSessionCompletion(task);
       const at = new Date().toISOString();
       const completionReport = { reportId, sessionId, summary: input.summary.trim(), createdAt: at };
-      if (task.acceptance) {
+      const inherited = inheritsTaskReview(this.options.tasks, facts, task);
+      const reviewItems = collectTaskReviewItems(this.options.tasks, facts, task);
+      const needsReview = task.acceptance || reviewItems.some(item => item.requiresJudgment);
+      if (!needsReview) {
+        applyTaskReviewItems(this.options.tasks, facts, reviewItems, { id: reportId, rootTaskId: taskId, accept: true, feedback: '', automatic: true }, related);
+      }
+      if (needsReview && !inherited) {
         facts.requests.save({
           requestId: reportId, taskId, runId: null, sessionId, kind: 'review', revision: 1, status: 'pending',
-          question: `工作会话已提交「${task.title}」的完成说明，请按任务验收要求核对：\n${completionReport.summary}`,
+          question: `工作会话已提交「${task.title}」的完成说明，请按任务验收要求核对。${!task.acceptance && needsReview ? '随顶层验收的子任务需要人工判断。' : ''}\n${completionReport.summary}`,
+          ...(reviewItems.length ? { reviewItems } : {}),
           artifactVersionId: null, completionReportId: reportId, authorizationRequestId: null,
           decision: null, answer: '', reason: '', createdAt: at, updatedAt: at,
         });
       }
-      return { ...task, completionReport, status: task.acceptance ? 'review' : 'done',
-        completedAt: task.acceptance ? null : at,
-        reason: task.acceptance ? '工作会话已报告完成，等待用户验收。' : '工作会话已报告完成（无需人工验收）。',
-        nextStep: task.acceptance ? '核对完成说明并验收，或提出修改意见。' : '查看完成说明与来源会话。' };
+      return { ...task, completionReport, status: needsReview ? 'review' : 'done',
+        completedAt: needsReview ? null : at,
+        reason: inherited ? '完成说明已交付，等待随顶层任务验收。' : needsReview ? '工作会话已报告完成，等待用户验收。' : '工作会话已报告完成（无需人工验收）。',
+        nextStep: inherited ? '在顶层任务查看整体验收。' : needsReview ? '核对完成说明并验收，或提出修改意见。' : '查看完成说明与来源会话。' };
     }, origin);
     const request = this.options.requests.get(reportId);
     if (request) this.options.events.publish({ type: 'request.changed', origin, request });
@@ -134,34 +142,37 @@ export class HumanRequestService {
 
   private reviewSessionCompletion(request: HumanRequest, input: DecideHumanRequest): TaskChange {
     if (!['accept', 'changes'].includes(input.decision) || (input.decision === 'changes' && !input.answer?.trim())) throw new TaskServiceError('INVALID_REQUEST', '请选择接受，或提供具体修改意见。');
-    return (task) => {
+    return (task, facts, related) => {
       if (!request.completionReportId || task.completionReport?.reportId !== request.completionReportId || !['review', 'paused'].includes(task.status)) throw new TaskServiceError('TASK_CONFLICT', '完成说明或任务状态已变化，请重新读取。');
       this.checkSessionCompletion(task, request.requestId);
+      applyTaskReviewItems(this.options.tasks, facts, request.reviewItems ?? [], {
+        id: request.requestId, rootTaskId: task.taskId, accept: input.decision === 'accept', feedback: input.answer?.trim() ?? '',
+      }, related);
       return input.decision === 'accept'
         ? { ...task, status: 'done', completedAt: new Date().toISOString(), reason: '工作会话提交的完成说明已由用户验收。', nextStep: '查看完成说明与来源会话。' }
         : { ...task, status: 'paused', pauseSource: 'user', feedback: input.answer!.trim(), reason: '完成说明需要修改，已保留用户意见。', nextStep: '由工作会话按修改意见继续，完成后重新提交。' };
     };
   }
 
-  create(taskId: string, kind: HumanRequest['kind'], question: string, commandId: string, artifactVersionId: string | null = null, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, clarificationScope?: ClarificationScope): HumanRequest {
+  create(taskId: string, kind: HumanRequest['kind'], question: string, commandId: string, artifactVersionId: string | null = null, origin: WorkbenchChangeOrigin = UNKNOWN_CHANGE_ORIGIN, clarificationScope?: ClarificationScope, reviewItems?: TaskReviewItem[]): HumanRequest {
     if (clarificationScope && (kind !== 'clarification' || !Check(ClarificationScopeSchema, clarificationScope))) throw new TaskServiceError('INVALID_REQUEST', '范围澄清参数无效。');
     question = question.trim();
     const requestId = createHash('sha256').update(`${taskId}:${commandId}`).digest('hex');
     const existing = this.options.requests.get(requestId);
     if (existing) {
-      if (existing.question !== question || existing.kind !== kind || existing.artifactVersionId !== artifactVersionId || JSON.stringify(existing.clarificationScope) !== JSON.stringify(clarificationScope)) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一请求命令不能用于不同内容。');
+      if (existing.question !== question || existing.kind !== kind || existing.artifactVersionId !== artifactVersionId || JSON.stringify(existing.clarificationScope) !== JSON.stringify(clarificationScope) || reviewItems && fingerprint(existing.reviewItems) !== fingerprint(reviewItems)) throw new TaskServiceError('COMMAND_ID_CONFLICT', '同一请求命令不能用于不同内容。');
       return existing;
     }
     if (!question.trim() || question.length > 4000) throw new TaskServiceError('INVALID_REQUEST', '请求问题为空或超过限制。');
     let created: HumanRequest | undefined;
-    this.options.tasks.transition(taskId, { commandId, key: fingerprint({ kind, question, artifactVersionId, clarificationScope }), kind: 'request', summary: question }, (task, facts) => {
+    this.options.tasks.transition(taskId, { commandId, key: fingerprint({ kind, question, artifactVersionId, clarificationScope, ...(reviewItems ? { reviewItems } : {}) }), kind: 'request', summary: question }, (task, facts) => {
       if (['done', 'cancelled'].includes(task.status)) throw new TaskServiceError('INVALID_REQUEST', '终态任务不能创建推进请求。');
       const run = task.currentRunId ? facts.runs.get(task.currentRunId) : null;
       if (run?.stopIntent === 'cancel') throw new TaskServiceError('INVALID_REQUEST', '任务正在取消。');
       const pending = facts.requests.list(taskId).find((request) => request.status === 'pending' && request.kind === kind && request.artifactVersionId === artifactVersionId);
       if (pending) { created = pending; return task; }
       const at = new Date().toISOString();
-      created = { ...(clarificationScope ? { clarificationScope } : {}), requestId, taskId, runId: run?.runId ?? null, sessionId: task.sessionId, kind, revision: 1, status: 'pending', question: question.trim(), artifactVersionId, authorizationRequestId: null, decision: null, answer: '', reason: '', createdAt: at, updatedAt: at };
+      created = { ...(clarificationScope ? { clarificationScope } : {}), ...(reviewItems ? { reviewItems } : {}), requestId, taskId, runId: run?.runId ?? null, sessionId: task.sessionId, kind, revision: 1, status: 'pending', question: question.trim(), artifactVersionId, authorizationRequestId: null, decision: null, answer: '', reason: '', createdAt: at, updatedAt: at };
       facts.requests.save(created);
       let status: Task['status'] = kind === 'review' ? 'review' : kind === 'recovery' ? 'recovery' : task.pauseSource === 'user' ? 'paused' : 'waiting';
       if (kind === 'review' && task.status === 'paused' && task.pauseSource === 'user') status = 'paused';
@@ -215,7 +226,7 @@ export class HumanRequestService {
     }
     const review = request.kind === 'review' ? request.completionReportId
       ? this.reviewSessionCompletion(request, input) : await this.options.reviewArtifact(request, input) : undefined;
-    this.options.tasks.transition(task.taskId, { commandId: input.commandId, key: fingerprint({ id, ...input }), kind: 'decision', summary: '用户已回应人工请求。' }, (current, facts) => {
+    this.options.tasks.transition(task.taskId, { commandId: input.commandId, key: fingerprint({ id, ...input }), kind: 'decision', summary: '用户已回应人工请求。' }, (current, facts, related) => {
       const fresh = this.get(id);
       if (fresh.runId && fresh.runId !== current.currentRunId) throw new TaskServiceError('TASK_CONFLICT', '请求所属运行已变化。');
       if (fresh.status !== 'pending' || fresh.revision !== input.revision) throw new TaskServiceError('TASK_CONFLICT', '请求已变化。');
@@ -224,7 +235,7 @@ export class HumanRequestService {
       const answer = input.decision === 'use_scope' ? `仅本次采用：${request.clarificationScope!.scope}。用途：${request.clarificationScope!.purpose}。不扩大文件访问权限。` : input.answer?.trim() ?? '';
       facts.requests.save({ ...fresh, status: 'answered', revision: fresh.revision + 1, decision: input.decision, answer, updatedAt: new Date().toISOString() });
       let next: Task;
-      if (review) next = review(current, facts);
+      if (review) next = review(current, facts, related);
       else if (request.kind === 'recovery' && request.runId && !facts.runs.get(request.runId)?.stopConfirmed) {
         next = { ...current, status: 'recovery', pauseSource: 'user', reason: '保持停止请求已保存，旧执行停止尚未确认。', nextStep: '核对旧执行停止与副作用，不能启动新执行。' };
       } else {
@@ -249,8 +260,8 @@ export class HumanRequestService {
     });
     for (const request of superseded) this.options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request: this.get(request.requestId) });
   }
-  invalidate(taskId: string, reason = '任务已取消。'): void {
-    const pending = this.list(taskId).filter((request) => request.status === 'pending');
+  invalidate(taskId: string, reason = '任务已取消。', kind?: HumanRequest['kind']): void {
+    const pending = this.list(taskId).filter((request) => request.status === 'pending' && (!kind || request.kind === kind));
     if (!pending.length) return;
     this.options.tasks.facts((facts) => { for (const request of pending) facts.requests.save({ ...request, status: 'invalidated', revision: request.revision + 1, reason, updatedAt: new Date().toISOString() }); });
     for (const request of pending) this.options.events.publish({ type: 'request.changed', origin: UNKNOWN_CHANGE_ORIGIN, request: this.get(request.requestId) });

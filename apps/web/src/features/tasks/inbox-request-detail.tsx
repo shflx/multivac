@@ -5,6 +5,7 @@ import { InboxItemSchema, type InboxDecision, type InboxItem, type McpEffect } f
 import { fetchJson } from '../../data/assistant-api.js';
 import { useRemoteConversation } from '../assistant/remote-context.js';
 import { approvedDetail, authorizationDeadline, AUTHORIZATION_OUTCOMES, AUTHORIZATION_TOOL_ACTIONS, GRANT_REVOKE_PLACES } from '../assistant/tool-authorizations.js';
+import { TaskReviewItems } from './task-review-items.js';
 import { ArtifactPreview } from './artifact-preview.js';
 import { McpRequestEvidence } from './mcp-request-evidence.js';
 import { useTaskRequests } from './task-requests-provider.js';
@@ -121,7 +122,7 @@ export function InboxRequestDetail({ item, active, source, sourceAvailable, onSo
           { value: 'continue', label: '继续上次执行', description: '复用原会话，核对遗留命令后继续', disabled: !human?.recovery?.canResume },
           { value: 'restart', label: '从安全起点重新执行', description: '保留已有变更，从新会话核对后执行', disabled: !human?.recovery?.canResume },
           { value: 'stop', label: '保持停止', description: '保留现场，不恢复任务' },
-        ]} />{!human?.recovery?.canResume && <p className="inbox-muted">停止或副作用尚未核实，继续和重做暂不可用。</p>}</section> : item.kind === 'review' ? <section className="inbox-evidence"><h3>成果与自检</h3><p className="inbox-request-question">{human?.question}</p>{item.artifactVersionId ? <ArtifactPreview versionId={item.artifactVersionId} url={`/api/inbox/${encodeURIComponent(item.id)}/artifact`} /> : <p>工作会话完成说明没有后台运行或文件成果自检证据，请核对原文与来源。</p>}{choice === 'changes' && responseField('修改意见', '说明需要修改的内容和期望结果')}</section> : human?.clarificationScope ? <section className="inbox-evidence"><h3>本次想引用什么</h3><Facts entries={[
+        ]} />{!human?.recovery?.canResume && <p className="inbox-muted">停止或副作用尚未核实，继续和重做暂不可用。</p>}</section> : item.kind === 'review' ? <section className="inbox-evidence"><h3>成果与自检</h3><p className="inbox-request-question">{human?.question}</p>{item.artifactVersionId ? <ArtifactPreview versionId={item.artifactVersionId} url={`/api/inbox/${encodeURIComponent(item.id)}/artifact`} /> : <p>工作会话完成说明没有后台运行或文件成果自检证据，请核对原文与来源。</p>}<TaskReviewItems request={human} inboxId={item.id} />{choice === 'changes' && responseField('修改意见', '说明需要修改的内容和期望结果')}</section> : human?.clarificationScope ? <section className="inbox-evidence"><h3>本次想引用什么</h3><Facts entries={[
           ['资料', human.clarificationScope.materials.join('、')], ['引用范围', human.clarificationScope.scope], ['用途', human.clarificationScope.purpose],
         ]} /><blockquote>{human.clarificationScope.evidence}</blockquote><DecisionOptions legend="决定本次资料引用范围" value={choice} onChange={choose} disabled={busy} choices={[
           { value: 'use_scope', label: '允许本次引用', description: '只用于所列任务和引用范围' }, { value: 'deny', label: '不引用这份资料', description: '按现有已授权资料继续' }, { value: 'answer', label: '指定其他范围', description: '补充可以引用的内容和限制' },

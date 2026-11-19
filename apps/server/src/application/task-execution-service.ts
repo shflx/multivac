@@ -9,6 +9,7 @@ import type { HumanRequestRepository } from '../modules/tasks/human-request.js';
 import type { AssistantTurnCommandService } from './assistant-turn-command-service.js';
 import type { AssistantEventStream } from './assistant-event-stream.js';
 import { TaskService, fingerprint } from './task-service.js';
+import { assertChildReviewIsEditable } from './task-review-group.js';
 import { TaskServiceError } from '../modules/tasks/task-error.js';
 import { renderTaskExecutionPrompt, type TaskPromptContext } from './task-execution-prompt.js';
 import { taskBudgetBalance, taskBudgetExhaustion, taskBudgetUsage } from './task-budget.js';
@@ -336,6 +337,7 @@ export class TaskExecutionService {
         return planned.task;
       }
 
+      if (input.action === 'cancel') assertChildReviewIsEditable(this.options.tasks, facts, task);
       const live = previous && !previous.stopConfirmed ? previous : null;
       const decision = requestStop({
         task, run: previous, action: input.action, pauseSource, now: this.now(),
@@ -398,7 +400,7 @@ export class TaskExecutionService {
       treeTasks,
       // 沿用原目录时，只带上尚未交付且未被退回的子任务候选。
       childResults: sameBoundary ? (previous.childResults ?? [])
-        .filter(result => !satisfiesTaskDependency(this.options.tasks.get(result.taskId).status) && this.options.tasks.get(result.taskId).status !== 'paused')
+        .filter(result => !satisfiesTaskDependency(this.options.tasks.get(result.taskId).status) && !['failed', 'paused'].includes(this.options.tasks.get(result.taskId).status))
         .map(result => ({ ...result, commandId: `tree-result:${runId}:${result.taskId}` })) : [],
       rootTaskId: rootTask.taskId, ownerPid: process.pid, schedulerManaged: this.wakeScheduler !== undefined, hasStarted: false,
       executionMode: 'workspace', outputBytes: 0, elapsedMs: 0, nativeLeaseFenced: true, nativePendingIds: [],
