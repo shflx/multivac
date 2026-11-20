@@ -29,7 +29,7 @@ function checkTone(check: ModelConnectionCheck | undefined): '' | 'ok' | 'failed
  * 可用状态由 Pi 按配置与认证判断，连接检查只是按已保存的配置实际连一次，不改变可用状态。
  * 编辑配置时两节仍然显示，但暂停操作并写明原因。
  */
-export function ModelAccessPanel({ profile, profileRevision, active, locked, editing, saved, onRefresh, onBusy, onSnapshot, snapshot, refresh, accessIssue }: {
+export function ModelAccessPanel({ profile, profileRevision, active, locked, editing, saved, onBusy, onSnapshot, snapshot, refresh, accessIssue }: {
   profileRevision: number;
   profile: ModelProfile; active: boolean; locked: boolean;
   /** 正在编辑这个配置：操作暂停，未提交的 Key 清空。 */
@@ -39,7 +39,7 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
   snapshot: ModelAccessSnapshot | null;
   refresh: () => Promise<void>;
   accessIssue: string | null;
-  onRefresh: () => Promise<void>; onBusy: (busy: boolean) => void;
+  onBusy: (busy: boolean) => void;
 }) {
   const [apiKey, setApiKey] = useState('');
   const [busy, setBusy] = useState(false);
@@ -90,7 +90,7 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
         else if (action !== 'check' && result.replayed) setNotice('原命令已消费，新的输入没有重复写入。');
         else if (action !== 'check') saved.flash('key');
       }
-      await refresh(); await onRefresh();
+      await refresh();
     } catch (error) {
       const code = error instanceof ModelAccessApiError ? error.code : 'ACCESS_UNAVAILABLE';
       setIssue(MODEL_ACCESS_MESSAGES[code]);
@@ -123,7 +123,7 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
         setIssue(result.errorCode ? MODEL_ACCESS_MESSAGES[result.errorCode] : null);
         setNotice(result.errorCode ? null : '原命令结果已确认。');
       }
-      await refresh(); await onRefresh();
+      await refresh();
     } catch (error) {
       if (error instanceof ModelAccessApiError && error.code === 'NOT_FOUND') {
         reviewedCommand.current = pendingId;
@@ -151,7 +151,7 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
       {credential && !credential.configurable && <p className="section-hint" role="status">{MODEL_ACCESS_MESSAGES.CREDENTIAL_UNSUPPORTED}</p>}
       {snapshot && stale && <div className="model-access-target-warning" role="alert">
         <p>模型配置已变化；输入已清空，请刷新并确认当前提供方。</p>
-        <button type="button" className="secondary-button compact" disabled={busy || locked} onClick={() => { void refresh(); void onRefresh(); }}>
+        <button type="button" className="secondary-button compact" disabled={busy || locked} onClick={() => void refresh()}>
           <RefreshCw aria-hidden="true" />刷新当前配置</button>
         <button type="button" className="secondary-button compact" disabled={!coherent || busy || locked} onClick={() => {
           setApiKey(''); setConfirmedTarget({ revision: profileRevision, provider: profile.provider });
@@ -172,7 +172,11 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
           : 'Key 只交给 Pi 保存：提交后输入框随即清空，页面不显示已保存的值；同一提供方的模型共用这个 Key。'}
       </small>
       {issue && <p role="alert" className="model-access-issue">{issue}</p>}
-      {accessIssue && <p role="alert" className="model-access-issue">{accessIssue}</p>}
+      {accessIssue && <div className="model-access-issue" role="alert">
+        <p>{accessIssue}</p>
+        <button type="button" className="secondary-button compact" onClick={() => void refresh()}>
+          <RefreshCw aria-hidden="true" />重试读取认证状态</button>
+      </div>}
       {notice && <p role="status" className="model-access-notice">{notice}</p>}
       {pendingId && <button type="button" className="secondary-button compact model-access-reconcile" disabled={busy} onClick={() => void reconcile()}>
         <RefreshCw aria-hidden="true" />查询原命令结果</button>}
@@ -190,7 +194,7 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
         </div>
         <div className="model-check-actions">
           {checking && <button type="button" className="secondary-button" onClick={() => void cancel()}><X aria-hidden="true" />取消检查</button>}
-          <button type="button" className="icon-button" aria-label="刷新认证与连接状态" title="刷新认证与连接状态" onClick={() => { void refresh(); void onRefresh(); }}>
+          <button type="button" className="icon-button" aria-label="刷新认证与连接状态" title="刷新认证与连接状态" onClick={() => void refresh()}>
             <RefreshCw aria-hidden="true" /></button>
           <button type="button" className="secondary-button" disabled={disabled || checking || !availability?.authenticated}
             onClick={() => void mutate('check')}><Cable aria-hidden="true" />检查连接</button>

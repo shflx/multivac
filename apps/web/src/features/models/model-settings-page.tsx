@@ -108,17 +108,20 @@ export function ModelSettingsPage({
   const editButtonRef = useRef<HTMLButtonElement | null>(null);
   const [pendingCommand, setPendingCommand] = useState<PendingModelCommand | null>(null);
   const editVersionRef = useRef(0);
+  const draftRevisionRef = useRef(0);
   const loadRequestRef = useRef(0);
-  const authenticationRequestRef = useRef(0);
   const [accessSnapshot, setAccessSnapshot] = useState<import('@multivac/contracts').ModelAccessSnapshot | null>(null);
   const [accessIssue, setAccessIssue] = useState<string | null>(null);
+  const [configSyncIssue, setConfigSyncIssue] = useState<string | null>(null);
   const accessRef = useRef<import('@multivac/contracts').ModelAccessSnapshot | null>(null);
   const modelsRef = useRef<ModelSettingsSnapshot | null>(null);
   const accessRequestRef = useRef<Promise<void> | null>(null);
+  const configSyncRequestRef = useRef<Promise<void> | null>(null);
   const acceptModelSnapshot = useCallback((next: ModelSettingsSnapshot) => {
     const merged = mergeModelSettings(modelsRef.current, next, accessRef.current);
     modelsRef.current = merged;
     setSnapshot(merged);
+    return merged;
   }, []);
   const acceptAccessSnapshot = useCallback((next: import('@multivac/contracts').ModelAccessSnapshot) => {
     const accepted = admitAccessSnapshot(accessRef.current, next);
@@ -135,14 +138,33 @@ export function ModelSettingsPage({
       Math.max(0, Math.min(...deadlines) - Date.now()) + 1);
     return () => clearTimeout(timer);
   }, [accessSnapshot, acceptAccessSnapshot]);
+  const syncModelSettings = useCallback(() => {
+    if (!modelsRef.current || !accessRef.current || modelsRef.current.revision >= accessRef.current.revision) {
+      setConfigSyncIssue(null);
+      return;
+    }
+    if (configSyncRequestRef.current) return;
+
+    // 轮询发现新版配置时只更新已保存的快照，保留草稿及其原始版本。
+    configSyncRequestRef.current = getModelSettings(AbortSignal.timeout(25_000)).then((next) => {
+      acceptModelSnapshot(next);
+      setConfigSyncIssue(null);
+    }).catch(() => {
+      setConfigSyncIssue('模型配置同步失败，请重试读取认证状态。');
+    }).finally(() => { configSyncRequestRef.current = null; });
+  }, [acceptModelSnapshot]);
   const loadAccess = useCallback(() => {
     if (accessRequestRef.current) return accessRequestRef.current;
-    const request = getModelAccess().then((next) => { acceptAccessSnapshot(next); setAccessIssue(null); }).catch((error: unknown) => {
+    const request = getModelAccess().then((next) => {
+      acceptAccessSnapshot(next);
+      setAccessIssue(null);
+      syncModelSettings();
+    }).catch((error: unknown) => {
       setAccessIssue(error instanceof ModelAccessApiError ? error.message : MODEL_ACCESS_MESSAGES.ACCESS_UNAVAILABLE);
     }).finally(() => { if (accessRequestRef.current === request) accessRequestRef.current = null; });
     accessRequestRef.current = request;
     return request;
-  }, [acceptAccessSnapshot]);
+  }, [acceptAccessSnapshot, syncModelSettings]);
   const refreshAccess = useCallback(async () => {
     if (accessRequestRef.current) await accessRequestRef.current;
     await loadAccess();
@@ -158,12 +180,6 @@ export function ModelSettingsPage({
   const handledDiscardSignalRef = useRef(discardSignal);
   const commandLocked = saving || accessBusy || pendingCommand !== null;
   const formId = useId();
-  const refreshAuthentication = useCallback(async () => {
-    const request = ++authenticationRequestRef.current;
-    const next = await getModelSettings();
-    if (request !== authenticationRequestRef.current) return;
-    acceptModelSnapshot(next);
-  }, [acceptModelSnapshot]);
 
   const load = useCallback(async () => {
     const requestId = ++loadRequestRef.current;
@@ -269,7 +285,8 @@ export function ModelSettingsPage({
   }
 
   function startEdit(): void {
-    if (!selected) return;
+    if (!selected || !snapshot) return;
+    draftRevisionRef.current = snapshot.revision;
     setDraft({
       profileId: selected.profileId,
       displayName: selected.displayName,
@@ -288,7 +305,8 @@ export function ModelSettingsPage({
   }
 
   async function startCreate(): Promise<void> {
-    if (!await confirmDiscard()) return;
+    if (!snapshot || !await confirmDiscard()) return;
+    draftRevisionRef.current = modelsRef.current?.revision ?? snapshot.revision;
     setDraft({ ...EMPTY_DRAFT });
     setCreating(true);
     setDirty(false);
@@ -318,7 +336,7 @@ export function ModelSettingsPage({
       kind: 'save' as const,
       command: {
         commandId: crypto.randomUUID(),
-        revision: snapshot.revision,
+        revision: draftRevisionRef.current,
         profile: structuredClone(draft!),
       },
       submittedDraft: structuredClone(draft!),
@@ -334,6 +352,7 @@ export function ModelSettingsPage({
       setSelectedProfileId(pending.submittedDraft.profileId.trim());
       setPendingCommand(null);
       saved.flash('config');
+      void refreshAccess();
       if (editVersionRef.current === pending.editVersion) {
         setDraft(null);
         setCreating(false);
@@ -381,6 +400,7 @@ export function ModelSettingsPage({
     try {
       acceptModelSnapshot(await setDefaultModel(pending.command));
       setPendingCommand(null);
+      void refreshAccess();
     } catch (error) {
       if (resultUnknown(error)) {
         setOperationIssue({ message: errorMessage(error), action: 'retry' });
@@ -438,6 +458,7 @@ export function ModelSettingsPage({
         }
         setPendingCommand(null);
         setOperationIssue(null);
+        void refreshAccess();
         return;
       }
       if (next.revision > pendingCommand.command.revision) {
@@ -467,11 +488,12 @@ export function ModelSettingsPage({
     try {
       const next = await getModelSettings();
       if (requestId !== loadRequestRef.current) return;
-      acceptModelSnapshot(next);
+      const merged = acceptModelSnapshot(next);
+      draftRevisionRef.current = merged.revision;
       setSelectedProfileId((current) =>
-        current && next.profiles.some((profile) => profile.profileId === current)
+        current && merged.profiles.some((profile) => profile.profileId === current)
           ? current
-          : next.defaultProfileId ?? next.profiles[0]?.profileId ?? null,
+          : merged.defaultProfileId ?? merged.profiles[0]?.profileId ?? null,
       );
       setOperationIssue(null);
     } catch (error) {
@@ -651,9 +673,9 @@ export function ModelSettingsPage({
               </ModelSection>
               {/* 编辑时两节仍然显示，只是暂停操作（原因写在各自的说明里）。 */}
               <ModelAccessPanel key={selected.profileId} profile={selected} snapshot={accessSnapshot}
-                accessIssue={accessIssue} refresh={refreshAccess} onSnapshot={acceptAccessSnapshot}
+                accessIssue={accessIssue ?? configSyncIssue} refresh={refreshAccess} onSnapshot={acceptAccessSnapshot}
                 profileRevision={snapshot.revision} editing={draft !== null} saved={saved}
-                active={active} locked={saving || pendingCommand !== null} onRefresh={refreshAuthentication} onBusy={setAccessBusy} />
+                active={active} locked={saving || pendingCommand !== null} onBusy={setAccessBusy} />
             </>
           ) : (
             <div className="model-detail-empty">

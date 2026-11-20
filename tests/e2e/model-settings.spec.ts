@@ -288,6 +288,8 @@ test('revision 冲突可重新加载最新快照并保留当前草稿', async ({
     },
   });
   expect(external.ok()).toBe(true);
+  await expect(page.getByRole('button', { name: /外部页面更新/ })).toBeVisible();
+  await expect(page.getByLabel('显示名称')).toHaveValue('冲突后保留的草稿');
 
   await page.getByRole('button', { name: '保存' }).click();
   await expect(page.getByRole('button', { name: '重新加载并保留草稿' })).toBeVisible();

@@ -61,8 +61,8 @@ async function fetchSnapshot(url: string, init?: RequestInit): Promise<ModelSett
   return body;
 }
 
-export function getModelSettings(): Promise<ModelSettingsSnapshot> {
-  return fetchSnapshot('/api/model-settings');
+export function getModelSettings(signal?: AbortSignal): Promise<ModelSettingsSnapshot> {
+  return fetchSnapshot('/api/model-settings', signal ? { signal } : undefined);
 }
 
 export function saveModelSettings(command: SaveModelSettings): Promise<ModelSettingsSnapshot> {

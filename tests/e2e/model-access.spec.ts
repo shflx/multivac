@@ -149,14 +149,14 @@ test('延迟默认回执不覆盖跨页撤销后新 access 认证状态', async 
     const late = page.waitForResponse('**/api/model-settings/default');
     await page.getByRole('button', { name: '设为默认', exact: true }).click(); await entry;
     await expect(second.getByRole('button', { name: '刷新当前配置', exact: true })).toBeVisible();
-    await second.getByRole('button', { name: '刷新当前配置', exact: true }).click();
     await expect(second.getByRole('button', { name: '确认当前配置', exact: true })).toBeEnabled();
     await second.getByRole('button', { name: '确认当前配置', exact: true }).click();
     await second.getByRole('button', { name: '撤销 API Key', exact: true }).click();
     await confirmRevoke(second);
     await expect(second.locator('.model-availability')).toContainText('未认证');
-    await expect(page.locator('.model-detail-heading')).toContainText('认证状态待刷新');
+    await expect(page.locator('.model-availability')).toContainText('未认证');
     release(); await (await late).finished();
+    await expect(page.getByRole('button', { name: '编辑', exact: true })).toBeEnabled();
     await expect(page.getByRole('button', { name: '当前默认', exact: true })).toBeVisible();
     await expect(page.locator('.model-availability')).toContainText('未认证');
     await expect(page.locator('.model-access-panel')).toContainText('还没有为提供方 missing-auth 配置 API Key');
@@ -208,29 +208,14 @@ test('迟到取消快照不得覆盖另一页撤销后的凭据及检查门禁',
   } finally { release(); await second.close(); }
 });
 
-test('双页仅配置及撤销 Key 自动更新真实认证/检查门禁，旧认证响应不得覆盖', async ({ page, context }) => {
+test('双页配置及撤销 Key 自动更新认证和检查门禁', async ({ page, context }) => {
   await openModel(page);
   const second = await context.newPage();
-  await openModel(second);
-  await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
-  let release!: () => void;
-  let entered!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  const entry = new Promise<void>((resolve) => { entered = resolve; });
-  await page.route('**/api/model-settings', async (route) => {
-    const old = await route.fetch();
-    entered(); await gate;
-    await route.fulfill({ response: old });
-  });
   try {
-    await page.getByRole('button', { name: '刷新认证与连接状态', exact: true }).click();
-    await entry;
+    await openModel(second);
+    await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
     await second.getByLabel('API Key', { exact: true }).fill('second-page-key');
     await second.getByRole('button', { name: '配置 API Key', exact: true }).click();
-    await expect(page.locator('.model-availability')).toHaveText('可用');
-    await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeEnabled();
-    release();
-    await page.unrouteAll({ behavior: 'wait' });
     await expect(page.locator('.model-availability')).toHaveText('可用');
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeEnabled();
     await expect(second.getByRole('button', { name: '撤销 API Key', exact: true })).toBeEnabled();
@@ -239,7 +224,7 @@ test('双页仅配置及撤销 Key 自动更新真实认证/检查门禁，旧�
     await expect(page.locator('.model-availability')).toContainText('未认证');
     await expect(page.getByRole('button', { name: '检查连接', exact: true })).toBeDisabled();
     await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
-  } finally { release(); await second.close(); }
+  } finally { await second.close(); }
 });
 
 test('慢全量 access GET 期间快速切换 profile 不累积旧请求', async ({ page }) => {
@@ -289,7 +274,7 @@ for (const action of ['configure', 'revoke'] as const) {
     await page.getByLabel('API Key', { exact: true }).fill('old-provider-a-key');
     const config = await (await request.get(`${fakeApiRoot}/api/model-settings`)).json();
     const old = config.profiles.find((entry: { profileId: string }) => entry.profileId === 'fixture-missing-auth');
-    // 第二页提交配置，第一页仍展示旧快照；凭据状态轮询不得把 B 状态套到 A。
+    // 第二页提交配置，第一页通过凭据轮询发现新版配置。
     await second.evaluate(async ({ api, revision, profile }) => {
       const response = await fetch(`${api}/api/model-settings/profiles`, { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ commandId: crypto.randomUUID(), revision, profile }) });
@@ -299,9 +284,6 @@ for (const action of ['configure', 'revoke'] as const) {
       protocol: 'anthropic-messages', endpoint: 'https://anthropic.fixture.example' } });
     await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
     await expect(page.getByLabel('API Key', { exact: true })).toBeDisabled();
-    // 凭据状态待确认时不知道有没有保存的 Key，不显示“撤销”。
-    await expect(page.getByRole('button', { name: '撤销 API Key', exact: true })).toHaveCount(0);
-    await page.getByRole('button', { name: '刷新当前配置', exact: true }).click();
     await expect(page.locator('.model-access-panel')).toContainText('提供方 fixture-anthropic');
     await expect(page.getByRole('button', { name: '确认当前配置', exact: true })).toBeEnabled();
     await expect(page.getByLabel('API Key', { exact: true })).toBeDisabled();
@@ -414,6 +396,25 @@ test('错误结果仍清空输入，未知结果只查询安全原命令而不�
   await page.getByRole('button', { name: '更换 API Key', exact: true }).click();
   await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
   await expect(page.getByRole('alert')).toContainText('状态已更新');
+});
+
+test('保存后认证读取失败保留已保存配置，并可重试读取', async ({ page }) => {
+  await openModel(page, 'GPT Fixture');
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByLabel('显示名称').fill('重命名 Fixture');
+  let readable = false;
+  await page.route('**/api/model-access', (route) => readable ? route.continue() : route.fulfill({ status: 503, json: {} }));
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '重命名 Fixture' })).toBeVisible();
+  await expect(page.getByText('已保存', { exact: true })).toBeVisible();
+  await expect(page.getByText('认证状态待刷新。', { exact: true })).toBeVisible();
+  const retry = page.getByRole('button', { name: '重试读取认证状态' });
+  await expect(retry).toBeVisible();
+  readable = true;
+  await retry.click();
+  await expect(page.locator('.model-availability')).toHaveText('可用');
+  await expect(retry).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '重命名 Fixture' })).toBeVisible();
 });
 
 test('检查失败与认证分离，支持取消/离开、过期和配置变化失效', async ({ page, request }) => {
