@@ -20,6 +20,7 @@ import {
   RECENT_WORKSPACE_ID,
   DEFAULT_RECENT_DAYS,
   recentSessions,
+  isRecentTerminal,
   DEFAULT_WORKSPACE_SCENE,
   focusSessionInScene,
   normalizeWorkspaceSessionTitle,
@@ -130,6 +131,7 @@ export function WorkspaceView({
   const now = Math.max(clock, Date.now());
   useEffect(() => { const timer = window.setInterval(() => setClock(Date.now()), 30_000); return () => clearInterval(timer); }, []);
   const recentDays = preferences?.recentDays ?? DEFAULT_RECENT_DAYS;
+  const recentTerminals = terminals.terminals.filter(item => isRecentTerminal(item, recentDays, now));
   useEffect(() => { if (workspaceId === RECENT_WORKSPACE_ID && preferences && !recentDays) onSwitchWorkspace(DEFAULT_WORKSPACE_ID); }, [workspaceId, preferences, recentDays, onSwitchWorkspace]);
   // 本工作区的全部会话（含已归档），按创建时间升序；栏位、现场与计数只看未归档的。
   const sessions = workspaceSessions.sessions === null ? null : workspaceId === RECENT_WORKSPACE_ID
@@ -622,7 +624,7 @@ export function WorkspaceView({
   // 切换现场时保留侧边栏的 DOM；绘制前更新导航，点击过程不再重建容器或回写滚动位置。
   useLayoutEffect(() => {
     railControllerRef.current?.update({
-      workspaces: workspaces ?? [], recentDays, clock: now, workspaceId, slots: columnKeys,
+      workspaces: workspaces ?? [], recentDays, clock: now, recentTerminals, workspaceId, slots: columnKeys,
       currentId: currentTerminalId ? null : currentId, parallelCount,
       onSwitch: onSwitchWorkspace,
       onOpen: (target, id) => {

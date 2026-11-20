@@ -9,6 +9,7 @@ import { SessionStatusBadge } from '../assistant/session-status-badge.js';
 import { useConfirm } from '../../components/confirm-card.js';
 import { NewProjectCard } from '../projects/new-project-card.js';
 import { confirmArchive } from './archive-confirm.js';
+import { workspaceName } from './workspaces.js';
 import { useWorkspaceSessions } from './workspace-sessions-provider.js';
 
 /** 现场组件只更新导航的展示与操作，侧边栏自身由工作区外壳持续挂载。 */
@@ -21,6 +22,7 @@ export interface WorkspaceRailProps {
   workspaceId: string;
   recentDays: number;
   clock: number;
+  recentTerminals: readonly ProjectTerminal[];
   /** 并排各栏实际显示的对象：会话 id，或 `terminal:<终端 id>`。 */
   slots: readonly string[];
   currentId: string | null;
@@ -140,7 +142,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
         // 任务会话只从任务详情进入独立视图，不计入工作区列表，与主区域的会话现场保持一致。
         const members = logical ? recentSessions(workSessions, props.recentDays, props.clock) : workSessions.filter((session) => session.workspaceId === id).slice().reverse();
         const live = members.filter((session) => session.archivedAt === null);
-        const workspaceTerminals = terminals.terminals.filter(item => terminalWorkspaceId(item) === id && !item.closedAt);
+        const workspaceTerminals = logical ? props.recentTerminals : terminals.terminals.filter(item => terminalWorkspaceId(item) === id && !item.closedAt);
         const mixed = [
           ...live.map(session => ({ type: 'session' as const, session, at: session.lastActivityAt ?? session.createdAt })),
           ...workspaceTerminals.map(terminal => ({ type: 'terminal' as const, terminal, at: terminal.lastActivityAt })),
@@ -165,10 +167,12 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
             {mixed.map((entry) => {
               if (entry.type === 'terminal') {
                 const terminal = entry.terminal;
-                const key = `terminal:${terminal.terminalId}`;
-                const slot = current ? props.slots.indexOf(key) : -1;
+                const key = `${id}:terminal:${terminal.terminalId}`;
+                const ownerId = terminalWorkspaceId(terminal);
+                const ownerName = workspaceName(props.workspaces, ownerId);
+                const slot = current ? props.slots.indexOf(`terminal:${terminal.terminalId}`) : -1;
                 const state = railStatus(terminal);
-                return <div className={`rail-item${terminals.selected?.terminalId === terminal.terminalId ? ' selected' : ''}${terminalIsActive(terminal.status) ? '' : ' ended'}`} key={key} data-terminal-id={terminal.terminalId}>
+                return <div className={`rail-item${current && terminals.selected?.workspaceId === id && terminals.selected.terminalId === terminal.terminalId ? ' selected' : ''}${terminalIsActive(terminal.status) ? '' : ' ended'}`} key={key} data-terminal-id={terminal.terminalId}>
                   {editing === key ? <form className="scene-rename" onSubmit={(event) => {
                     event.preventDefault();
                     const next = title.trim();
@@ -180,16 +184,17 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
                     <button type="submit" className="icon-button" aria-label="保存名称" disabled={busy || !title.trim()}><Check /></button>
                     <button type="button" className="icon-button" aria-label="取消改名" onClick={() => setEditing(null)}><X /></button>
                   </form> : <>
-                    <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} title={`${terminal.title} · ${PRESET_LABELS[terminal.preset.kind]}`} onClick={() => { props.onSwitch(id); terminals.select({ workspaceId: id, terminalId: terminal.terminalId }); }}>
+                    <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} aria-label={terminal.title} title={`${terminal.title} · ${PRESET_LABELS[terminal.preset.kind]}${logical ? ` · ${ownerName}` : ''}`} onClick={() => { props.onSwitch(ownerId); terminals.select({ workspaceId: ownerId, terminalId: terminal.terminalId }); }}>
                       <SquareTerminal className="rail-row-icon" aria-hidden="true" /><span className="nav-label">{terminal.title}</span>
+                      {logical && <small className="nav-label rail-owner" title={ownerName}>{ownerName}</small>}
                       {terminal.notificationCount > 0 && <span className="rail-terminal-bell" title={`终端发出了 ${terminal.notificationCount} 次通知`} aria-label="终端发出了通知"><Bell /></span>}
                       {terminal.unread && !terminal.notificationCount && <span className="rail-terminal-dot" title="有新输出" aria-label="有新输出" />}
                       {state && <small className="rail-terminal-state">{state}</small>}
                       {slot >= 0 && <small className="rail-slot">{slot + 1}</small>}
                     </button>
-                    <button type="button" className="icon-button rail-more" onMouseDown={focusWithoutScrolling} aria-label={`更多「${terminal.title}」`} title="更多" aria-expanded={terminalMenu?.terminal.terminalId === terminal.terminalId} onClick={(event) => {
+                    <button type="button" className="icon-button rail-more" onMouseDown={focusWithoutScrolling} aria-label={`更多「${terminal.title}」`} title="更多" aria-expanded={terminalMenu?.workspaceId === id && terminalMenu.terminal.terminalId === terminal.terminalId} onClick={(event) => {
                       const trigger = event.currentTarget;
-                      setTerminalMenu(terminalMenu?.terminal.terminalId === terminal.terminalId ? null : { terminal, workspaceId: id, trigger, ...anchored(trigger, 220) });
+                      setTerminalMenu(terminalMenu?.workspaceId === id && terminalMenu.terminal.terminalId === terminal.terminalId ? null : { terminal, workspaceId: id, trigger, ...anchored(trigger, 220) });
                     }}><MoreHorizontal /></button>
                   </>}
                 </div>;
@@ -209,7 +214,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
                   <button type="submit" className="icon-button" aria-label="保存名称" disabled={busy || !normalizeWorkspaceSessionTitle(title)}><Check /></button>
                   <button type="button" className="icon-button" aria-label="取消改名" onClick={() => setEditing(null)}><X /></button>
                 </form> : <>
-                  <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${props.workspaces.find((item) => item.workspaceId === session.workspaceId)?.name ?? session.workspaceId}` : session.title} onClick={() => { terminals.select(null); props.onOpen(id, session.sessionId); }}><MessageSquare className="rail-row-icon" aria-hidden="true" /><span className="nav-label">{session.title}</span><SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
+                  <button type="button" className="rail-session-open" onMouseDown={focusWithoutScrolling} aria-label={session.title} aria-describedby={`rail-status-${id}-${session.sessionId}`} title={logical ? `${session.title} · ${workspaceName(props.workspaces, session.workspaceId)}` : session.title} onClick={() => { terminals.select(null); props.onOpen(id, session.sessionId); }}><MessageSquare className="rail-row-icon" aria-hidden="true" /><span className="nav-label">{session.title}</span><SessionStatusBadge id={`rail-status-${id}-${session.sessionId}`} sessionId={session.sessionId} />{slot >= 0 && <small className="rail-slot">{slot + 1}</small>}</button>
                   <button type="button" className="icon-button rail-more" onMouseDown={focusWithoutScrolling} aria-label={`更多「${session.title}」`} title="更多" aria-expanded={menu?.key === key} onClick={(event) => {
                     const trigger = event.currentTarget;
                     const rect = trigger.getBoundingClientRect();
@@ -272,7 +277,7 @@ export function WorkspaceRail(props: WorkspaceRailProps) {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); terminalMenu.trigger.focus(); setTerminalMenu(null); }
     }}>
       {terminalMenu.workspaceId === props.workspaceId && Array.from({ length: props.parallelCount }, (_, slot) => <button type="button" role="menuitem" key={slot} onClick={() => { props.onAssignTerminal(terminalMenu.terminal.terminalId, slot); setTerminalMenu(null); }}><Columns2 />放进第 {slot + 1} 栏</button>)}
-      <button type="button" role="menuitem" autoFocus onClick={() => { setEditing(`terminal:${terminalMenu.terminal.terminalId}`); setTitle(terminalMenu.terminal.title); setTerminalMenu(null); }}><Pencil />改名</button>
+      <button type="button" role="menuitem" autoFocus onClick={() => { setEditing(`${terminalMenu.workspaceId}:terminal:${terminalMenu.terminal.terminalId}`); setTitle(terminalMenu.terminal.title); setTerminalMenu(null); }}><Pencil />改名</button>
       <button type="button" role="menuitem" onClick={() => { const { terminal, workspaceId, trigger } = terminalMenu; trigger.focus(); setTerminalMenu(null); closeTerminal(terminal, workspaceId); }}><X />关闭终端</button>
     </div>, document.body)}
     {creatingProject && <NewProjectCard onCreated={(created) => { setCreatingProject(false); props.onSwitch(created.workspace.workspaceId); }} onCancel={() => setCreatingProject(false)} fallbackFocus={() => projectTrigger.current} />}
