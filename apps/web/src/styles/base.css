@@ -6631,7 +6631,7 @@ svg {
 .rail-item.selected { background: var(--accent-soft); color: var(--accent); }
 .rail-session-open { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; height: 34px; padding: 0 8px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; font-size: var(--t-sm); }
 .rail-session-open .nav-label { flex: 1; }
-.rail-session-open .rail-owner { flex: 0 1 auto; max-width: 4em; color: var(--muted); }
+.rail-session-open .rail-owner { flex: 0 1 auto; max-width: 6em; color: var(--muted); }
 .rail-slot { color: var(--muted); font-variant-numeric: tabular-nums; }
 .rail-more { opacity: 0; flex: 0 0 28px; }
 .rail-item:hover .rail-more, .rail-item:focus-within .rail-more, .rail-more[aria-expanded="true"] { opacity: 1; }
