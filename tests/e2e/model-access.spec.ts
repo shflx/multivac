@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { escapeFromManagement, fakeApiRoot, openModelSettings, resetE2eState } from './test-state.js';
 
 test.beforeEach(async ({ request }) => { await resetE2eState(request); });
@@ -148,9 +148,7 @@ test('延迟默认回执不覆盖跨页撤销后新 access 认证状态', async 
   try {
     const late = page.waitForResponse('**/api/model-settings/default');
     await page.getByRole('button', { name: '设为默认', exact: true }).click(); await entry;
-    await expect(second.getByRole('button', { name: '刷新当前配置', exact: true })).toBeVisible();
-    await expect(second.getByRole('button', { name: '确认当前配置', exact: true })).toBeEnabled();
-    await second.getByRole('button', { name: '确认当前配置', exact: true }).click();
+    await expect(second.getByRole('button', { name: '当前默认', exact: true })).toBeVisible();
     await second.getByRole('button', { name: '撤销 API Key', exact: true }).click();
     await confirmRevoke(second);
     await expect(second.locator('.model-availability')).toContainText('未认证');
@@ -253,61 +251,94 @@ test('慢全量 access GET 期间快速切换 profile 不累积旧请求', async
   expect(count).toBeLessThanOrEqual(2);
 });
 
-for (const action of ['configure', 'revoke'] as const) {
-  test(`双页 Provider 变更清空旧 Key，刷新确认前禁止 ${action}`, async ({ page, context, request }) => {
-    const second = await context.newPage();
+async function changeProvider(page: Page) {
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByLabel('提供方').fill('fixture-anthropic');
+  await page.getByLabel('协议').selectOption('anthropic-messages');
+  await page.getByLabel('模型 ID').fill('claude-fixture');
+  await page.getByLabel('API 端点').fill('https://anthropic.fixture.example');
+  const saved = page.waitForResponse((response) => response.url().endsWith('/api/model-settings/profiles') && response.ok());
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  return (await saved).json();
+}
+
+test('保存提供方后同步双页目标和认证，清空旧 Key，手动检查只请求一次', async ({ page, context }) => {
+  await openModel(page);
+  const second = await context.newPage();
+  try {
+    await openModel(second);
+    const checks: unknown[] = [];
+    for (const window of [page, second]) {
+      window.on('request', (req) => {
+        if (req.method() === 'POST' && req.url().endsWith('/api/model-access/check')) checks.push(req.postDataJSON());
+      });
+    }
+    const input = page.getByLabel('API Key', { exact: true });
+    await input.fill('old-endpoint-key');
+    await second.getByRole('button', { name: '编辑', exact: true }).click();
+    await second.getByLabel('API 端点').fill('http://127.0.0.1:11434/v2');
+    await second.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.locator('.model-key-target')).toContainText('http://127.0.0.1:11434/v2');
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveValue('');
+
+    await input.fill('old-provider-key');
+    const config = await changeProvider(second);
+    const target = '提供方 fixture-anthropic · https://anthropic.fixture.example';
+    await expect(second.locator('.model-key-target')).toHaveText(target);
+    await expect(second.getByLabel('API Key', { exact: true })).toBeEnabled();
+    await expect(page.locator('.model-key-target')).toHaveText(target);
+    await expect(input).toBeEnabled();
+    await expect(input).toHaveValue('');
+    await expect(page.getByRole('button', { name: '确认当前配置', exact: true })).toHaveCount(0);
+    await input.fill('new-provider-key');
+    const configure = page.getByRole('button', { name: '配置 API Key', exact: true });
+    await expect(configure).toHaveAccessibleDescription(target);
+    const submitted = page.waitForRequest((req) => req.url().endsWith('/api-key') && req.method() === 'POST');
+    await configure.click();
+    expect((await submitted).postDataJSON()).toMatchObject({
+      revision: config.revision, profileId: 'fixture-missing-auth', apiKey: 'new-provider-key',
+    });
+    const check = page.getByRole('button', { name: '检查连接', exact: true });
+    await expect(check).toBeEnabled();
+    expect(checks).toHaveLength(0);
+    await check.click();
+    await expect(page.getByText('连接成功', { exact: true })).toBeVisible();
+    expect(checks).toHaveLength(1);
+    expect(checks[0]).toMatchObject({ revision: config.revision, profileId: 'fixture-missing-auth' });
+  } finally { await second.close(); }
+});
+
+test('撤销弹窗打开后提供方变化，旧确认不能撤销新目标', async ({ page, context }) => {
+  const second = await context.newPage();
+  try {
     await openModel(second, 'Claude Fixture');
     await second.getByLabel('API Key', { exact: true }).fill('provider-b-key');
     await second.getByRole('button', { name: '配置 API Key', exact: true }).click();
-    await expect(second.locator('.model-key-section')).toContainText('已为提供方 fixture-anthropic 保存 API Key');
+    await expect(second.getByRole('button', { name: '撤销 API Key', exact: true })).toBeEnabled();
     await openModel(page);
-    if (action === 'revoke') {
-      await page.getByLabel('API Key', { exact: true }).fill('provider-a-stored-key');
-      await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
-      await expect(page.getByRole('button', { name: '撤销 API Key', exact: true })).toBeEnabled();
-      await expect(page.getByLabel('API Key', { exact: true })).toBeEnabled();
-    }
-    let writes = 0;
+    await page.getByLabel('API Key', { exact: true }).fill('provider-a-key');
+    await page.getByRole('button', { name: '配置 API Key', exact: true }).click();
+    const revoke = page.getByRole('button', { name: '撤销 API Key', exact: true });
+    await revoke.click();
+    await expect(revokeCard(page)).toContainText('提供方 missing-auth');
+    let revokes = 0;
     page.on('request', (req) => {
-      if (req.method() === 'POST' && /\/(?:api-key|revoke-api-key)$/u.test(req.url())) writes += 1;
+      if (req.method() === 'POST' && req.url().endsWith('/revoke-api-key')) revokes += 1;
     });
-    await page.getByLabel('API Key', { exact: true }).fill('old-provider-a-key');
-    const config = await (await request.get(`${fakeApiRoot}/api/model-settings`)).json();
-    const old = config.profiles.find((entry: { profileId: string }) => entry.profileId === 'fixture-missing-auth');
-    // 第二页提交配置，第一页通过凭据轮询发现新版配置。
-    await second.evaluate(async ({ api, revision, profile }) => {
-      const response = await fetch(`${api}/api/model-settings/profiles`, { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ commandId: crypto.randomUUID(), revision, profile }) });
-      if (!response.ok) throw new Error('config failed');
-    }, { api: fakeApiRoot, revision: config.revision, profile: {
-      profileId: old.profileId, displayName: old.displayName, modelId: old.modelId, provider: 'fixture-anthropic',
-      protocol: 'anthropic-messages', endpoint: 'https://anthropic.fixture.example' } });
-    await expect(page.getByLabel('API Key', { exact: true })).toHaveValue('');
-    await expect(page.getByLabel('API Key', { exact: true })).toBeDisabled();
-    await expect(page.locator('.model-access-panel')).toContainText('提供方 fixture-anthropic');
-    await expect(page.getByRole('button', { name: '确认当前配置', exact: true })).toBeEnabled();
-    await expect(page.getByLabel('API Key', { exact: true })).toBeDisabled();
-    const access = await (await request.get(`${fakeApiRoot}/api/model-access`)).json();
-    expect(access.credentials.find((entry: { profileId: string }) => entry.profileId === 'fixture-anthropic').storedApiKey).toBe(true);
-    expect(writes).toBe(0);
-    await page.getByRole('button', { name: '确认当前配置', exact: true }).click();
-    const submitted = page.waitForRequest((req) => req.url().endsWith(action === 'configure' ? '/api-key' : '/revoke-api-key') && req.method() === 'POST');
-    if (action === 'configure') {
-      await page.getByLabel('API Key', { exact: true }).fill('confirmed-provider-b-key');
-      await page.getByRole('button', { name: '更换 API Key', exact: true }).click();
-    } else {
-      await page.getByRole('button', { name: '撤销 API Key', exact: true }).click();
-      await expect(revokeCard(page)).toContainText('fixture-anthropic');
-      await confirmRevoke(page);
-    }
-    const payload = (await submitted).postDataJSON();
-    expect(payload.revision).toBe(config.revision + 1);
-    expect(writes).toBe(1);
-    expect(JSON.stringify(payload)).not.toContain('old-provider-a-key');
-    await expect(page.getByLabel('API Key', { exact: true })).toBeEnabled();
-    await second.close();
-  });
-}
+    await second.getByRole('button', { name: /未认证 Fixture/ }).click();
+    await changeProvider(second);
+    await expect(page.locator('.model-key-section')).toContainText('已为提供方 fixture-anthropic 保存 API Key');
+    await confirmRevoke(page);
+    await expect(page.getByRole('alert')).toContainText('撤销未提交');
+    expect(revokes).toBe(0);
+    await revoke.click();
+    await expect(revokeCard(page)).toContainText('提供方 fixture-anthropic');
+    await confirmRevoke(page);
+    await expect(page.locator('.model-key-section')).toContainText('没有在这里为提供方 fixture-anthropic 保存 API Key');
+    expect(revokes).toBe(1);
+  } finally { await second.close(); }
+});
 
 test('慢于轮询间隔的响应仍更新状态且始终单在途', async ({ page }) => {
   let concurrent = 0;
@@ -329,17 +360,17 @@ test('慢于轮询间隔的响应仍更新状态且始终单在途', async ({ pa
   expect(maximum).toBe(1);
 });
 
-function revokeCard(page: import('@playwright/test').Page) {
+function revokeCard(page: Page) {
   return page.getByRole('dialog', { name: '撤销 API Key？' });
 }
 
 /** 撤销 API Key 经确认卡确认。 */
-async function confirmRevoke(page: import('@playwright/test').Page) {
+async function confirmRevoke(page: Page) {
   await revokeCard(page).getByRole('button', { name: '撤销', exact: true }).click();
   await expect(revokeCard(page)).toHaveCount(0);
 }
 
-async function openModel(page: import('@playwright/test').Page, name = '未认证 Fixture') {
+async function openModel(page: Page, name = '未认证 Fixture') {
   await page.goto('/');
   await openModelSettings(page);
   await page.getByRole('button', { name: new RegExp(name) }).click();

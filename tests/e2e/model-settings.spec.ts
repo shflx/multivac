@@ -506,7 +506,7 @@ test('原地编辑：在“配置”小节里编辑，下方 API Key 与连接�
   await expect(config.locator('.section-title').getByRole('status')).toHaveText('已保存');
   await expect(config.locator('.model-metadata')).toContainText('推理能力不支持（手动设置）');
   await expect(page.getByRole('button', { name: '编辑', exact: true })).toBeFocused();
-  // 结束编辑后两节不再写“正在编辑”（配置版本变了，凭据操作仍按原有规则先确认当前配置）。
+  // 认证状态同步完成后，凭据操作自动恢复。
   await expect(page.locator('.model-key-section')).not.toContainText('正在编辑配置');
   await expect(page.locator('.model-check-section')).not.toContainText('正在编辑配置');
 

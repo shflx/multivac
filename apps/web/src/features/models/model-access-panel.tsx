@@ -1,6 +1,6 @@
-import { AlertCircle, Cable, Check, CheckCircle2, KeyRound, LoaderCircle, RefreshCw, Trash2, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { MODEL_CHECK_TTL_MS, type ModelAccessSnapshot, type ModelConnectionCheck, type ModelProfile } from '@multivac/contracts';
+import { AlertCircle, Cable, CheckCircle2, KeyRound, LoaderCircle, RefreshCw, Trash2, X } from 'lucide-react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { MODEL_CHECK_TTL_MS, type ModelAccessCommand, type ModelAccessSnapshot, type ModelConnectionCheck, type ModelProfile } from '@multivac/contracts';
 import {
   cancelModelCheck, configureModelApiKey, getModelAccessReceipt,
   MODEL_ACCESS_MESSAGES, ModelAccessApiError, revokeModelApiKey, startModelCheck,
@@ -46,7 +46,7 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
   const [issue, setIssue] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
-  const [confirmedTarget, setConfirmedTarget] = useState({ revision: profileRevision, provider: profile.provider });
+  const targetId = useId();
   const reviewedCommand = useRef<string | null>(null);
   const confirm = useConfirm();
   useEffect(() => {
@@ -55,14 +55,14 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
   useEffect(() => { onBusy(busy); return () => onBusy(false); }, [busy, onBusy]);
   const observedCredential = snapshot?.credentials.find((entry) => entry.profileId === profile.profileId);
   const coherent = snapshot?.revision === profileRevision && observedCredential?.provider === profile.provider;
-  const confirmed = confirmedTarget.revision === profileRevision && confirmedTarget.provider === profile.provider;
-  const stale = !coherent || !confirmed;
   const credential = coherent ? observedCredential : undefined;
+  const stored = credential?.storedApiKey === true;
   const availability = coherent ? snapshot?.availability.find((entry) => entry.profileId === profile.profileId) : undefined;
   const check = coherent ? snapshot?.checks.find((entry) => entry.profileId === profile.profileId) : undefined;
   useLayoutEffect(() => {
-    if (stale) { setApiKey(''); setNotice(null); }
-  }, [stale, profileRevision, profile.provider]);
+    setApiKey('');
+    setNotice(null);
+  }, [profile.provider, profile.endpoint]);
   useEffect(() => {
     const command = credential?.lastCommand;
     if (command && ['begun', 'unconfirmed'].includes(command.state) && reviewedCommand.current !== command.commandId) {
@@ -70,10 +70,16 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
     }
   }, [credential]);
   const checking = check?.status === 'checking';
-  const disabled = locked || busy || pendingId !== null || stale || editing;
+  const disabled = !active || locked || busy || pendingId !== null || !coherent || editing;
 
-  async function mutate(action: 'configure' | 'revoke' | 'check') {
+  async function mutate(action: 'configure' | 'revoke' | 'check', expected?: Pick<ModelAccessCommand, 'revision' | 'accessRevision'>) {
+    if (expected && (!stored || expected.revision !== profileRevision || expected.accessRevision !== snapshot?.accessRevision)) {
+      setIssue('撤销未提交。操作目标或凭据状态已更新，请核对当前目标后重新发起撤销。');
+      return;
+    }
     if (!snapshot || disabled) return;
+    if (action === 'configure' && (!credential?.configurable || !apiKey.trim())) return;
+    if (action === 'check' && (checking || !availability?.authenticated)) return;
     const secret = action === 'configure' ? apiKey : '';
     setApiKey('');
     const command = { commandId: crypto.randomUUID(), profileId: profile.profileId,
@@ -98,11 +104,15 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
       await refresh();
     } finally { setApiKey(''); setBusy(false); }
   }
-  // 确认卡打开期间快照、配置版本与禁用条件都可能变化：确认后按最新状态执行，
-  // 此时已经失效（stale、锁定或忙碌）就由 mutate 按最新条件放弃。
-  const latestMutate = useRef(mutate);
-  useLayoutEffect(() => { latestMutate.current = mutate; });
+  // 确认时核对弹窗打开时的版本，避免用新目标或新凭据执行旧确认。
+  const latestMutate = useRef<typeof mutate | null>(null);
+  useLayoutEffect(() => {
+    latestMutate.current = mutate;
+    return () => { latestMutate.current = null; };
+  });
   async function revoke() {
+    if (!snapshot || disabled || !stored) return;
+    const expected = { revision: profileRevision, accessRevision: snapshot.accessRevision };
     const confirmed = await confirm({
       title: '撤销 API Key？',
       description: `撤销提供方 ${profile.provider} 在 Pi 中保存的 API Key。`,
@@ -110,7 +120,7 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
       tone: 'danger',
       confirmLabel: '撤销',
     });
-    if (confirmed) void latestMutate.current('revoke');
+    if (confirmed) void latestMutate.current?.('revoke', expected);
   }
   async function reconcile() {
     if (!pendingId || busy) return;
@@ -138,7 +148,6 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
     try { const next = await cancelModelCheck(check.checkId); onSnapshot(next); }
     catch (error) { setIssue(error instanceof ModelAccessApiError ? error.message : MODEL_ACCESS_MESSAGES.ACCESS_UNAVAILABLE); }
   }
-  const stored = credential?.storedApiKey === true;
   const keyStatus = !credential ? '凭据状态待刷新。'
     : stored ? `已为提供方 ${profile.provider} 保存 API Key，不显示现有值。更换或撤销后需要重新检查连接。`
     : availability?.authenticated ? `没有在这里为提供方 ${profile.provider} 保存 API Key；Pi 当前已通过其他方式完成认证。`
@@ -149,19 +158,13 @@ export function ModelAccessPanel({ profile, profileRevision, active, locked, edi
     <ModelSection title="API Key" saved={saved} target="key" className="model-key-section">
       <p className="section-hint">{keyStatus}</p>
       {credential && !credential.configurable && <p className="section-hint" role="status">{MODEL_ACCESS_MESSAGES.CREDENTIAL_UNSUPPORTED}</p>}
-      {snapshot && stale && <div className="model-access-target-warning" role="alert">
-        <p>模型配置已变化；输入已清空，请刷新并确认当前提供方。</p>
-        <button type="button" className="secondary-button compact" disabled={busy || locked} onClick={() => void refresh()}>
-          <RefreshCw aria-hidden="true" />刷新当前配置</button>
-        <button type="button" className="secondary-button compact" disabled={!coherent || busy || locked} onClick={() => {
-          setApiKey(''); setConfirmedTarget({ revision: profileRevision, provider: profile.provider });
-        }}><Check aria-hidden="true" />确认当前配置</button>
-      </div>}
       <form onSubmit={(event) => { event.preventDefault(); void mutate('configure'); }} className="model-key-form">
-        <input type="password" aria-label="API Key" autoComplete="off"
+        <input type="password" aria-label="API Key" autoComplete="off" aria-describedby={targetId}
           placeholder={stored ? '输入新的 API Key 以更换' : '输入 API Key'}
-          value={stale ? '' : apiKey} disabled={disabled || !credential?.configurable} onChange={(event) => setApiKey(event.target.value)} />
-        <button type="submit" className="secondary-button" disabled={disabled || !credential?.configurable || !apiKey.trim()}>
+          value={coherent ? apiKey : ''} disabled={disabled || !credential?.configurable} onChange={(event) => setApiKey(event.target.value)} />
+        <span id={targetId} className="model-key-target">提供方 {profile.provider} · {profile.endpoint ?? 'Pi 官方默认端点'}</span>
+        <button type="submit" className="secondary-button" aria-describedby={targetId}
+          disabled={disabled || !credential?.configurable || !apiKey.trim()}>
           <KeyRound aria-hidden="true" />{stored ? '更换 API Key' : '配置 API Key'}</button>
         {/* 没有保存的 Key 时没有可撤销的，不显示“撤销”（凭据状态待刷新时同样不显示）。 */}
         {stored && <button type="button" className="secondary-button" disabled={disabled} onClick={() => void revoke()}>

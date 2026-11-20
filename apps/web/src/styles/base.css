@@ -3689,7 +3689,7 @@ svg {
   line-height: 1.6;
 }
 
-/* API Key：输入框 + 配置 / 更换（+ 已保存时的撤销）一行，下方一行小字。 */
+/* API Key：输入框、目标和操作按钮在空间不足时换行。 */
 .model-key-form,
 .model-check-row {
   display: flex;
@@ -3752,23 +3752,11 @@ svg {
   margin-top: 8px;
 }
 
-.model-access-target-warning {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--warn-line);
-  border-radius: var(--r-md);
-  background: var(--warn-soft);
-}
-
-.model-access-target-warning p {
-  flex: 1 1 220px;
-  margin: 0;
-  color: var(--warn);
+.model-key-target {
+  min-width: 0;
+  color: var(--muted);
   font-size: var(--t-xs);
+  overflow-wrap: anywhere;
 }
 
 /* 连接检查：状态在左、按钮在右一行，下方写检查规则。 */
