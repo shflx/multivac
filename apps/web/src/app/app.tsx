@@ -1,5 +1,5 @@
 import { SchedulesPage } from '../features/schedules/schedules-page.js';
-import { rememberedTerminalSelection } from '../features/terminals/terminal-selection.js';
+import { rememberedTerminalSelections } from '../features/terminals/terminal-selection.js';
 import { useTerminals } from '../features/terminals/terminals-provider.js';
 import { DailyQuote } from './daily-quote.js';
 import { InboxDrawer, InboxView } from '../features/tasks/inbox-view.js';
@@ -101,8 +101,8 @@ export function App() {
   const [modelSettingsDirty, setModelSettingsDirty] = useState(false);
   const [modelSettingsBusy, setModelSettingsBusy] = useState(false);
   const [modelSettingsDiscardSignal, setModelSettingsDiscardSignal] = useState(0);
-  const [workSurface, setWorkSurface] = useState<WorkSurface>(() => rememberedTaskSessionId() || rememberedTerminalSelection() ? 'workspace' : 'assistant');
-  const [workspaceOpened, setWorkspaceOpened] = useState(() => !!(rememberedTaskSessionId() || rememberedTerminalSelection()));
+  const [workSurface, setWorkSurface] = useState<WorkSurface>(() => rememberedTaskSessionId() || rememberedTerminalSelections().has(rememberedWorkspaceId()) ? 'workspace' : 'assistant');
+  const [workspaceOpened, setWorkspaceOpened] = useState(() => !!(rememberedTaskSessionId() || rememberedTerminalSelections().has(rememberedWorkspaceId())));
   const workspaceSurfaceRef = useRef<HTMLDivElement>(null);
   // Multivac 侧栏只有一个展开状态：工作区与管理共用，切换面板时侧栏不跳。每次打开页面都从收起开始。
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -673,7 +673,7 @@ export function App() {
             <QuickSwitcher management={showManagement} page={currentPage} view={workspaceView}
               onTask={(id) => void openTask(id)}
               onSession={(workspaceId, sessionId) => void enterWorkspace({ workspaceId, sessionId, layout: 'navigate' })}
-              onTerminal={(workspaceId, terminalId) => void enterWorkspace({ workspaceId, sessionId: null, layout: 'keep' }).then(() => terminals.select({ workspaceId, terminalId }))}
+              onTerminal={(workspaceId, terminalId) => void enterWorkspace({ workspaceId, sessionId: null, layout: 'keep' }).then(() => terminals.select(workspaceId, { terminalId }))}
               onPage={(page) => void openManagementPage(page)} onClose={() => setQuickSwitcherOpen(false)} />
           )}
           {panelSwitcherOpen && !narrow && (

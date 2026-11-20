@@ -2,6 +2,8 @@ import { Type } from 'typebox';
 import {
   MANAGEMENT_PAGE_LABELS,
   RECENT_WORKSPACE_ID,
+  DEFAULT_RECENT_DAYS,
+  isRecentTerminal,
   terminalWorkspaceId,
   INTERNAL_TOOL_RESULT_MAX_REFS,
   type AssistantToolObjectRef,
@@ -355,6 +357,7 @@ export const getCurrentViewTool = defineInternalTool({
       const { workspaceId } = originView.workspace;
       const workspace = workspaces.find((candidate) => candidate.workspaceId === workspaceId)
         ?? (workspaceId === RECENT_WORKSPACE_ID ? { workspaceId, name: '最近', project: null } : undefined);
+      const isRecent = workspaceId === RECENT_WORKSPACE_ID;
       const inWorkspace = originView.panel === 'workspace' && !originView.narrow;
       const terminalId = inWorkspace && originWindowId ? originView.workspace.terminalId : undefined;
       lines.push(`- ${inWorkspace ? '当前工作区' : '当前工作区（不在工作区面板；再进入工作区时回到这里）'}：` +
@@ -371,13 +374,16 @@ export const getCurrentViewTool = defineInternalTool({
           // 发送后终端可能已被移除；其他服务错误不能冒充对象不存在。
           if (!(error instanceof TerminalError && error.status === 404)) throw error;
         }
+        const ownerId = terminal && terminalWorkspaceId(terminal);
         if (!services.terminals) lines.push('- 当前焦点终端：本实例不支持终端，无法核对。');
         else if (!terminal) lines.push(`- 当前焦点终端：id 为 ${terminalId} 的受管理终端已不存在。`);
-        else if (!workspace || workspace.workspaceId === RECENT_WORKSPACE_ID || terminalWorkspaceId(terminal) !== workspace.workspaceId) {
+        else if (isRecent && (!workspaces.some(owner => owner.workspaceId === ownerId) || !isRecentTerminal(terminal, services.recentDays?.() ?? DEFAULT_RECENT_DAYS))) {
+          lines.push(`- 当前焦点终端：id 为 ${terminalId} 的终端已不在最近集合，不能将其作为当前焦点。`);
+        } else if (!isRecent && (!workspace || ownerId !== workspaceId)) {
           lines.push(`- 当前焦点终端：id 为 ${terminalId} 的终端不属于当前工作区，不能将其作为当前焦点。`);
         } else {
           const mode = terminalReadableMode(terminal);
-          lines.push(`- 当前焦点终端：${JSON.stringify({ terminalId, name: terminal.title, preset: terminal.preset.kind, status: terminal.status, closed: terminal.closedAt !== null, readable: mode !== null, mode })}`);
+          lines.push(`- 当前焦点终端：${JSON.stringify({ terminalId, name: terminal.title, preset: terminal.preset.kind, status: terminal.status, ...(isRecent ? { workspaceId: ownerId } : {}), closed: terminal.closedAt !== null, readable: mode !== null, mode })}`);
           lines.push(mode === 'visible-body'
             ? '- 读取方式：显式传入 terminalId，read_terminal_recent 预览；read_terminal_history 定位较早消息；read_terminal_message 按 messageRef 和 next 分段读取完整正文。'
             : mode === 'authoritative-text'

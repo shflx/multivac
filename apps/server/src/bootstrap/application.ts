@@ -18,7 +18,7 @@ import { SqliteScheduleInputs } from '../storage/sqlite-schedule-inputs.js';
 import { requestScheduleInputTool } from '../application/internal-tools/schedule-input-tool.js';
 import { ScheduleAgentExecution, type ScheduleExecutionSnapshot } from '../application/schedule-agent-execution.js';
 import { isPathWithin } from '../modules/sessions/working-directory.js';
-import { DEFAULT_WORKSPACE_ID, UNKNOWN_CHANGE_ORIGIN } from '@multivac/contracts';
+import { DEFAULT_RECENT_DAYS, DEFAULT_WORKSPACE_ID, UNKNOWN_CHANGE_ORIGIN } from '@multivac/contracts';
 import { NoteHttpAccess } from '../adapters/http/note-access.js';
 import { SqliteNoteEncryption } from '../storage/sqlite-note-encryption.js';
 import { SqliteProtectedTranscripts } from '../storage/sqlite-protected-transcripts.js';
@@ -550,6 +550,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     },
     // 终端服务在后面装配；工具调用发生在启动完成之后。
     terminals: { open: (input) => terminals.open(input), list: (projectId, includeClosed) => terminals.list(projectId, includeClosed), get: id => terminals.get(id), readScreen: (id, cursor) => terminals.readScreen(id, cursor) },
+    recentDays: () => preferencesService.get().recentDays ?? DEFAULT_RECENT_DAYS,
     terminalTranscripts: new TerminalTranscriptReader({ getTerminal: id => store.terminals.get(id) }),
   };
   // 示例提议（给会话改名）只在测试控制开启时（E2E 服务与测试）注册，用来验证确认卡机制；正式环境没有它。
@@ -956,7 +957,7 @@ export function createMultivacApplication(environment: NodeJS.ProcessEnv = proce
     pageStateRepository: runtimeDependencies.pageStateRepository,
     runtimes: sessionRuntimes,
     tempRetentionDays: () => preferencesService.tempRetentionDays(),
-    recentDays: () => preferencesService.get().recentDays ?? 7,
+    recentDays: () => preferencesService.get().recentDays ?? DEFAULT_RECENT_DAYS,
     taskForSession: (id) => store.taskRuns.bySession(id)?.taskId ?? null,
     events: workbenchEvents,
     readSessionModel: (record) => sessionRuntimes.acquire(record).selection.snapshotForChild(),

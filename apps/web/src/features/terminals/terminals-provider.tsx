@@ -1,4 +1,4 @@
-import { rememberedTerminalSelection, type TerminalSelection } from './terminal-selection.js';
+import { rememberedTerminalSelections, TERMINAL_SELECTIONS_KEY, type TerminalSelection } from './terminal-selection.js';
 import { SquareTerminal } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { terminalWorkspaceId, type ProjectTerminal, type TerminalPreset, type Workspace } from '@multivac/contracts';
@@ -17,10 +17,10 @@ import './terminals.css';
 export type TerminalColumns = Readonly<Record<number, string>>;
 
 interface TerminalContextValue {
-  available: boolean; terminals: ProjectTerminal[]; error: string;
+  available: boolean; loaded: boolean; terminals: ProjectTerminal[]; error: string;
   /** 聚焦查看的终端；放在并排栏位中且处于并排时只表示选中。 */
-  selected: TerminalSelection | null;
-  select(value: TerminalSelection | null): void;
+  selectionOf(workspaceId: string): TerminalSelection | null;
+  select(workspaceId: string, value: TerminalSelection | null): void;
   create(workspace: Workspace, kind?: TerminalPreset['kind']): void;
   refresh(): Promise<void>;
   columnsOf(workspaceId: string): TerminalColumns;
@@ -58,7 +58,16 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
   const [available, setAvailable] = useState(false);
   const [terminals, setTerminals] = useState<ProjectTerminal[]>([]);
   const [error, setError] = useState('');
-  const [selected, select] = useState<TerminalContextValue['selected']>(rememberedTerminalSelection);
+  const [loaded, setLoaded] = useState(false);
+  const [selections, setSelections] = useState(rememberedTerminalSelections);
+  const selectionOf = (workspaceId: string) => selections.get(workspaceId) ?? null;
+  const select = useCallback((workspaceId: string, value: TerminalSelection | null) => setSelections(current => {
+    if (!value && !current.has(workspaceId)) return current;
+    const next = new Map(current);
+    if (value) next.set(workspaceId, value);
+    else next.delete(workspaceId);
+    return next;
+  }), []);
   const [columns, setColumns] = useState<Record<string, TerminalColumns>>(rememberedColumns);
   const [created, setCreated] = useState<TerminalContextValue['created']>(null);
   const [revealed, setRevealed] = useState<TerminalContextValue['revealed']>(null);
@@ -70,7 +79,7 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
     void terminalAvailable().then(value => { if (live) setAvailable(value); }).catch(() => {});
     return () => { live = false; };
   }, [remote]);
-  useEffect(() => { try { sessionStorage.setItem('multivac.selected-terminal', JSON.stringify(selected)); } catch { /* 不影响当前窗口。 */ } }, [selected]);
+  useEffect(() => { try { sessionStorage.setItem(TERMINAL_SELECTIONS_KEY, JSON.stringify(Object.fromEntries(selections))); } catch { /* 不影响当前窗口。 */ } }, [selections]);
   useEffect(() => { try { sessionStorage.setItem(COLUMNS_KEY, JSON.stringify(columns)); } catch { /* 不影响当前窗口。 */ } }, [columns]);
 
   const sequence = useRef(0);
@@ -79,7 +88,7 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
     const version = ++sequence.current;
     try {
       const lists = await Promise.all(workspaces.map(workspace => listTerminals(workspace.workspaceId)));
-      if (version === sequence.current) { setTerminals(lists.flat()); setError(''); }
+      if (version === sequence.current) { setTerminals(lists.flat()); setLoaded(true); setError(''); }
     } catch (error) { if (version === sequence.current) setError(error instanceof Error ? error.message : '终端列表读取失败。'); }
   }, [available, workspaces]);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -91,9 +100,9 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
 
   const opened = useCallback((record: ProjectTerminal) => {
     setTerminals(current => [...current.filter(item => item.terminalId !== record.terminalId), record]);
-    select({ workspaceId: terminalWorkspaceId(record), terminalId: record.terminalId });
+    select(terminalWorkspaceId(record), { terminalId: record.terminalId });
     setCreated(current => ({ workspaceId: terminalWorkspaceId(record), terminalId: record.terminalId, sequence: (current?.sequence ?? 0) + 1 }));
-  }, []);
+  }, [select]);
 
   /** 预设在唯一目录中直接启动；自定义命令、多个目录或启动失败时打开创建卡。 */
   const create = useCallback((workspace: Workspace, kind: TerminalPreset['kind'] = 'blank') => {
@@ -121,7 +130,7 @@ export function TerminalsProvider({ children }: { children: ReactNode }) {
     return kept.length === entries.length ? current : { ...current, [workspaceId]: Object.fromEntries(kept) };
   }), []);
 
-  return <Context.Provider value={{ available, terminals, error, selected, select, create, refresh, columnsOf, place, placeFirst, unplace, created, reveal, revealed }}>
+  return <Context.Provider value={{ available, loaded, terminals, error, selectionOf, select, create, refresh, columnsOf, place, placeFirst, unplace, created, reveal, revealed }}>
     {children}
     {creating && <TerminalCreation workspace={creating.workspace} initialKind={creating.kind} initialError={creating.error ?? ''} onCancel={() => setCreating(null)} onCreated={record => { opened(record); setCreating(null); }} />}
   </Context.Provider>;

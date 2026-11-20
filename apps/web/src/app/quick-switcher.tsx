@@ -61,13 +61,13 @@ export function QuickSwitcher({ management, page, view, onSession, onTerminal, o
     };
   }));
   // 未关闭的工作区终端与会话一起列出，可按 claude、codex、终端搜索；Multivac 不读取终端内容。
-  const { terminals, selected: selectedTerminal } = useTerminals();
+  const { terminals } = useTerminals();
   const terminalItems: JumpItem[] = management || !onTerminal ? [] : groups.flatMap((group) => terminals
     .filter((terminal) => terminalWorkspaceId(terminal) === group.workspaceId && !terminal.closedAt)
     .map((terminal) => ({
       id: `terminal:${terminal.terminalId}`, label: terminal.title, hint: group.name, detail: PRESET_LABELS[terminal.preset.kind],
       group: group.name, groupId: group.workspaceId, icon: SquareTerminal, activity: Date.parse(terminal.lastActivityAt),
-      current: view?.workspaceId === group.workspaceId && selectedTerminal?.terminalId === terminal.terminalId,
+      current: view?.workspaceId === group.workspaceId && view.terminalId === terminal.terminalId,
       keywords: ['终端', PRESET_LABELS[terminal.preset.kind], terminal.preset.kind, group.name],
       run: () => onTerminal(group.workspaceId, terminal.terminalId),
     })));

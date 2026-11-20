@@ -15,14 +15,16 @@ function fixture() {
   let turn: InternalToolTurn = { commandId: 'turn', windowId: 'window', view, terminalAccessAllowed: true };
   let terminal = { ...record };
   let get = () => terminal;
+  let recentDays = 7;
   const services = testToolServices({
     projects: { listWorkspaces: () => ({ workspaces: [{ workspaceId: 'default', name: '默认工作区', project: null }, { workspaceId: 'project', name: '当前项目', project: { projectId: 'project', name: '当前项目' } }] }) },
     sessions: { list: () => ({ sessions: [] }), presentedScene: () => ({ scene: { parallelCount: 2, viewMode: 'focus', slots: [], focusedSessionId: null } }) },
     terminals: { get: () => get() },
+    recentDays: () => recentDays,
   } as unknown as InternalToolServices);
   const service = new InternalToolService({ tools: WORK_SESSION_TERMINAL_TOOLS, services,
     calls: new Proxy({}, { get: () => { throw new Error('query 不得写入账本'); } }) as never, currentTurn: () => turn });
-  return { services, setRecord: (value: ProjectTerminal) => { terminal = value; },
+  return { services, setRecentDays: (value: number) => { recentDays = value; }, setRecord: (value: ProjectTerminal) => { terminal = value; },
     setAccess: (value: boolean | undefined) => { turn = { ...turn, terminalAccessAllowed: value }; },
     setGet: (value: typeof get) => { get = value; },
     setView: (value: CurrentViewSnapshot, windowId: string | null = 'window') => { turn = { ...turn, view: value, windowId }; },
@@ -114,4 +116,40 @@ test('当前终端失效、跨项目、服务缺失均如实说明，旧客户�
   assert.equal(outcome.ok, true);
   if (outcome.ok) assert.doesNotMatch(outcome.content, /"terminalId"/u);
   assert.equal(hiddenLookups, 0);
+});
+
+
+test('最近核对终端真实归属、活动窗口和本机来源', async () => {
+  const f = fixture();
+  f.setView({ ...view, workspace: { ...view.workspace!, workspaceId: 'recent' } });
+  const active = { ...record, lastActivityAt: new Date().toISOString() };
+  for (const projectId of ['project', null]) {
+    f.setRecord({ ...active, projectId });
+    const outcome = await f.invoke();
+    assert.ok(outcome.ok);
+    assert.equal(outcome.result.summary, '终端「当前终端」');
+    assert.ok(outcome.content.includes(`"workspaceId":"${projectId ?? 'default'}"`));
+  }
+  for (const terminal of [
+    { ...active, projectId: 'deleted-project' },
+    { ...active, closedAt: active.lastActivityAt },
+    { ...active, lastActivityAt: new Date(Date.now() - 2 * 86_400_000).toISOString() },
+  ]) {
+    f.setRecentDays(1);
+    f.setRecord(terminal);
+    const outcome = await f.invoke();
+    assert.ok(outcome.ok);
+    assert.match(outcome.content, /已不在最近集合/u);
+    assert.doesNotMatch(outcome.content, /"preset"|read_terminal_|当前焦点会话/u);
+  }
+  f.setRecord(active);
+  f.setRecentDays(0);
+  const hidden = await f.invoke();
+  assert.ok(hidden.ok);
+  assert.match(hidden.content, /已不在最近集合/u);
+  f.setAccess(false);
+  f.setGet(() => { throw new Error('未获本机访问资格时不得读取终端记录'); });
+  const denied = await f.invoke();
+  assert.ok(denied.ok);
+  assert.match(denied.content, /本轮未获本机终端访问资格/u);
 });

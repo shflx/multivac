@@ -62,7 +62,7 @@ test('日常终端：无项目时新建、核对 pwd、刷新接回、跨工作�
   await view(page).getByRole('button', { name: '返回并排' }).click();
   await expect(view(page).locator('.slot-tag')).toHaveText('第 2 栏');
 
-  // 项目创建后，两种终端只出现在各自工作区。用 Command+K 从项目切回日常。
+  // 项目创建后，两种终端仍归属各自工作区。用 Command+K 从项目切回日常。
   const created = await request.post(`${fakeApiRoot}/api/projects`, { data: { name: '终端分组项目' } });
   expect(created.status()).toBe(201);
   const { project } = await created.json();
@@ -132,13 +132,13 @@ test('真实shell：新建、echo、改名、刷新、第二窗口、断网输�
   await command(page, "printf '\\nBROWSER-%s\\n' ECHO");
   await expect.poll(() => output(page)).toContain('BROWSER-ECHO');
   // 改名与会话一致，在侧栏“更多”菜单中。
-  const row = page.locator('.rail-item[data-terminal-id]'); await row.hover(); await row.locator('.rail-more').click();
+  const row = group.locator('.rail-item[data-terminal-id]'); await row.hover(); await row.locator('.rail-more').click();
   await page.getByRole('menuitem', { name: '改名', exact: true }).click();
   await row.getByLabel('终端名称').fill('验收 shell'); await row.getByRole('button', { name: '保存名称' }).click();
   await expect(view(page).getByRole('heading', { name: '验收 shell', exact: true })).toBeVisible();
   await page.reload(); await expect(view(page)).toHaveAttribute('data-connection', 'connected'); await expect.poll(() => output(page)).toContain('BROWSER-ECHO');
   const second = await context.newPage(); await second.goto('/'); await openPanel(second, 'workspace'); await ensureWorkspaceRail(second);
-  await second.locator('.rail-item[data-terminal-id] .rail-session-open').click();
+  await second.locator(`[data-workspace-id="${project.projectId}"] .rail-item[data-terminal-id] .rail-session-open`).click();
   await expect(view(second)).toHaveAttribute('data-owner', 'false'); await expect.poll(() => output(second)).toContain('BROWSER-ECHO');
   // 没有只读状态：聚焦终端即自动接管，原窗口交出输入权。
   await view(second).locator('.xterm-helper-textarea').focus();
